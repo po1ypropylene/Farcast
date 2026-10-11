@@ -52,6 +52,10 @@ including shared leases and an already-stopping helper, and reject leases after 
 Workspace checks also move the production desktop through actual SwiftUI windows,
 verify one surface/transport owner, focus routing and stale-viewport protection.
 Optional screenshot output from PresentationChecks uses only synthetic content.
+Terminal interaction checks use production SwiftTerm/native menus with synthetic
+output, a private named pasteboard and disposable preferences. They cover right-click
+modes, Unicode/bracketed paste, output copy/search, file-plus-text refusal, disabled
+Cut/output Paste, disconnect while a menu is open, scrollback and remote mouse reporting.
 
 SFTP checks include per-file speed resets and ignored obsolete progress callbacks,
 incomplete directory-metadata fallback, listing/source races, and file-only connections after channel/PTY/shell refusal or immediate shell EOF,

@@ -4,6 +4,42 @@ Validation is evidence for the stated environment and scope, not a production
 compatibility guarantee. Repeatable commands and fixture ownership are in
 [testing](testing.md); signing requirements are in [packaging](packaging.md).
 
+## SSH terminal right-click — 11 October 2026
+
+- Version advances from 1.7.4 to 1.8.0 (build 1), a compatible feature. Settings
+  selects a native context menu (default) or automatic copy/paste for existing
+  terminals. Copy/search uses the selection or clicked output line; automatic
+  paste uses the connected terminal's cursor row at the live viewport. Files and
+  images are refused even when a file clipboard also advertises a string.
+- Seven production SwiftTerm/native-menu interaction checks passed with synthetic
+  output, disposable preferences and a private named pasteboard: output copy and
+  encoded Google search, disabled Cut/output Paste, no clipboard/input change on
+  menu creation, Unicode/multiline bracketed paste, live preference changes,
+  selection precedence, file-plus-text/nontext refusal, disconnect during an open
+  menu, scrollback, remote mouse reporting and Shift override. The production
+  Settings view was hosted in an isolated native window; a cached production-view
+  image confirmed the picker, explanatory text and version row fit without clipping.
+  No real browser search,
+  general clipboard, saved credentials/database or real servers were accessed.
+- Twenty-six workspace, 21 core, 18 SSH, 82 SFTP, ten protected-probe synthetic,
+  21 maintenance and three isolated signing-continuity checks passed. Pinned
+  native dependency preparation, Swift formatting, shell syntax, repository
+  hygiene and whitespace checks passed. Seven TLS and eight NLA RDP checks passed
+  sequentially after an initial concurrent run collided on the harness's fixed port.
+  The final certificate-signed Release and mounted
+  `Farcast-1.8.0-build-1-arm64.dmg` passed platform/dependency/signature/loader/
+  sandboxed-helper and signing-continuity verification. DMG integrity,
+  packaged-changelog equality and SHA256 verification passed. Disposable preview
+  tooling/test data/logs were removed; no commit or publication occurred. Local
+  development signing is retained; Developer ID distribution/notarization is pending.
+- Cursor-row targeting approximates remote editability: wrapped prompts and
+  full-screen programs may differ, and terminal output on the current cursor row
+  cannot be distinguished from input without server cooperation. Cut is always
+  disabled because a local selection cannot safely delete remote input. This is
+  a native NSMenu with explicit Google search, not the full NSTextView services
+  menu. Mouse-aware apps retain reporting; Shift invokes local actions. Actual
+  menu clicking, live system menu appearance and complete VoiceOver remain unverified.
+
 ## Terminal background boundary — 11 October 2026
 
 - Version advances from 1.7.3 to 1.7.4 (build 1), a compatible UI correction.

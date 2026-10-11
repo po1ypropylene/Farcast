@@ -106,6 +106,16 @@ Keys follow the app’s existing credential storage policy. See
 - Keepalives and explicit cancellation.
 - Terminal copy/paste uses the normal macOS commands. Remote escape sequences
   cannot read or replace the local clipboard.
+- In **Farcast → Settings → SSH terminal right-click**, choose **Show context menu**
+  (default) or **Copy or paste automatically**. Changes apply to existing terminals.
+  Right-click or Control-click opens Copy, Paste, Select All and Search with Google.
+  Copy/search uses selected text, or the clicked output line when nothing is selected.
+  Automatic mode copies a selection first; otherwise it pastes text on the live cursor
+  line and copies a clicked output line elsewhere. Files/images are never pasted.
+  Paste is disabled for output, scrollback and disconnected sessions. Cut is always
+  disabled: a terminal selection cannot safely delete remote input. The cursor line
+  approximates editable input; full-screen programs and wrapped prompts may differ.
+  Mouse-aware programs receive right-click normally; hold Shift for local actions.
 - SFTP opens on demand over the same authenticated SSH connection. No local shell
   process or SSH agent is started. Normal remote shell commands may also read/write
   files on the server.

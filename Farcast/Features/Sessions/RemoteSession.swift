@@ -8,7 +8,9 @@ import SwiftTerm
     let id = UUID()
     let profile: ConnectionDraft
     let persistent: Bool
-    @Published var state = SessionState.waiting
+    @Published var state = SessionState.waiting {
+        didSet { terminal?.view.inputEnabled = state == .connected && terminalAvailable }
+    }
     @Published var message = "Waiting for credentials"
     @Published var remoteTitle = ""
     @Published var logs: [SessionLog] = []
@@ -172,6 +174,7 @@ import SwiftTerm
                 DispatchQueue.main.async {
                     guard let self, self.generation == attempt else { return }
                     self.terminalAvailable = available
+                    self.terminal?.view.inputEnabled = self.state == .connected && available
                     if !available { self.sshMode = .files }
                 }
             }

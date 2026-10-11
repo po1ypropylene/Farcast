@@ -3,12 +3,12 @@ import SwiftTerm
 import SwiftUI
 
 @MainActor final class TerminalController: NSObject, TerminalViewDelegate {
-    let view: TerminalView
+    let view: SSHInteractionView
     var sendBytes: ((Data) -> Void)?
     var resize: ((Int, Int) -> Void)?
     var updateTitle: ((String) -> Void)?
     init(profile: ConnectionDraft) {
-        view = TerminalView(
+        view = SSHInteractionView(
             frame: NSRect(x: 0, y: 0, width: 900, height: 600),
             font: NSFont.monospacedSystemFont(ofSize: profile.fontSize, weight: .regular),
             options: TerminalOptions(scrollback: 10_000))

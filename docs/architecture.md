@@ -221,6 +221,19 @@ clipboard sharing. Writable exports directly modify the selected Mac files.
 
 ## Shared SSH and SFTP
 
+The persistent SSH surface subclasses SwiftTerm's native view for local right-click
+actions. A live UserDefaults preference selects a native context menu (default) or
+automatic copy/paste. Selected text takes precedence; otherwise the clicked visible
+output line is copied, or text is pasted when clicking the connected terminal's
+cursor row at the live viewport. This is a cursor-line approximation, not remote
+editability detection. Scrollback and disconnected/file-only sessions cannot paste.
+Cut stays disabled because local terminal selection has no safe remote deletion
+operation. Mouse-aware programs retain button reporting; Shift overrides it locally.
+Paste rejects file URL/legacy file-list representations even alongside text and uses
+SwiftTerm's text paste encoder for bracketed-paste handling. Remote clipboard escape
+requests remain refused. Explicit Google search passes only the chosen text to the
+default browser; opening a menu neither reads text clipboard data nor launches search.
+
 After host-key verification, the SSH worker queries the server's allowed sign-in
 methods with bounded nonblocking retries. Password prefers SSH password and can
 fall back once to advertised keyboard-interactive. It supplies the selected password

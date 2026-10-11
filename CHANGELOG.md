@@ -2,6 +2,12 @@
 
 Changes are recorded from version 1.7.0 onwards.
 
+## 1.8.0 — 11 October 2026
+
+- Add a Settings choice for SSH right-click: a native context menu (default), or automatic copy/paste. Changes apply to open terminals immediately.
+- Copy selected text or a clicked output line, paste text on the active cursor line, and search text with Google from the menu. File clipboard contents are ignored; disconnected terminals cannot paste.
+- Preserve remote mouse reporting; Shift–right-click opens local actions. Cut is disabled because terminal selections cannot safely delete remote input. Cursor-line targeting is approximate for remote/full-screen programs.
+
 ## 1.7.4 — 11 October 2026
 
 - Keep the terminal background inside its workspace so it no longer tints the connection sidebar through transparency.
