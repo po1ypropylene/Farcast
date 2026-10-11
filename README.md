@@ -16,9 +16,6 @@ This is an early preview. Local builds use Apple Development signing and are unn
 
 ## Screenshots
 
-Farcast used to be called Universal Remote. These screenshots show the previous
-name and will be updated later.
-
 ![Farcast workspace and saved connections](docs/images/Farcast-Home.png)
 
 **SSH terminal**
