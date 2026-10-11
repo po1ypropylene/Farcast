@@ -156,6 +156,49 @@ enum WireGuardTransport {
         precondition(workspace.sessions.last!.profile.authentication == .interactive)
         print("PASS interactive retry uses server prompts without saved credential lookup")
 
+        _ = NSApplication.shared
+        let detached = workspace.sessions[0]
+        let originalCount = workspace.sessions.count
+        let detachedContent = NSView()
+        workspace.popOut(detached) { _ in detachedContent }
+        let slot = workspace.detachedSessions.first!.key
+        precondition(workspace.session(in: slot) === detached && detached.state == .connected)
+        precondition(workspace.attachedSessions.count == originalCount - 1 && workspace.activeSession === detached)
+        workspace.popOut(detached) { _ in preconditionFailure("Existing window must be reused") }
+        precondition(workspace.detachedSessions.count == 1 && workspace.sessions.count == originalCount)
+        let auxiliaryWindow = NSWindow()
+        workspace.activate(auxiliaryWindow)
+        precondition(workspace.activeSession === detached)
+        workspace.toggleInspector()
+        precondition(workspace.detachedInspectors.contains(slot) && !workspace.showInspector)
+        workspace.toggleInspector()
+        precondition(!workspace.detachedInspectors.contains(slot))
+        print("PASS pop out retains session, removes main presentation and reuses window")
+        refuseCredentials = false
+        workspace.reconnect(detached)
+        let detachedReplacement = workspace.session(in: slot)!
+        precondition(detachedReplacement !== detached && detached.state == .disconnected)
+        precondition(detachedReplacement.state == .connected && workspace.activeSession === detachedReplacement)
+        refuseCredentials = true
+        workspace.reconnect(detachedReplacement)
+        precondition(workspace.session(in: slot) === detachedReplacement && detachedReplacement.state == .connected)
+        refuseCredentials = false
+        print("PASS detached reconnect preserves window and failure preserves transport")
+        workspace.returnToWorkspace(slot: slot)
+        precondition(workspace.detachedSessions.isEmpty && workspace.selectedSession === detachedReplacement)
+        precondition(detachedReplacement.state == .connected && detachedReplacement.isSelected)
+        workspace.popOut(detachedReplacement) { _ in NSView() }
+        let other = workspace.attachedSessions.first!
+        workspace.popOut(other) { _ in NSView() }
+        workspace.close(detachedReplacement)
+        precondition(workspace.activeSession === other && other.isSelected)
+        precondition(workspace.detachedSessions.count == 1 && detachedReplacement.state == .disconnected)
+        workspace.returnToWorkspace(slot: workspace.detachedSessions.first!.key)
+        precondition(workspace.detachedSessions.isEmpty && other.state == .connected)
+        precondition(!workspace.sessions.contains { $0 === detachedReplacement })
+        precondition(workspace.activeSession?.isSelected != false)
+        print("PASS window close returns live session; explicit session close disconnects and releases window")
+
         let remembered = defaults.stringArray(forKey: "workspaceConnections")
         var replies = 0
         workspace.shutdown { replies += 1 }

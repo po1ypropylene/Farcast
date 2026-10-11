@@ -29,7 +29,7 @@ Xcode uses a synchronized source folder. A file under Farcast is automatically i
 ## Build and verification
 
 1. scripts/prepare-dependencies.sh (pinned source; ignored .dependencies and Vendor/Native).
-2. scripts/build.sh (Release, ad-hoc signing, hardened runtime disabled for local development; bundle verifier and loader check included).
+2. scripts/build.sh (Release, pinned Apple Development signing, hardened runtime disabled for local development; bundle verifier and loader check included). Run scripts/test-signing-continuity.sh when changing signing or credential access.
 3. swift test --scratch-path .build/core-tests
 4. scripts/test-ssh.sh; scripts/test-sftp.sh
 5. scripts/prepare-rdp-fixture.sh; scripts/test-rdp.sh; scripts/test-rdp-nla.sh
@@ -38,7 +38,21 @@ Xcode uses a synchronized source folder. A file under Farcast is automatically i
 8. python3 scripts/check-repository-hygiene.py
 9. scripts/test-live-servers.sh only when enabled entries are supplied; SKIP is not a real-server pass.
 
+For every completed logical code change, build a new DMG with `scripts/build-dmg.sh`
+after the final edits and version bump. Verify the mounted final bundle and SHA256;
+deliver the versioned DMG path. Intermediate edits/test builds do not each need a DMG.
+Documentation/instruction-only changes do not require a new app artifact.
+
 Use a real Developer ID identity and ENABLE_HARDENED_RUNTIME=YES for distribution; notarization remains pending. Never combine ad-hoc signing with hardened runtime: macOS library validation rejects the bundled ad-hoc dylibs before Swift starts. Do not add disable-library-validation as a workaround. Verify final bundles, not just loose library signatures.
+
+Local deliveries must retain certificate-backed signing and the designated requirement
+recorded in ignored `.local-signing/identity.json`. Do not silently switch certificates,
+teams/channels or fall back to ad-hoc signing; expired/unavailable pins must stop the
+build. Explicit `FARCAST_SIGNING_IDENTITY=-` is for requested scratch builds and can
+cause repeated Keychain prompts. Never weaken credential ACLs or export saved secrets
+to avoid approval. Renew/select certificates through the packaging workflow. Sandboxed
+identity enumeration can report an empty list; check in the approved build environment
+before claiming that no certificate is installed.
 
 Run swift-format using .swift-format for owned Swift sources. Objective-C adapters use clang-format. Do not format vendored upstream code. Keep callbacks on protocol workers, UI updates on the main actor, SSH backpressure and RDP latest-frame buffering intact. Disconnect must cancel outstanding prompts and transport work; reconnections must ignore stale callbacks.
 
@@ -52,6 +66,11 @@ Run swift-format using .swift-format for owned Swift sources. Objective-C adapte
 
 ## Documentation and delivery
 
+Starting with 1.7.0, maintain `CHANGELOG.md` for every delivered app version.
+Add a dated version heading and concise line items describing user-visible changes,
+fixes and material limitations. Update the entry as scope changes, before the final
+DMG build; preserve earlier entries. Include it in the DMG alongside the app.
+
 Update docs/validation.md with verified checks and honest limits; synthetic tests do not prove production-server compatibility. Record material architectural decisions in docs/architecture.md. Do not include raw credentials, server identifiers, terminal contents or original crash logs. Do not modify Codex memory unless directly requested. Do not commit/publish unless requested. Farcast's own source license is still undecided; third-party notices must ship in the app.
 
 ## Brand assets
@@ -60,7 +79,7 @@ The source of truth is Farcast/AppIcon.icon (macOS-only Icon Composer document),
 
 ## UI and generated artifacts
 
-- Custom buttons and disclosure rows have at least 44×44-point hit regions; use readable semantic fonts, explicit accessibility labels and visible keyboard focus. Preserve native system control behavior. See docs/ui-guidelines.md.
+- Use compact native macOS button/control sizes and body fonts, with Safari-like 28-point session tabs and 24-point icon actions. Keep accessibility labels, tooltips and visible keyboard focus. Do not impose iPad/touch sizing on the Mac app; revisit that only for an iPad version. See docs/ui-guidelines.md.
 - `.dependencies` holds reusable source/build/package/module/test-environment caches; `Vendor/Native` holds installed native dependencies. `.build` contains only disposable outputs and can be removed in full when builds/tests are stopped.
 - Integration scripts source scripts/test-support.sh to isolate each run and remove processes, data, logs, keys and binaries on exit. Keep tracked fixture sources only for distinct reproducible regressions. Do not retain one-off preview apps, generated fixture trees or dated incident reports.
 - Keep README short. Put user workflows in docs/user-guide.md, maintenance/release commands in docs/development.md, test procedures in docs/testing.md and signing rules in docs/packaging.md. Keep docs/validation.md current instead of appending contradictory historical stages.

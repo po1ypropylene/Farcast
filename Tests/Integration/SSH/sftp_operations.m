@@ -75,11 +75,25 @@ int main(int argc, char **argv) {
         [[NSData dataWithBytes:bytes
                         length:sizeof(bytes)] writeToFile:[source stringByAppendingPathComponent:@"nested/世界.bin"]
                                                atomically:YES];
+        NSData *metadataBytes = [NSData dataWithBytes:bytes length:sizeof(bytes)];
+        [metadataBytes writeToFile:[source stringByAppendingPathComponent:@"metadata-lite.bin"] atomically:NO];
         check(!operation(@"uploadTree", source, @"/tree", NO)[@"error"], @"recursive-upload");
         NSString *download = [root stringByAppendingPathComponent:@"tree-download"];
         [files removeItemAtPath:download error:nil];
         check(!operation(@"downloadTree", @"/tree", download, NO)[@"error"] && verifyTree(download),
               @"recursive-download-empty-and-unicode");
+        check(
+            [metadataBytes
+                isEqual:[NSData dataWithContentsOfFile:[download stringByAppendingPathComponent:@"metadata-lite.bin"]]],
+            @"incomplete-listing-metadata-falls-back-to-stat");
+        NSString *raceSource = [root stringByAppendingPathComponent:@"listing-race-source"];
+        [files createDirectoryAtPath:raceSource withIntermediateDirectories:YES attributes:nil error:nil];
+        [metadataBytes writeToFile:[raceSource stringByAppendingPathComponent:@"listing-changed.bin"] atomically:NO];
+        check(!operation(@"uploadTree", raceSource, @"/listing-race", NO)[@"error"], @"listing-race-seed");
+        NSString *raceDownload = [root stringByAppendingPathComponent:@"listing-race-download"];
+        check(operation(@"downloadTree", @"/listing-race", raceDownload, NO)[@"error"] != nil &&
+                  ![files fileExistsAtPath:[raceDownload stringByAppendingPathComponent:@"listing-changed.bin"]],
+              @"listing-snapshot-change-stops-before-leaf-copy");
         check(operation(@"uploadTree", source, @"/tree", YES)[@"error"] && verifyTree(source),
               @"failed-move-retains-source");
         check(!operation(@"copyRemote", @"/tree", @"/remote-copy", NO)[@"error"], @"remote-recursive-copy");

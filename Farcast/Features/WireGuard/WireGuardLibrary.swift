@@ -77,7 +77,7 @@ struct WireGuardLibrary: View {
                 Spacer()
                 PrimaryActionButton(title: "Save") { save() }.disabled(validation != nil)
             }.padding(18)
-        }.buttonStyle(ComfortableButtonStyle()).controlSize(.large).frame(width: 920, height: 720)
+        }.buttonStyle(.bordered).controlSize(.regular).frame(width: 920, height: 720)
             .onChange(of: selectedID) { _, id in if let id { load(id) } }
             .confirmationDialog("Delete this WireGuard connection?", isPresented: $deleting) {
                 Button("Delete", role: .destructive) { delete() }

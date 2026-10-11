@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
                              echo = dispatch_semaphore_create(0);
         dispatch_semaphore_t finished = dispatch_semaphore_create(0);
         __block BOOL stopped = NO, cancelled = NO, responseError = NO, resumed = NO;
-        __block BOOL terminalUnavailable = NO;
+        __block BOOL terminalUnavailable = NO, echoRequested = NO, inFlightEcho = NO, fileReplyReceived = NO;
         __block int trusts = 0;
         NSMutableString *text = [NSMutableString new];
         client.onTrust = ^BOOL(NSString *fingerprint, NSString *details) {
@@ -40,18 +40,26 @@ int main(int argc, char **argv) {
         };
         client.onData = ^(NSData *data) {
           [text appendString:[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @""];
+          if (!fileReplyReceived && [text containsString:@"INPUT:during-file-transfer"])
+              inFlightEcho = YES;
           if ([text containsString:@"INPUT:after-file-cancel"])
               dispatch_semaphore_signal(echo);
         };
         client.onFiles = ^(NSString *id, NSDictionary *result, NSString *error) {
-          if ([id isEqual:@"cancel"])
+          if ([id isEqual:@"cancel"]) {
+              fileReplyReceived = YES;
               responseError = error != nil;
-          else
+          } else {
               resumed = error == nil && result[@"entries"] != nil;
+          }
           dispatch_semaphore_signal(reply);
         };
         client.onFileProgress = ^(NSString *id, unsigned long long bytes, unsigned long long total) {
-          if ([id isEqual:@"cancel"] && bytes > 0 && !cancelled) {
+          if ([id isEqual:@"cancel"] && bytes > 0 && !filesOnly && !echoRequested) {
+              echoRequested = YES;
+              [weak sendData:[@"during-file-transfer\n" dataUsingEncoding:NSUTF8StringEncoding]];
+          }
+          if ([id isEqual:@"cancel"] && bytes > 0 && !cancelled && (filesOnly || inFlightEcho)) {
               cancelled = YES;
               [weak cancelFiles];
           }
@@ -75,11 +83,19 @@ int main(int argc, char **argv) {
                             : dispatch_semaphore_wait(echo, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0;
         [client listDirectory:@"/" requestID:@"resumed"];
         BOOL listed = dispatch_semaphore_wait(reply, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0;
-        BOOL pass = timely && terminal && listed && cancelled && responseError && resumed && !stopped && trusts == 1;
+        BOOL pass = timely && terminal && listed && (filesOnly || inFlightEcho) && cancelled && responseError &&
+                    resumed && !stopped && trusts == 1;
+        if (!pass)
+            printf("DIAGNOSTIC synthetic cancellation timely=%d terminal=%d listed=%d cancelled=%d error=%d resumed=%d "
+                   "stopped=%d trusts=%d\n",
+                   timely, terminal, listed, cancelled, responseError, resumed, stopped, trusts);
         if (!upload)
             pass = pass && ![[NSFileManager defaultManager] fileExistsAtPath:local];
         printf("%s SFTP cancel-%s-keeps-%s-and-reopens-files\n", pass ? "PASS" : "FAIL", upload ? "upload" : "download",
                filesOnly ? "file-only-session" : "terminal");
+        if (!filesOnly)
+            printf("%s SFTP in-flight-terminal-responsive-%s\n", inFlightEcho ? "PASS" : "FAIL",
+                   upload ? "upload" : "download");
         [client disconnect];
         pass = pass && dispatch_semaphore_wait(finished, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0;
         return pass ? 0 : 1;

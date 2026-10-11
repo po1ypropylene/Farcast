@@ -2,34 +2,26 @@
 
 Use Apple's [button guidance](https://developer.apple.com/design/human-interface-guidelines/buttons)
 and [accessibility guidance](https://developer.apple.com/design/human-interface-guidelines/accessibility).
-The app remains native macOS; custom controls use a 44×44-point minimum hit region
-to make current pointer use easier and prepare for a possible touch interface.
-This is a design baseline, not a claim of touchscreen or iPad support.
+Farcast uses compact native macOS controls. Safari is the reference for restrained
+window chrome, normal body fonts and compact tabs. iPad/touch sizing is a separate
+future design task; do not apply a 44-point touch baseline to the Mac interface.
 
-- Put sizing and `contentShape` inside a button's label/style so padding is clickable.
-  Keep neighboring actions in separate, nonoverlapping hit regions.
-  A 44-point target need not have a 44-point visible background: shared secondary
-  actions use 34-point backgrounds, icon actions use 36-point backgrounds with
-  20-point symbols, and transparent margins fill the target. Preserve semantic
-  label text; avoid hidden measuring labels, forced shrinking or negative padding.
-- Reuse ComfortableButtonStyle, IconActionButton and PrimaryActionButton for custom controls. Keep native
-  menus, pickers, text inputs, alerts and primary glass buttons; use large control
-  size and readable semantic fonts. Avoid tiny fixed-size text for protocol/status labels.
-- Keep close buttons visible, independent of tab selection, with the session name
-  in their accessibility label. Tab accessibility also announces protocol and state;
-  status never relies on a colored dot alone. Keep tab capsules at 44 points high,
-  without outer vertical padding, and keep their close targets full height.
+- Prefer native bordered/primary buttons and regular control size. Do not add fixed
+  padding or oversized fonts to native controls. Reuse IconActionButton (24 points)
+  and PrimaryActionButton; icon buttons retain tooltips and accessibility labels.
+- Session tabs are 28 points high with normal body text. Unselected tabs use clear
+  glass; selection has a subtle tint. Keep the independent 22-point close target
+  visible, with its session name in help and accessibility. Announce protocol/state
+  and selection; status never relies on colour alone.
+- Keep sizing and contentShape within custom labels so their visible region is
+  clickable. Preserve keyboard focus, shortcuts and native accessibility behavior.
+  Avoid overlapping hit regions, hidden measuring labels and forced shrinking.
 - Disclosure headers activate across their full row and announce expanded/collapsed.
   The connection editor's grouped Form is its only scrolling owner; header/actions
-  stay outside it. Keep server address/port as labelled fields with placeholders;
-  do not add explanatory description rows below them.
-- Preserve keyboard shortcuts, focus and contextual actions. A connection row exposes
-  a Connect accessibility action as well as its normal desktop double-click/menu.
-- Give file rows enough height for selection and file-action icons explicit labels.
-  Keep transfer cancellation and destructive-action confirmations distinct.
-  The Local Mac heading opens the folder picker with a plain 44-point target;
-  match its header/navigation heights to Server so their dividers align. File-only
-  SSH sessions select Files and disable the unavailable terminal modes/tools.
-- Inspect text wrapping, disabled states, target bounds and edge clicks in an isolated
-  synthetic preview. Test VoiceOver, full keyboard access and actual touch hardware
-  separately before making accessibility/platform support claims.
+  stay outside it. Keep labelled server address and port fields.
+- Use normal list rows and 24-point local/server headings/navigation controls, with
+  matching file-panel heights. The Local Mac heading opens the folder picker.
+  File-only SSH disables unavailable terminal modes and tools.
+- Keep transfer cancellation separate from destructive confirmations. Inspect text
+  wrapping, disabled state, tooltips and keyboard navigation with synthetic data.
+  Full VoiceOver coverage needs separate verification.

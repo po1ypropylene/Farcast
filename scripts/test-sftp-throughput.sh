@@ -18,9 +18,9 @@ python3 - "$fixture_root" <<'PY'
 from pathlib import Path
 import sys
 code=Path('Farcast/Native/SSH/SSHClient.m').read_text()
-old = 'upload ? 4 * 1024 * 1024 : 256 * 1024'
+old = 'upload ? 4 * 1024 * 1024 : 1024 * 1024'
 assert code.count(old) == 1, 'Upload window changed; update the controlled baseline.'
-code=code.replace(old, 'upload ? 32768 : 256 * 1024')
+code=code.replace(old, 'upload ? 32768 : 1024 * 1024')
 (Path(sys.argv[1])/'baseline.m').write_text(code)
 PY
 for mode in baseline pipelined; do

@@ -1,4 +1,4 @@
 // Edit this file to version both Xcode builds and DMG releases.
 // Version: major.minor.patch. Build: increase for a new build of the same version.
-MARKETING_VERSION = 1.6.0
+MARKETING_VERSION = 1.7.4
 CURRENT_PROJECT_VERSION = 1

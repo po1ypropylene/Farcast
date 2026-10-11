@@ -16,6 +16,8 @@ python3 -m venv .dependencies/test-venv
 scripts/test-ssh.sh
 scripts/test-sftp.sh
 scripts/test-sftp-throughput.sh
+scripts/test-sftp-terminal-latency.sh
+scripts/test-signing-continuity.sh
 
 # Build an isolated, loopback-only synthetic RDP server.
 scripts/prepare-rdp-fixture.sh
@@ -47,8 +49,12 @@ transport doubles, verify termination waits for every completion, and use the re
 SSH/SFTP worker to check shutdown after its tab is removed. SSH/RDP integration
 clients await worker cleanup; WireGuard lifecycle checks await actual helper exits,
 including shared leases and an already-stopping helper, and reject leases after shutdown.
-SFTP checks include
-file-only connections after channel/PTY/shell refusal or immediate shell EOF,
+Workspace checks also move the production desktop through actual SwiftUI windows,
+verify one surface/transport owner, focus routing and stale-viewport protection.
+Optional screenshot output from PresentationChecks uses only synthetic content.
+
+SFTP checks include per-file speed resets and ignored obsolete progress callbacks,
+incomplete directory-metadata fallback, listing/source races, and file-only connections after channel/PTY/shell refusal or immediate shell EOF,
 refusal of both services, keyboard-interactive password sign-in without a shell,
 byte-verified transfers/overwrites and cancellation
 that retains file access without a terminal. The RDP fixture uses
@@ -80,6 +86,14 @@ reopening it. None of these checks mounts or changes a real user's folder.
 Fixture processes are stopped when their harness exits.
 
 See [validation](validation.md) for completed checks and remaining release validation.
+The terminal latency fixture sends input repeatedly during 8 MiB uploads/downloads
+on one SSH login through an owned proxy with 60 ms RTT and 512 KiB/s per direction.
+It requires at least sixteen echoed samples, no missing input and maximum latency
+under 1.5 seconds, then verifies download SHA256 equality. Files-to-Split cases
+allow nine seconds for already submitted bulk data to drain before applying the
+same latency bound. An optional adapter source argument reports baseline timings
+before running the current strict checks. It never executes real shell commands,
+accesses private input or changes remote user files.
 Real Windows/xrdp interoperability, clipboard round trips, all keyboard layouts,
 long-running sessions, network recovery and accessibility with VoiceOver require
 further validation before a production release. Older macOS and Intel are unsupported.
@@ -100,8 +114,36 @@ Run RDP TLS and NLA suites sequentially: their sample server uses a fixed loopba
 
 ## Fixture retention
 
+The signing continuity check certificate-signs two different disposable binaries,
+checks that their code hashes differ but their requirements match, then creates a
+synthetic item in an owned temporary Keychain. The updated binary must read it with
+authorization UI disabled. Each probe restores the original Keychain search list;
+the reader deletes the owned test Keychain. It never queries saved user credentials.
+
 Keep tracked integration sources when they test a distinct behavior: authentication/trust, cancellation, byte equality, atomic overwrite, recursive move safety, sandbox inheritance, migration, input coordinates or bounded performance. They are reproducible test tools, not app seed data. Keep the blank server-document example because setup/import depends on it.
 
 Every shell integration harness creates an owner-only unique directory under `.build/tests`, stops and waits for its child servers, and deletes the directory on success, failure or interruption. Generated keys, data, executables and logs are disposable. The RDP sample-server build is reusable infrastructure under `.dependencies/rdp-fixture`; its patch is derived from tracked sources. Logs from ordinary tests are not archived. `scripts/clean-project.py --apply` removes leftovers from killed/crashed runs along with other build outputs.
 
 UI reviews should use an isolated app, in-memory metadata and synthetic profiles. Do not open the user's restored sessions or browse Home merely to inspect layout. Use disposable files for transfer tests. Touch-target checks inspect bounds and edge clicks; they do not establish physical touchscreen support on macOS.
+
+## SFTP performance measurements
+
+`scripts/benchmark-sftp.sh` runs synthetic large-file and recursive small-file
+uploads/downloads on one SSH session, through an owned propagation-delay proxy.
+It prints JSON timings and process CPU seconds, and compares SHA256 for downloaded
+files. Each upload is verified by its subsequent download. It never reads private
+server input or uses an external transfer executable.
+
+```sh
+# Defaults: 60 ms simulated RTT, 128 files of 1–50 KiB, one 64 MiB file.
+scripts/benchmark-sftp.sh
+# Low RTT and the larger workloads:
+FARCAST_BENCH_RTT_MS=0 FARCAST_BENCH_SMALL_FILES=5000 FARCAST_BENCH_LARGE_MIB=1024 scripts/benchmark-sftp.sh
+# Optional comparison with an owned snapshot of an earlier adapter (run first):
+scripts/benchmark-sftp.sh /absolute/path/to/SSHClient-before.m
+```
+
+The proxy models propagation delay, not a bandwidth limit, packet loss or a production
+server. Large workloads/high file counts can take minutes. The optional baseline
+must be compatible with the current adapter header. Fixtures/keys/binaries/local data
+are removed on exit. Keep only summarized measurements in docs/validation.md.

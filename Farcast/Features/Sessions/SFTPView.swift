@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -10,6 +11,9 @@ struct SFTPView: View {
     @State private var nameRequest: FileNameRequest?
     @State private var deleteRequest: FileDeleteRequest?
     @State private var moveDestination: Bool?
+    @AppStorage("sftpDiskAccessExplained") private var diskAccessExplained = false
+    @State private var showDiskAccess = false
+    @State private var chooseFolderAfterSetup = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,6 +32,14 @@ struct SFTPView: View {
                 }
                 Text(controller.message).lineLimit(1)
                 Spacer()
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    if let speed = controller.transferSpeed {
+                        Text(
+                            "\(ByteCountFormatter.string(fromByteCount: Int64(min(speed, Double(Int64.max / 2))), countStyle: .file))/s"
+                        )
+                        .monospacedDigit().help("Average speed for the current file")
+                    }
+                }
                 if controller.busy {
                     Button("Cancel") { controller.cancel() }
                         .disabled(controller.cancelling)
@@ -36,12 +48,41 @@ struct SFTPView: View {
                 Text("Ask before overwriting files").foregroundStyle(.secondary)
             }.font(.callout).padding(10).background(.bar)
         }
-        .buttonStyle(ComfortableButtonStyle())
-        .controlSize(.large)
+        .buttonStyle(.bordered)
+        .controlSize(.regular)
         .onAppear {
             path = controller.remotePath
-            controller.prepareLocalAccess()
+            if diskAccessExplained { controller.prepareLocalAccess() } else { showDiskAccess = true }
             if connected { controller.showFiles() }
+        }
+        .sheet(
+            isPresented: $showDiskAccess,
+            onDismiss: {
+                diskAccessExplained = true
+                if chooseFolderAfterSetup { controller.prepareLocalAccess() }
+            }
+        ) {
+            VStack(alignment: .leading, spacing: 16) {
+                Label("Prepare file access", systemImage: "folder.badge.gearshape").font(.title2.weight(.semibold))
+                Text(
+                    "Enable Farcast in System Settings → Privacy & Security → Full Disk Access to transfer files in protected folders. macOS may ask you to restart Farcast after enabling it."
+                )
+                Text(
+                    "After returning, click Local Mac to choose your Home folder or another local folder to allow file transfers. Farcast remembers Home access. You can also enable Full Disk Access later from the Local Mac panel."
+                )
+                .foregroundStyle(.secondary)
+                HStack {
+                    Button("Choose Folder") {
+                        chooseFolderAfterSetup = true
+                        showDiskAccess = false
+                    }
+                    Spacer()
+                    PrimaryActionButton(title: "Open System Settings") {
+                        openDiskAccessSettings()
+                        showDiskAccess = false
+                    }
+                }
+            }.padding(24).frame(width: 540)
         }
         .onChange(of: connected) { _, ready in if ready { controller.showFiles() } }
         .onChange(of: controller.remotePath) { _, value in
@@ -124,7 +165,7 @@ struct SFTPView: View {
                 controller.chooseLocalFolder()
             } label: {
                 Label("Local Mac", systemImage: "laptopcomputer").font(.headline)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
                     .contentShape(Rectangle())
             }.buttonStyle(.plain).disabled(controller.busy)
                 .help("Choose a local folder")
@@ -161,6 +202,9 @@ struct SFTPView: View {
                 }.disabled(!canTransfer(controller.localFiles, selection: localSelection))
                 Button("Paste") { paste(local: true) }.disabled(!controller.canPaste(local: true))
                 Spacer()
+                IconActionButton(title: "Full Disk Access settings", symbol: "lock.shield") {
+                    openDiskAccessSettings()
+                }
                 Text(
                     localSelection.isEmpty ? "\(controller.localFiles.count) items" : "\(localSelection.count) selected"
                 ).foregroundStyle(.secondary)
@@ -173,13 +217,13 @@ struct SFTPView: View {
                 Label("Server", systemImage: "externaldrive.connected.to.line.below").font(.headline)
                 Spacer()
                 Text("SFTP over SSH").font(.callout).foregroundStyle(.secondary)
-            }.frame(minHeight: 44).padding(10)
+            }.frame(minHeight: 24).padding(10)
             HStack {
                 IconActionButton(title: "Parent server folder", symbol: "arrow.up") {
                     controller.remoteParent()
                 }
                 .disabled(!connected || controller.busy || controller.remotePath == "/").help("Parent server folder")
-                TextField("Server folder", text: $path).frame(minHeight: 44).onSubmit {
+                TextField("Server folder", text: $path).frame(minHeight: 24).onSubmit {
                     controller.refreshRemote(path: path)
                 }
                 .disabled(!connected || controller.busy)
@@ -206,6 +250,14 @@ struct SFTPView: View {
             }.font(.callout).padding(10)
         }
     }
+    private func openDiskAccessSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") else {
+            return
+        }
+        if !NSWorkspace.shared.open(url) {
+            controller.error = "Open System Settings → Privacy & Security → Full Disk Access and enable Farcast."
+        }
+    }
     private func selected(_ files: [TransferFile], ids: Set<String>) -> [TransferFile] {
         files.filter { ids.contains($0.id) }
     }
@@ -226,7 +278,7 @@ struct SFTPView: View {
                         .lineLimit(1)
                     Spacer()
                     Text(file.sizeLabel).font(.callout).foregroundStyle(.secondary)
-                }.frame(minHeight: 44).tag(file.id).contentShape(Rectangle())
+                }.frame(minHeight: 24).tag(file.id).contentShape(Rectangle())
                     .itemProvider {
                         guard !controller.busy, file.transferable else { return nil }
                         let items =
@@ -321,7 +373,7 @@ private struct FileNameSheet: View {
                 Button(request.file == nil ? "Create" : "Rename") { save() }
                     .keyboardShortcut(.defaultAction).disabled(!valid)
             }
-        }.buttonStyle(ComfortableButtonStyle()).controlSize(.large).padding(24).frame(width: 420)
+        }.buttonStyle(.bordered).controlSize(.regular).padding(24).frame(width: 420)
     }
     private func save() {
         guard valid else { return }

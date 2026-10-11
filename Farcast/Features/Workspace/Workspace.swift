@@ -3,7 +3,7 @@ import Combine
 import SwiftData
 import UniformTypeIdentifiers
 
-@MainActor final class Workspace: ObservableObject {
+@MainActor final class Workspace: NSObject, ObservableObject, NSWindowDelegate {
     @Published var sessions: [RemoteSession] = []
     @Published var selectedSessionID: UUID?
     @Published var prompts: [SessionPrompt] = []
@@ -13,6 +13,28 @@ import UniformTypeIdentifiers
     @Published var showWireGuard = false
     @Published var showLibraryImport = false
     @Published var showInspector = false
+    @Published private(set) var detachedSessions: [UUID: UUID] = [:]
+    @Published private(set) var focusedDetachedSlot: UUID?
+    @Published private(set) var detachedInspectors: Set<UUID> = []
+    func toggleInspector(slot: UUID? = nil) {
+        if let slot = slot ?? focusedDetachedSlot {
+            if detachedInspectors.contains(slot) {
+                detachedInspectors.remove(slot)
+            } else {
+                detachedInspectors.insert(slot)
+            }
+        } else {
+            showInspector.toggle()
+        }
+    }
+    private weak var mainWindow: NSWindow?
+    private var sessionWindows: [UUID: NSWindow] = [:]
+    var attachedSessions: [RemoteSession] { sessions.filter { !detachedSessions.values.contains($0.id) } }
+    var activeSession: RemoteSession? {
+        if let slot = focusedDetachedSlot { return session(in: slot) }
+        return selectedSession
+    }
+    func session(in slot: UUID) -> RemoteSession? { sessions.first { $0.id == detachedSessions[slot] } }
     let trust: TrustStore
     private let loadCredential: (UUID) throws -> ConnectionCredential?
     private let defaults: UserDefaults
@@ -29,6 +51,7 @@ import UniformTypeIdentifiers
         self.loadCredential = loadCredential
         self.defaults = defaults
         trust = TrustStore(defaults: defaults)
+        super.init()
     }
 
     private func credential(for draft: ConnectionDraft, provided: ConnectionCredential? = nil) throws
@@ -81,18 +104,97 @@ import UniformTypeIdentifiers
         } catch { self.error = error.localizedDescription }
     }
     func select(_ id: UUID?) {
-        selectedSession?.desktop?.releaseInput()
+        if let slot = detachedSessions.first(where: { $0.value == id })?.key {
+            sessionWindows[slot]?.makeKeyAndOrderFront(nil)
+            return
+        }
         selectedSessionID = id
-        for session in sessions { session.isSelected = session.id == id }
-        DispatchQueue.main.async { [weak self] in self?.selectedSession?.focus() }
+        focusedDetachedSlot = nil
+        updateActiveSession()
     }
+    private func updateActiveSession() {
+        for session in sessions {
+            let selected = session.id == activeSession?.id
+            if session.isSelected && !selected { session.desktop?.releaseInput() }
+            session.isSelected = selected
+        }
+        DispatchQueue.main.async { [weak self] in self?.activeSession?.focus() }
+    }
+    func popOut(_ session: RemoteSession, content: (UUID) -> NSView) {
+        guard !isShuttingDown, sessions.contains(where: { $0 === session }) else { return }
+        if let slot = detachedSessions.first(where: { $0.value == session.id })?.key {
+            sessionWindows[slot]?.makeKeyAndOrderFront(nil)
+            return
+        }
+        let slot = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.title = session.profile.name
+        window.delegate = self
+        window.minSize = NSSize(width: 720, height: 480)
+        detachedSessions[slot] = session.id
+        sessionWindows[slot] = window
+        window.contentView = content(slot)
+        window.center()
+        if selectedSessionID == session.id { selectedSessionID = attachedSessions.first?.id }
+        focusedDetachedSlot = slot
+        updateActiveSession()
+        window.makeKeyAndOrderFront(nil)
+    }
+    func activate(_ window: NSWindow) {
+        if let slot = sessionWindows.first(where: { $0.value === window })?.key {
+            focusedDetachedSlot = slot
+        } else if window === mainWindow || window.title == "Farcast" {
+            mainWindow = window
+            focusedDetachedSlot = nil
+        } else {
+            // Sheets and file pickers retain their presenting connection's ownership.
+            return
+        }
+        updateActiveSession()
+    }
+    func windowDidBecomeKey(_ notification: Notification) {
+        if let window = notification.object as? NSWindow { activate(window) }
+    }
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow,
+            let slot = sessionWindows.first(where: { $0.value === window })?.key
+        else { return }
+        let wasFocused = focusedDetachedSlot == slot
+        detachedInspectors.remove(slot)
+        let id = detachedSessions.removeValue(forKey: slot)
+        sessionWindows.removeValue(forKey: slot)
+        if wasFocused { focusedDetachedSlot = nil }
+        if !isShuttingDown && wasFocused {
+            select(id)
+            mainWindow?.makeKeyAndOrderFront(nil)
+        } else {
+            if selectedSessionID == nil { selectedSessionID = id }
+            updateActiveSession()
+        }
+    }
+    func returnToWorkspace(slot: UUID) { sessionWindows[slot]?.close() }
     func close(_ session: RemoteSession) {
-        guard let index = sessions.firstIndex(where: { $0.id == session.id }) else { return }
+        guard
+            let index = attachedSessions.firstIndex(where: { $0.id == session.id })
+                ?? sessions.firstIndex(where: { $0.id == session.id })
+        else { return }
         session.disconnect()
+        if let slot = detachedSessions.first(where: { $0.value == session.id })?.key {
+            detachedInspectors.remove(slot)
+            detachedSessions.removeValue(forKey: slot)
+            let window = sessionWindows.removeValue(forKey: slot)
+            window?.delegate = nil
+            window?.close()
+            if focusedDetachedSlot == slot { focusedDetachedSlot = nil }
+        }
         sessions.removeAll { $0.id == session.id }
         if selectedSessionID == session.id {
-            select(sessions.isEmpty ? nil : sessions[min(index, sessions.count - 1)].id)
+            select(attachedSessions.isEmpty ? nil : attachedSessions[min(index, attachedSessions.count - 1)].id)
         }
+        updateActiveSession()
         persistWorkspace()
     }
     func reconnect(_ session: RemoteSession) {
@@ -127,7 +229,13 @@ import UniformTypeIdentifiers
             let wasSelected = selectedSessionID == session.id
             session.disconnect()
             sessions[index] = replacement
-            if wasSelected { select(replacement.id) }
+            if let slot = detachedSessions.first(where: { $0.value == session.id })?.key {
+                detachedSessions[slot] = replacement.id
+                sessionWindows[slot]?.title = draft.name
+                updateActiveSession()
+            } else if wasSelected {
+                select(replacement.id)
+            }
             start(replacement, credential: stored)
             persistWorkspace()
         } catch { self.error = error.localizedDescription }

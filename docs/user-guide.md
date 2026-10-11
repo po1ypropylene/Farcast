@@ -34,12 +34,23 @@ The local release build is at:
 
 Open it directly, or copy the app to Applications. Its protocol libraries are
 bundled: users do not need Homebrew, an SSH agent, FreeRDP, or OpenSSL installed.
-This local development build is ad-hoc signed with hardened runtime disabled,
+This local development build is Apple Development signed with hardened runtime disabled,
 not Developer ID signed or notarized. Enable hardened runtime explicitly when
 using a real distribution identity.
 A public release still needs signing, notarization, and validation on real servers.
 The deployment target is macOS 27 and architecture is arm64. Intel and older macOS
 releases are unsupported.
+
+### Keychain approval after updates
+
+Version 1.7.3 onwards uses a consistent certificate-backed identity for local updates.
+After installing this first certificate-signed build, macOS may ask once more for
+existing saved credentials. Enter your **Mac login/Keychain password** in the macOS
+dialog and choose **Always Allow** once per saved credential to retain the approval. Future builds with the
+same signing identity should reuse it. This is separate from your server password.
+The app preserves existing credentials and their protection. A signing-team/channel
+change, renewed certificate with a changed identity, or a locked Keychain can still
+require approval; report recurring prompts rather than deleting your saved credentials.
 
 ## Connect
 
@@ -106,6 +117,10 @@ Keys follow the app’s existing credential storage policy. See
 Connect with an existing SSH profile, then choose **Files** in its session tab.
 **Split** keeps the terminal above the local and server file panels; **Terminal**
 returns to the full terminal. Switching views preserves the same signed-in session.
+Terminal and Split prioritise keyboard responsiveness during transfers. Files
+uses the larger transfer pipeline for maximum throughput, which can help on
+high-latency links. Switching back to Split may briefly wait for queued file data
+to drain before the terminal becomes responsive.
 The server must allow its SFTP subsystem for file transfer. If it refuses an
 interactive terminal or ends the shell, the app checks SFTP and switches to
 **Files** when available. **Terminal**, **Split** and terminal tools are disabled
@@ -255,3 +270,23 @@ remains unverified.
 
 
 See [local testing](local-testing.md) for the optional test-server import workflow.
+
+## Connection windows and file-access setup
+
+Use **Pop Out Connection** in the active connection toolbar to move SSH/SFTP or RDP
+to a separate resizable window. The existing connection stays authenticated. Use
+**Return to Workspace**, or close that window, to return the live connection to its
+tab. **Session → Close Session** disconnects and closes it. Session commands act on
+the focused connection window. Window placement is not restored at next launch.
+
+On first opening Files or Split, Farcast offers Full Disk Access setup. Open System
+Settings → Privacy & Security → Full Disk Access, add Farcast with **+** if necessary,
+and enable it. macOS may request a restart. Return to Farcast and click **Local Mac**
+to choose Home or another folder; Home access is remembered. The shield button in
+Local Mac reopens these settings. Choosing a folder alone lets you continue with
+files macOS permits. Full Disk Access still requires a sandbox folder grant.
+
+SFTP shows the average transfer speed of the current file in bytes per second.
+The rate resets for each file in a folder transfer and disappears after the request
+finishes or is cancelled. RDP file-clipboard messages share the bottom connection
+status line, keeping the desktop height unchanged.

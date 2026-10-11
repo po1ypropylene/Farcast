@@ -14,7 +14,10 @@ import Foundation
         let new = Data([255, 0, 128])
         let names = ["a.bin", "b.bin", "tree/nested.bin"]
         for name in names { try! old.write(to: source.appendingPathComponent(name)) }
-        let controller = SFTPController(homeURL: source, requiresAccess: false)
+        var progressTime = 100.0
+        let controller = SFTPController(homeURL: source, requiresAccess: false, clock: { progressTime })
+        var leafStarts = 0
+        var measuredSpeed = false
         let client = FCSSHClient()
         let pin = try! String(contentsOfFile: CommandLine.arguments[3], encoding: .utf8)
         var connected = false
@@ -33,7 +36,16 @@ import Foundation
             DispatchQueue.main.async { controller.receive(id: id, result: reply, error: error) }
         }
         client.onFileProgress = { id, bytes, total in
-            DispatchQueue.main.async { controller.receiveProgress(id: id, bytes: bytes, total: total) }
+            DispatchQueue.main.async {
+                progressTime += 0.1
+                controller.receiveProgress(id: id, bytes: bytes, total: total)
+                if bytes == 0 {
+                    leafStarts += 1
+                    precondition(controller.transferredBytes == 0 && controller.transferSpeed == 0)
+                } else {
+                    measuredSpeed = measuredSpeed || (controller.transferSpeed ?? 0) > 0
+                }
+            }
         }
         controller.attach(client)
         client.connectHost(
@@ -77,6 +89,9 @@ import Foundation
         controller.transfer(selection, upload: true)
         await wait { !controller.busy }
         check(controller.error == nil, "seed-upload")
+        check(leafStarts == 3 && measuredSpeed && controller.transferSpeed == nil, "recursive-upload-speed-resets")
+        controller.receiveProgress(id: "obsolete-request", bytes: 1000, total: 1000)
+        check(controller.transferSpeed == nil, "stale-progress-ignored")
         for name in names { try! new.write(to: source.appendingPathComponent(name)) }
         controller.transfer(selection, upload: true)
         await wait { controller.conflict != nil || !controller.busy }

@@ -58,6 +58,14 @@ single-use PromptWaiter responses while the main actor presents sheets. Cancella
 resolves pending prompts, interrupts transport work, invalidates callbacks and stops
 clipboard timers. Never wait for workers/prompts on the main actor.
 
+A popped-out session retains its Workspace-owned RemoteSession, native surfaces and
+transport. A stable window slot follows replacement session IDs on reconnect. Only
+attached sessions appear in the main tab strip; closing the detached window returns
+its live session, while Close Session disconnects and removes it. Window focus chooses
+the single RDP clipboard/input owner and the Session menu target. Prompts are routed
+to the session's presenting window. Detached placement is temporary; restoration still
+stores profile IDs and restores disconnected tabs in the main window.
+
 Closing the last app window requests termination. Quit and window close use the same
 asynchronous shutdown: save tab restoration metadata, reject new connections/prompts,
 cancel existing prompts and disconnect all sessions, then reply to AppKit only after
@@ -68,7 +76,10 @@ new leases. Completion runs through the main run loop, including AppKit's nested
 termination loop; the main actor never blocks waiting for protocol cleanup.
 
 CredentialStore currently exposes synchronous Keychain operations used by UI callers.
-Development signing changes can trigger authorization stalls; worker-based credential
+Certificate-backed local builds preserve the recorded code identity across updates,
+avoiding the repeated approval caused by changing ad-hoc hashes. Existing items may
+need one final grant for that transition. Credential contents/ACLs are unchanged.
+Other Keychain authorization can still stall synchronous callers; worker-based credential
 I/O with explicit prompt/cancellation policy remains an open improvement. Injected
 credential lookup and preferences let workspace tests avoid real Keychain/user defaults.
 
@@ -118,16 +129,19 @@ bundle/path strings are restricted to migration recognition and test provenance.
 
 ## UI and desktop presentation
 
+Terminal background fills respect every safe-area edge, including the navigation
+split view's sidebar boundary. Terminal and Split modes use the same bounded fill;
+the connection sidebar retains its native material independently of terminal themes.
+
 The grouped connection Form is the editor's only scrolling owner, with fixed header
 and actions. It omits organization/notes controls in all modes while preserving existing
 data. Full-width disclosure rows announce their state. Server address and port are
-separate; validation rejects combined host:port while preserving IPv6. Tabs use capsule
-Liquid Glass, with a 44-point capsule and full-height close target; the strip adds
-only four points above/below. Shared secondary actions use 34-point visible
-backgrounds and icon actions use 36-point backgrounds with 20-point symbols;
-transparent margins retain 44-point hit regions. Primary actions retain native
-glass styling with compact semantic labels instead of a 44-point label plus
-native padding. Sidebar RDP hosts append the selected
+separate; validation rejects combined host:port while preserving IPv6. Tabs use
+compact 28-point capsule Liquid Glass, normal body text and independent
+22-point close targets. Icon actions use 24-point borderless native buttons; other
+controls use regular native bordered/glass styles without enlarged labels or touch
+margins. The Mac interface follows Safari proportions; future iPad sizing is separate.
+Sidebar RDP hosts append the selected
 WireGuard profile name from the live metadata query; missing references explicitly
 show an unavailable tunnel. Long destination labels expose the full text in a tooltip. See [UI guidelines](ui-guidelines.md).
 
@@ -244,10 +258,33 @@ Standard-stream bytes remain exclusively owned by SFTP. See
 [libssh2 channel streams](https://libssh2.org/libssh2_channel_read_ex.html).
 The session accepts an injected file controller for isolated UI/transport checks.
 
+New uploads first attempt exclusive creation; only a failed create checks the existing
+destination and offers overwrite approval. Approved replacements retain private staging
+and OpenSSH atomic rename. Exclusive creation never opens an existing destination,
+including symlinks. Recursive remote preflight reuses complete READDIR size/type/time
+snapshots, falling back to LSTAT when fields are absent. Every transfer still rechecks
+source metadata immediately before copying, and moves rescan before source deletion.
+Buffers are file-sized within 4 MiB upload / 1 MiB download maxima. Uploads refill
+after a quarter-window has been acknowledged, reducing memmove work; EAGAIN retries
+retain identical unacknowledged bytes. These changes remove redundant requests and
+allocations without a second login, worker or protocol channel. Download handle-close cleanup
+allows ten seconds for queued read-ahead replies (five for other handles) and pumps
+terminal I/O while draining. Shutdown still interrupts socket waits immediately.
+See [libssh2 exclusive-open flags](https://libssh2.org/libssh2_sftp_open_ex_r.html).
+
+SFTP displays average bytes per second for the current file using a monotonic clock.
+The worker emits a zero-byte start event for each leaf, including recursive trees;
+new requests, completion, disconnect and cancellation clear or hide the rate. A periodic
+UI refresh updates the average during stalls without changing worker backpressure.
+First-use setup explains Full Disk Access and opens its System Settings pane. The app
+neither silently grants nor probes protected personal data to infer that permission.
+Full Disk Access does not replace sandbox folder grants; the Local Mac picker remains
+necessary and Home bookmarks retain their existing scope.
+
 Home comes from getpwuid, since NSHomeDirectory names the sandbox container. Explicit
 NSOpenPanel read/write permission gates access; a Home security-scoped bookmark is
 remembered/refreshed, while other folder scopes stay session-owned. The plain Local
-Mac heading opens the same folder picker with a 44-point hit region; both file-pane
+Mac heading opens the same folder picker with compact Mac sizing; both file-pane
 headings and navigation rows use matching minimum heights. Local operations run on
 workers with O_NOFOLLOW, cancellation and retained scopes. No broad filesystem
 entitlement is used. Multi-selection jobs run sequentially and stop on the first error.
@@ -262,11 +299,20 @@ original and fail, with no truncate/delete fallback. Same-side local copy/move a
 rename retain no-overwrite behavior. Cancellation attempts staging cleanup; interruption
 can leave uploaded partial files, completed tree leaves or remote staging.
 
-Uploads use a refilled bounded 4 MiB window (refill after at least 256 KiB acknowledged);
-downloads use 256 KiB. EAGAIN retries preserve unacknowledged bytes/buffer lengths under
+Files mode uses refilled bounded 4 MiB upload and 1 MiB download windows, capped
+by file size. Terminal/Split mode offers at most 128 KiB per upload and 32 KiB per
+download read; libssh2's fourfold download read-ahead is then bounded to 128 KiB.
+This limits file bytes ahead of interactive packets on the shared TCP stream.
+Mode changes use an atomic scheduling hint; only the worker accesses native handles.
+Previously queued bulk bytes must drain before the smaller budget takes effect.
+The upload budget can change only after a positive acknowledgement; refills occur
+after a quarter-budget (at least 32 KiB) and never replace unacknowledged bytes.
+EAGAIN retries preserve unacknowledged bytes/buffer lengths under
 [libssh2's write-ahead contract](https://libssh2.org/libssh2_sftp_write.html). TCP_NODELAY
 and captured SFTP readiness directions avoid terminal pumping changing pending wait
-requirements. Cancel stops refilling, drains submitted work and closes its handle,
+requirements. Visible-terminal waits poll at most ten milliseconds between worker
+checks. Terminal writes retain a stable bounded snapshot across EAGAIN, while new
+keystrokes append behind it. Cancel stops refilling, drains submitted work and closes its handle,
 retaining the authenticated terminal and idle SFTP channel. It can finish the current
 4 MiB window. Terminal pumping/backpressure and throttled progress stay intact.
 
@@ -319,7 +365,7 @@ external links. User-data reset is a separate explicit destructive action scoped
 current-bundle Library/preferences/credential service, using SecItemDelete without
 reading secrets; it refuses a running app/helper, sudo and redirected paths.
 
-Packaging relocates the native closure and ships notices. Local ad-hoc builds disable
+Packaging relocates the native closure and ships notices. Local certificate-signed builds disable
 hardened runtime and recreate the generated app before final signing. Distribution
 requires Developer ID/hardened runtime/notarization. Version.xcconfig is the single
 version source; DMGs use built metadata. Final bundle/loader/sandboxed-helper checks

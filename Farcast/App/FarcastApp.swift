@@ -57,24 +57,24 @@ import SwiftUI
                         .disabled(!workspace.sessions.isEmpty)
                 }
                 CommandGroup(replacing: .textEditing) {
-                    if let session = workspace.selectedSession {
+                    if let session = workspace.activeSession {
                         FindInTerminalCommandButton(session: session)
                     } else {
                         Button("Find in Terminal…") {}.keyboardShortcut("f").disabled(true)
                     }
                 }
                 CommandMenu("Session") {
-                    Button("Reconnect") { if let session = workspace.selectedSession { workspace.reconnect(session) } }
-                        .keyboardShortcut("r", modifiers: [.command, .shift]).disabled(workspace.selectedSession == nil)
-                    Button("Disconnect") { workspace.selectedSession?.disconnect() }.disabled(
-                        workspace.selectedSession?.state.active != true)
-                    Button("Close Session") { if let session = workspace.selectedSession { workspace.close(session) } }
-                        .keyboardShortcut("w").disabled(workspace.selectedSession == nil)
+                    Button("Reconnect") { if let session = workspace.activeSession { workspace.reconnect(session) } }
+                        .keyboardShortcut("r", modifiers: [.command, .shift]).disabled(workspace.activeSession == nil)
+                    Button("Disconnect") { workspace.activeSession?.disconnect() }.disabled(
+                        workspace.activeSession?.state.active != true)
+                    Button("Close Session") { if let session = workspace.activeSession { workspace.close(session) } }
+                        .keyboardShortcut("w").disabled(workspace.activeSession == nil)
                     Divider()
-                    Button("Send Ctrl+Alt+Delete") { workspace.selectedSession?.controlAltDelete() }.disabled(
-                        workspace.selectedSession?.profile.kind != .rdp
-                            || workspace.selectedSession?.state != .connected)
-                    Button("Connection Details") { workspace.showInspector.toggle() }.keyboardShortcut(
+                    Button("Send Ctrl+Alt+Delete") { workspace.activeSession?.controlAltDelete() }.disabled(
+                        workspace.activeSession?.profile.kind != .rdp
+                            || workspace.activeSession?.state != .connected)
+                    Button("Connection Details") { workspace.toggleInspector() }.keyboardShortcut(
                         "i", modifiers: [.command, .option])
                 }
             }

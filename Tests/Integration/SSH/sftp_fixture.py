@@ -39,7 +39,14 @@ class Files(paramiko.SFTPServerInterface):
             for dot in ['.', '..']:
                 attrs = paramiko.SFTPAttributes.from_stat(self.path(path).stat()); attrs.filename = dot; out.append(attrs)
             for file in self.path(path).iterdir():
-                attrs = paramiko.SFTPAttributes.from_stat(file.lstat()); attrs.filename = file.name; out.append(attrs)
+                attrs = paramiko.SFTPAttributes.from_stat(file.lstat()); attrs.filename = file.name
+                if file.name == 'metadata-lite.bin':
+                    attrs.st_atime = attrs.st_mtime = None
+                if file.name == 'listing-changed.bin' and not getattr(self, 'listing_changed', False):
+                    self.listing_changed = True
+                    value = file.stat()
+                    os.utime(file, (value.st_atime, value.st_mtime + 10))
+                out.append(attrs)
             return out
         except OSError as error: return paramiko.SFTPServer.convert_errno(error.errno)
     def stat(self, path):

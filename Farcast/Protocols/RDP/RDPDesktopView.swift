@@ -391,7 +391,7 @@ final class RDPViewport: NSScrollView {
         layoutDesktop()
     }
     func layoutDesktop() {
-        guard !layingOut else { return }
+        guard desktop.viewport === self, !layingOut else { return }
         layingOut = true
         defer { layingOut = false }
         if desktop.awaitsInitialSize || desktop.displayMode == .fit {

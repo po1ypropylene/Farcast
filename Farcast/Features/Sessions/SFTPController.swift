@@ -70,6 +70,17 @@ private struct FileBuffer {
     @Published private(set) var cancelling = false
     @Published var message = "Choose Files or Split to browse this server."
     @Published var progress: Double?
+    @Published private(set) var transferredBytes: UInt64 = 0
+    private var transferStarted: TimeInterval?
+    private let clock: () -> TimeInterval
+    var transferSpeed: Double? {
+        guard let transferStarted, !cancelling else { return nil }
+        return Double(transferredBytes) / max(0.001, clock() - transferStarted)
+    }
+    private func resetTransferSpeed() {
+        transferredBytes = 0
+        transferStarted = nil
+    }
     @Published var error: String?
     @Published private(set) var conflict: FileConflict?
     private var overwriteAll = false
@@ -97,7 +108,11 @@ private struct FileBuffer {
     private var dropAttempt = UUID()
     static let dragType = UTType.utf8PlainText.identifier
 
-    init(homeURL: URL? = nil, requiresAccess: Bool = true) {
+    init(
+        homeURL: URL? = nil, requiresAccess: Bool = true,
+        clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    ) {
+        self.clock = clock
         let realHome = getpwuid(getuid()).map { String(cString: $0.pointee.pw_dir) } ?? NSHomeDirectory()
         self.homeURL = homeURL ?? URL(fileURLWithPath: realHome, isDirectory: true)
         localURL = self.homeURL
@@ -174,6 +189,7 @@ private struct FileBuffer {
         requestID = nil
         busy = false
         progress = nil
+        resetTransferSpeed()
         error = nil
         remoteFiles = []
         remotePath = "."
@@ -203,6 +219,7 @@ private struct FileBuffer {
         requestID = id
         busy = true
         progress = nil
+        resetTransferSpeed()
         error = nil
         message = text
         return id
@@ -211,6 +228,7 @@ private struct FileBuffer {
         guard requestID == id else { return }
         requestID = nil
         progress = nil
+        resetTransferSpeed()
         if cancelling {
             cancelling = false
             busy = false
@@ -264,6 +282,8 @@ private struct FileBuffer {
     }
     func receiveProgress(id: String, bytes: UInt64, total: UInt64) {
         guard requestID == id, !cancelling else { return }
+        if bytes == 0 || transferStarted == nil { transferStarted = clock() }
+        transferredBytes = bytes
         progress = total > 0 ? min(1, Double(bytes) / Double(total)) : nil
         message =
             "Item \(completed + 1) of \(batchCount): \(ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .file)) transferred"
@@ -282,6 +302,7 @@ private struct FileBuffer {
         activeJob = nil
         busy = false
         progress = nil
+        resetTransferSpeed()
         requested = false
         remoteFiles = []
         clearBuffer()

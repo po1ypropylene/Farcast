@@ -10,6 +10,7 @@ build/
 
 # Local real-server credentials: never commit this directory
 .local-testing/
+.local-signing/
 .env
 .env.*
 !.env.example

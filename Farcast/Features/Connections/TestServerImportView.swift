@@ -39,7 +39,7 @@ struct TestServerImportView: View {
                 PrimaryActionButton(title: "Import") { importServers() }
                     .disabled(document.enabledServers.isEmpty)
             }
-        }.buttonStyle(ComfortableButtonStyle()).controlSize(.large).padding(24).frame(width: 600)
+        }.buttonStyle(.bordered).controlSize(.regular).padding(24).frame(width: 600)
     }
 
     private func importServers() {

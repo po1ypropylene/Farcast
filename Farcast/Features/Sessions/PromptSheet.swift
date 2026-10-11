@@ -64,7 +64,7 @@ struct PromptSheet: View {
                 PrimaryActionButton(title: prompt.kind == .trust ? "Trust & Connect" : "Continue") { submit() }
                     .keyboardShortcut(.defaultAction)
             }
-        }.buttonStyle(ComfortableButtonStyle()).controlSize(.large).padding(26).frame(width: 660).textFieldStyle(
+        }.buttonStyle(.bordered).controlSize(.regular).padding(26).frame(width: 660).textFieldStyle(
             .roundedBorder)
     }
     private func fingerprint(_ label: String, value: String) -> some View {

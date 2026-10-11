@@ -6,8 +6,9 @@ struct SessionPane: View {
     @ObservedObject var session: RemoteSession
     @ObservedObject var workspace: Workspace
     private func terminalView(_ terminal: TerminalController) -> some View {
+        // The sidebar is outside the detail safe area; keep the terminal colour inside it.
         TerminalSurface(controller: terminal).padding(8).background(
-            SwiftUI.Color(nsColor: terminal.view.nativeBackgroundColor))
+            SwiftUI.Color(nsColor: terminal.view.nativeBackgroundColor), ignoresSafeAreaEdges: [])
     }
     private var filesView: some View {
         SFTPView(controller: session.files, connected: session.state == .connected)
@@ -21,7 +22,7 @@ struct SessionPane: View {
                             SSHWorkspacePicker(
                                 selection: $session.sshMode, terminalAvailable: session.terminalAvailable
                             )
-                            .frame(width: 320, height: 44)
+                            .frame(width: 240, height: 28)
                             if !session.terminalAvailable {
                                 Text("File transfer only").font(.callout).foregroundStyle(.secondary)
                             }
@@ -45,7 +46,7 @@ struct SessionPane: View {
                 if session.state != .connected {
                     VStack(spacing: 16) {
                         if session.state.active {
-                            ProgressView().controlSize(.large)
+                            ProgressView().controlSize(.regular)
                         } else {
                             Image(systemName: session.state == .failed ? "exclamationmark.triangle" : "network").font(
                                 .system(size: 36)
@@ -69,11 +70,6 @@ struct SessionPane: View {
                     }.padding(32).glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24)).padding(32)
                 }
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
-            if session.state == .connected, !session.clipboardMessage.isEmpty {
-                Text(session.clipboardMessage).font(.callout).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(10).background(.bar)
-                    .accessibilityLabel("File clipboard: \(session.clipboardMessage)")
-            }
             Divider()
             HStack(spacing: 9) {
                 Circle().fill(session.state.color).frame(width: 6, height: 6)
@@ -82,6 +78,11 @@ struct SessionPane: View {
                 Text("\(session.profile.username)@\(session.profile.host):\(String(session.profile.port))").lineLimit(1)
                     .textSelection(.enabled)
                 Spacer()
+                if session.state == .connected, !session.clipboardMessage.isEmpty {
+                    Text(session.clipboardMessage).lineLimit(1).truncationMode(.tail)
+                        .help(session.clipboardMessage)
+                        .accessibilityLabel("File clipboard: \(session.clipboardMessage)")
+                }
                 if session.profile.kind == .rdp {
                     Button("Ctrl + Alt + Delete") { session.controlAltDelete() }.disabled(session.state != .connected)
                 } else {
@@ -96,11 +97,11 @@ struct SessionPane: View {
                     }.disabled(session.state != .connected || !session.terminalAvailable)
                 }
                 Text(session.profile.kind.rawValue).fontWeight(.semibold)
-            }.buttonStyle(ComfortableButtonStyle()).font(.callout).foregroundStyle(.secondary).padding(.horizontal, 14)
+            }.buttonStyle(.bordered).font(.callout).foregroundStyle(.secondary).padding(.horizontal, 14)
                 .padding(
-                    .vertical, 8
+                    .vertical, 4
                 ).background(.bar)
-        }.buttonStyle(ComfortableButtonStyle()).controlSize(.large)
+        }.buttonStyle(.bordered).controlSize(.regular)
     }
 }
 
@@ -115,8 +116,8 @@ private struct SSHWorkspacePicker: NSViewRepresentable {
         let control = NSSegmentedControl(
             labels: SSHWorkspaceMode.allCases.map(\.rawValue), trackingMode: .selectOne,
             target: context.coordinator, action: #selector(Coordinator.selectMode(_:)))
-        control.controlSize = .large
-        control.font = .preferredFont(forTextStyle: .title3)
+        control.controlSize = .regular
+        control.font = .systemFont(ofSize: NSFont.systemFontSize)
         control.setAccessibilityLabel("SSH workspace")
         return control
     }

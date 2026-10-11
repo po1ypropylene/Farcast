@@ -22,6 +22,6 @@ struct AppSettings: View {
             LabeledContent(
                 "Version",
                 value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown")
-        }.formStyle(.grouped).controlSize(.large).frame(width: 480, height: 280).padding(16)
+        }.formStyle(.grouped).controlSize(.regular).frame(width: 480, height: 280).padding(16)
     }
 }

@@ -41,7 +41,7 @@ struct WorkspaceView: View {
                             search = ""
                         }
                     }
-                }.frame(minHeight: 44).padding(.horizontal, 10).background(
+                }.frame(minHeight: 24).padding(.horizontal, 10).background(
                     .quaternary, in: RoundedRectangle(cornerRadius: 8)
                 ).padding(.horizontal, 14)
                     .padding(.bottom, 12)
@@ -93,19 +93,19 @@ struct WorkspaceView: View {
                             showFolderEditor = true
                         }
                     } label: {
-                        Label("Add", systemImage: "plus").frame(minWidth: 70, minHeight: 44).contentShape(Rectangle())
-                    }.menuStyle(.borderlessButton).controlSize(.large).frame(minWidth: 70, minHeight: 44)
+                        Label("Add", systemImage: "plus").frame(minWidth: 70, minHeight: 24).contentShape(Rectangle())
+                    }.menuStyle(.borderlessButton).controlSize(.regular).frame(minWidth: 70, minHeight: 24)
                     Spacer()
                     Text("\(connections.count) connections").font(.callout).foregroundStyle(.secondary)
                 }.padding(14)
             }.navigationSplitViewColumnWidth(min: 240, ideal: 270, max: 340)
         } detail: {
             VStack(spacing: 0) {
-                if !workspace.sessions.isEmpty {
+                if !workspace.attachedSessions.isEmpty {
                     ScrollView(.horizontal) {
                         GlassEffectContainer(spacing: 8) {
                             HStack(spacing: 10) {
-                                ForEach(workspace.sessions) { session in
+                                ForEach(workspace.attachedSessions) { session in
                                     SessionTab(session: session, workspace: workspace)
                                         .draggable(session.id.uuidString)
                                         .dropDestination(for: String.self) { values, _ in
@@ -116,7 +116,7 @@ struct WorkspaceView: View {
                                             return true
                                         }
                                 }
-                            }.padding(.horizontal, 14).padding(.vertical, 4)
+                            }.padding(.horizontal, 10).padding(.vertical, 3)
                         }
                     }.scrollIndicators(.hidden)
                     Divider()
@@ -138,40 +138,49 @@ struct WorkspaceView: View {
                         Button {
                             workspace.editor = EditorRequest(draft: ConnectionDraft(), mode: .quick)
                         } label: {
-                            Label("Quick Connect", systemImage: "bolt")
+                            Label("Quick Connect", systemImage: "bolt").labelStyle(.iconOnly)
                         }.help("Connect without saving a profile")
                         Button {
                             create(.ssh)
                         } label: {
-                            Label("New Connection", systemImage: "plus")
-                        }
+                            Label("New Connection", systemImage: "plus").labelStyle(.iconOnly)
+                        }.help("Add a saved connection")
                         if let session = workspace.selectedSession {
                             Button {
                                 workspace.reconnect(session)
                             } label: {
-                                Label("Reconnect", systemImage: "arrow.clockwise")
-                            }
+                                Label("Reconnect", systemImage: "arrow.clockwise").labelStyle(.iconOnly)
+                            }.help("Reconnect this session")
                             Button {
                                 session.disconnect()
                             } label: {
-                                Label("Disconnect", systemImage: "stop.circle")
-                            }.disabled(!session.state.active)
+                                Label("Disconnect", systemImage: "stop.circle").labelStyle(.iconOnly)
+                            }.disabled(!session.state.active).help("Disconnect this session")
                             Button {
                                 NSApp.keyWindow?.toggleFullScreen(nil)
                             } label: {
-                                Label("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right")
-                            }
+                                Label("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right").labelStyle(
+                                    .iconOnly)
+                            }.help("Toggle full screen")
                             Button {
                                 workspace.showInspector.toggle()
                             } label: {
-                                Label("Connection Details", systemImage: "sidebar.right")
-                            }
+                                Label("Connection Details", systemImage: "sidebar.right").labelStyle(.iconOnly)
+                            }.help("Show connection details")
+                            Button {
+                                workspace.popOut(session) { slot in
+                                    NSHostingView(rootView: DetachedSessionView(workspace: workspace, slot: slot))
+                                }
+                            } label: {
+                                Label("Pop Out Connection", systemImage: "rectangle.portrait.and.arrow.right")
+                                    .labelStyle(.iconOnly)
+                            }.help("Move this connection to a new window")
                         }
                     }
                 }
         }
-        .buttonStyle(ComfortableButtonStyle())
-        .controlSize(.large)
+        .buttonStyle(.automatic)
+        .controlSize(.regular)
         .frame(minWidth: 1000, minHeight: 660)
         .sheet(item: $workspace.testServerImport) { request in
             TestServerImportView(workspace: workspace, document: request.document)
@@ -181,14 +190,22 @@ struct WorkspaceView: View {
         .sheet(item: $workspace.editor) { request in ConnectionEditor(workspace: workspace, request: request) }
         .sheet(
             item: Binding(
-                get: { workspace.prompts.first },
+                get: { workspace.prompts.first { !workspace.detachedSessions.values.contains($0.sessionID) } },
                 set: { next in
-                    if next == nil, let prompt = workspace.prompts.first { workspace.answer(prompt, value: nil) }
+                    if next == nil,
+                        let prompt = workspace.prompts.first(where: {
+                            !workspace.detachedSessions.values.contains($0.sessionID)
+                        })
+                    {
+                        workspace.answer(prompt, value: nil)
+                    }
                 })
         ) { prompt in PromptSheet(workspace: workspace, prompt: prompt).id(prompt.id) }
         .alert(
             "Farcast",
-            isPresented: Binding(get: { workspace.error != nil }, set: { if !$0 { workspace.error = nil } })
+            isPresented: Binding(
+                get: { workspace.focusedDetachedSlot == nil && workspace.error != nil },
+                set: { if !$0 { workspace.error = nil } })
         ) {
             Button("OK") { workspace.error = nil }
         } message: {
@@ -224,6 +241,9 @@ struct WorkspaceView: View {
                 "This removes the saved profile and its saved credentials. Open sessions remain available until you close them."
             )
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+            if let window = notification.object as? NSWindow { workspace.activate(window) }
+        }
         .task {
             workspace.modelContext = context
             workspace.restoreWorkspace(connections)
@@ -234,7 +254,7 @@ struct WorkspaceView: View {
             Image(systemName: connection.kind.icon).foregroundStyle(connection.kind == .ssh ? Color.teal : Color.indigo)
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 3) {
-                Text(connection.name).font(.title3).lineLimit(1)
+                Text(connection.name).font(.body).lineLimit(1)
                 Text(destinationDescription(connection)).font(.body).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle).help(destinationDescription(connection))
             }
@@ -242,7 +262,7 @@ struct WorkspaceView: View {
             Text(connection.protocolName).font(.callout.weight(.semibold)).foregroundStyle(.secondary).padding(
                 .horizontal, 5
             ).padding(.vertical, 3).background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
-        }.frame(minHeight: 44).padding(.vertical, 4).tag(connection.id).contentShape(Rectangle())
+        }.frame(minHeight: 24).padding(.vertical, 2).tag(connection.id).contentShape(Rectangle())
             .accessibilityAction(named: "Connect") { connect(connection) }
             .onTapGesture(count: 2) { connect(connection) }
             .contextMenu {
@@ -271,70 +291,54 @@ struct WorkspaceView: View {
         return "\(connection.host) via \(name)"
     }
     private var overview: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Your remote workspace").font(.system(size: 30, weight: .bold))
-                        Text("Connect to a shell or desktop. Keep every server within reach.").font(.title3)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Image(systemName: "network").font(.system(size: 48, weight: .light)).foregroundStyle(
-                        .tint.opacity(0.6))
-                }.padding(.top, 18)
-                HStack(spacing: 16) {
-                    launchCard("SSH Terminal", subtitle: "A secure shell, right here.", icon: "terminal", color: .teal)
-                    { create(.ssh) }
-                    launchCard(
-                        "Remote Desktop", subtitle: "Control your Windows servers.", icon: "desktopcomputer",
-                        color: .indigo
-                    ) { create(.rdp) }
-                }
-                if let selected = connections.first(where: { $0.id == selectedProfileID }) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Label(selected.name, systemImage: selected.kind.icon).font(.title3.weight(.semibold))
-                            Spacer()
-                            Button("Edit…") {
-                                edit(selected)
-                            }
-                            PrimaryActionButton(title: "Connect") { connect(selected) }
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Your remote workspace").font(.system(size: 30, weight: .bold))
+                            Text("Connect to a shell or desktop. Keep every server within reach.").font(.body)
+                                .foregroundStyle(.secondary)
                         }
-                        Text("\(selected.username)@\(selected.host):\(String(selected.port))").font(
-                            .system(.body, design: .monospaced)
-                        ).foregroundStyle(.secondary).textSelection(.enabled)
-                        if !selected.notes.isEmpty { Text(selected.notes).foregroundStyle(.secondary) }
-                    }.padding(20).background(.background, in: RoundedRectangle(cornerRadius: 14))
-                }
-                VStack(alignment: .leading, spacing: 14) {
-                    Text(connections.isEmpty ? "Start with your first server" : "Saved connections").font(.headline)
-                    if connections.isEmpty {
-                        Text(
-                            "Add an SSH or RDP connection, or use Quick Connect for a one-time session. Passwords and private keys can be saved on this Mac."
-                        ).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                        Button("Quick Connect") {
-                            workspace.editor = EditorRequest(draft: ConnectionDraft(), mode: .quick)
-                        }.buttonStyle(.bordered)
-                    } else {
-                        ForEach(filtered.prefix(8)) { connection in
+                        Spacer()
+                        Image(systemName: "network").font(.system(size: 48, weight: .light)).foregroundStyle(
+                            .tint.opacity(0.6))
+                    }.padding(.top, 18)
+                    HStack(spacing: 16) {
+                        launchCard(
+                            "SSH Terminal", subtitle: "A secure shell, right here.", icon: "terminal", color: .teal
+                        ) { create(.ssh) }
+                        launchCard(
+                            "Remote Desktop", subtitle: "Control your Windows servers.", icon: "desktopcomputer",
+                            color: .indigo
+                        ) { create(.rdp) }
+                    }
+                    if let selected = connections.first(where: { $0.id == selectedProfileID }) {
+                        VStack(alignment: .leading, spacing: 12) {
                             HStack {
-                                Image(systemName: connection.kind.icon).foregroundStyle(.tint)
-                                VStack(alignment: .leading) {
-                                    Text(connection.name)
-                                    Text(destinationDescription(connection)).font(.body).foregroundStyle(.secondary)
-                                }
+                                Label(selected.name, systemImage: selected.kind.icon).font(.headline)
                                 Spacer()
-                                Button("Connect") { connect(connection) }
-                            }.padding(12).background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
-                        }
+                                Button("Edit…") {
+                                    edit(selected)
+                                }
+                                PrimaryActionButton(title: "Connect") { connect(selected) }
+                            }
+                            Text("\(selected.username)@\(selected.host):\(String(selected.port))").font(
+                                .system(.body, design: .monospaced)
+                            ).foregroundStyle(.secondary).textSelection(.enabled)
+                            if !selected.notes.isEmpty { Text(selected.notes).foregroundStyle(.secondary) }
+                        }.padding(20).background(.background, in: RoundedRectangle(cornerRadius: 14))
                     }
-                }
-                HStack(spacing: 8) {
-                    Image(systemName: "lock.shield")
-                    Text("Credentials stay on this Mac. Server identities are checked before sign-in.")
-                }.font(.callout).foregroundStyle(.secondary)
-            }.padding(36).frame(maxWidth: 1000, alignment: .leading).frame(maxWidth: .infinity)
+                    Button("Quick Connect") {
+                        workspace.editor = EditorRequest(draft: ConnectionDraft(), mode: .quick)
+                    }.buttonStyle(.bordered)
+                    HStack(spacing: 8) {
+                        Image(systemName: "lock.shield")
+                        Text("Credentials stay on this Mac. Server identities are checked before sign-in.")
+                    }.font(.callout).foregroundStyle(.secondary)
+                }.padding(36).frame(maxWidth: 860, alignment: .leading)
+                    .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .center)
+            }
         }
     }
     private func launchCard(_ title: String, subtitle: String, icon: String, color: Color, action: @escaping () -> Void)

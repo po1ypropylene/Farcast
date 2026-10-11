@@ -48,6 +48,7 @@ trap 'exit 143' TERM
 
 mkdir "$work/payload" "$work/mount"
 ditto "$app" "$work/payload/Farcast.app"
+cp CHANGELOG.md "$work/payload/CHANGELOG.md"
 ln -s /Applications "$work/payload/Applications"
 diskutil image create from --volumeName "Farcast" --format UDZO \
   "$work/payload" "$work/$release_name.dmg"
@@ -55,6 +56,8 @@ hdiutil verify "$work/$release_name.dmg"
 diskutil image attach --readOnly --nobrowse --mountPoint "$work/mount" "$work/$release_name.dmg" >/dev/null
 mounted=1
 python3 scripts/verify-bundle.py "$work/mount/Farcast.app"
+python3 scripts/local-signing.py verify "$work/mount/Farcast.app"
+cmp CHANGELOG.md "$work/mount/CHANGELOG.md"
 [[ "$(readlink "$work/mount/Applications")" == /Applications ]]
 diskutil eject "$work/mount" >/dev/null
 mounted=0
@@ -67,4 +70,4 @@ mv -f "$work/$release_name.dmg" ".build/releases/$release_name.dmg"
 )
 printf 'DMG: %s/.build/releases/%s.dmg\nSHA256: %s/.build/releases/%s.dmg.sha256\n' \
   "$PWD" "$release_name" "$PWD" "$release_name"
-printf 'Local development signing; not notarized. Nothing committed or uploaded.\n'
+printf 'Local development build; not notarized. Nothing committed or uploaded.\n'

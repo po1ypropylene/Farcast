@@ -40,3 +40,12 @@ xcrun swiftc -parse-as-library -module-name Farcast -target arm64-apple-macos27.
   -L Vendor/Native/lib -lssh2 -lfreerdp3 -lfreerdp-client3 -lwinpr3 -lcrypto \
   -Xlinker -rpath -Xlinker "$PWD/Vendor/Native/lib" -o "$fixture_root/ssh-session-client"
 "$fixture_root/ssh-session-client" "$(cat "$fixture_root/port")" "$fixture_root/fingerprint"
+
+# Verify one-owner native presentation when moving a live surface between windows.
+xcrun swiftc -parse-as-library -module-name Farcast -target arm64-apple-macos27.0 \
+  -I "$products" -import-objc-header Farcast/Native-Bridge.h \
+  "${session_sources[@]}" Tests/Integration/Workspace/PresentationChecks.swift \
+  "$fixture_root/SSH.o" "$fixture_root/RDP.o" "$fixture_root/RDPClipboard.o" "$fixture_root/RDPDrive.o" "$products/SwiftTerm.o" \
+  -L Vendor/Native/lib -lssh2 -lfreerdp3 -lfreerdp-client3 -lwinpr3 -lcrypto \
+  -Xlinker -rpath -Xlinker "$PWD/Vendor/Native/lib" -o "$fixture_root/presentation-client"
+"$fixture_root/presentation-client"

@@ -18,6 +18,7 @@ int main(int argc, char **argv) {
         }
         [source writeToFile:path atomically:YES];
         FCSSHClient *client = [FCSSHClient new];
+        [client setTerminalVisible:NO];
         dispatch_semaphore_t ready = dispatch_semaphore_create(0), done = dispatch_semaphore_create(0);
         dispatch_semaphore_t finished = dispatch_semaphore_create(0);
         __block BOOL pass = NO;

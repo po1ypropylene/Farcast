@@ -31,7 +31,7 @@ struct ExistingLibraryImportView: View {
                 PrimaryActionButton(title: "Choose Library Folder…") { chooseLibrary() }
                     .disabled(!workspace.sessions.isEmpty)
             }
-        }.buttonStyle(ComfortableButtonStyle()).controlSize(.large).padding(24).frame(width: 620)
+        }.buttonStyle(.bordered).controlSize(.regular).padding(24).frame(width: 620)
     }
 
     private func chooseLibrary() {

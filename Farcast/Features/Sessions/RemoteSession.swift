@@ -12,7 +12,9 @@ import SwiftTerm
     @Published var message = "Waiting for credentials"
     @Published var remoteTitle = ""
     @Published var logs: [SessionLog] = []
-    @Published var sshMode = SSHWorkspaceMode.terminal
+    @Published var sshMode = SSHWorkspaceMode.terminal {
+        didSet { ssh?.setTerminalVisible(sshMode != .files) }
+    }
     @Published private(set) var terminalAvailable = true
     @Published private(set) var credentialsRejected = false
     let files: SFTPController
@@ -138,6 +140,7 @@ import SwiftTerm
             terminalAvailable = true
             credentialsRejected = false
             let client = FCSSHClient()
+            client.setTerminalVisible(sshMode != .files)
             ssh = client
             files.attach(client)
             let fileController = files

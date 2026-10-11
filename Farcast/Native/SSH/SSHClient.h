@@ -35,6 +35,8 @@ NS_ASSUME_NONNULL_BEGIN
                  move:(BOOL)move
             requestID:(NSString *)requestID;
 - (void)sendData:(NSData *)data;
+// Thread-safe scheduling hint; native handles remain exclusively on the worker.
+- (void)setTerminalVisible:(BOOL)visible;
 - (void)resizeColumns:(NSInteger)columns rows:(NSInteger)rows;
 - (void)cancelFiles;
 - (void)disconnect;

@@ -19,10 +19,10 @@ struct SessionTab: View {
                     Text(session.profile.name).fontWeight(selected ? .semibold : .regular)
                         .lineLimit(1).frame(maxWidth: 180)
                 }
-                .font(.title3)
+                .font(.body)
                 .padding(.leading, 12)
                 .padding(.trailing, 6)
-                .frame(minWidth: 44, minHeight: 44)
+                .frame(minWidth: 24, minHeight: 28)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -31,12 +31,16 @@ struct SessionTab: View {
             .accessibilityAddTraits(selected ? .isSelected : [])
             .help("\(session.profile.name) · \(session.state.title)")
 
-            IconActionButton(title: "Close \(session.profile.name)", symbol: "xmark") {
-                workspace.close(session)
-            }
+            IconActionButton(
+                title: "Close \(session.profile.name)", symbol: "xmark",
+                action: {
+                    workspace.close(session)
+                }, size: 22
+            )
+            .padding(.trailing, 4)
         }
         .glassEffect(
-            selected ? .regular.tint(.accentColor.opacity(0.25)).interactive() : .regular.interactive(),
+            selected ? .regular.tint(.accentColor.opacity(0.25)).interactive() : .clear.interactive(),
             in: Capsule()
         )
         .accessibilityElement(children: .contain)

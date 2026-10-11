@@ -14,11 +14,14 @@
 @interface FCSSHClient () {
     atomic_bool _stopped;
     atomic_bool _filesCancelled;
+    atomic_bool _terminalVisible;
     NSString *_conflictToken;
     NSInteger _conflictChoice;
     double _lastTerminalPump;
+    int _terminalWaitDirections;
     NSLock *_lock;
     NSMutableData *_outgoing;
+    NSData *_terminalWrite;
     int _socket;
     NSInteger _columns, _rows;
     BOOL _resizePending;
@@ -47,6 +50,15 @@ static double monotonicTime(void) {
     struct timespec t;
     clock_gettime(CLOCK_MONOTONIC, &t);
     return t.tv_sec + t.tv_nsec / 1e9;
+}
+static NSDictionary *remoteSnapshot(LIBSSH2_SFTP_ATTRIBUTES attrs) {
+    unsigned long type = attrs.permissions & LIBSSH2_SFTP_S_IFMT;
+    return @{
+        @"directory" : @(type == LIBSSH2_SFTP_S_IFDIR),
+        @"regular" : @(type == LIBSSH2_SFTP_S_IFREG),
+        @"size" : @(attrs.filesize),
+        @"modified" : @(attrs.mtime)
+    };
 }
 static void keyboardPrompt(const char *name, int nameLen, const char *instruction, int instructionLen, int count,
                            const LIBSSH2_USERAUTH_KBDINT_PROMPT *prompts, LIBSSH2_USERAUTH_KBDINT_RESPONSE *responses,
@@ -78,6 +90,7 @@ static void keyboardPrompt(const char *name, int nameLen, const char *instructio
         _rows = 30;
         atomic_init(&_stopped, false);
         atomic_init(&_filesCancelled, false);
+        atomic_init(&_terminalVisible, true);
     }
     return self;
 }
@@ -130,6 +143,7 @@ static void keyboardPrompt(const char *name, int nameLen, const char *instructio
     _terminalUnavailable = !available;
     if (!available) {
         [_outgoing setLength:0];
+        _terminalWrite = nil;
         _resizePending = NO;
     }
     [_lock unlock];
@@ -466,6 +480,7 @@ cleanup:
     _interactivePassword = nil;
     _workerChannel = NULL;
     _workerSession = NULL;
+    _terminalWrite = nil;
     [_lock lock];
     if (_socket >= 0)
         shutdown(_socket, SHUT_RDWR);
@@ -500,18 +515,27 @@ cleanup:
 }
 
 - (BOOL)pumpTerminal:(LIBSSH2_CHANNEL *)channel {
+    _terminalWaitDirections = 0;
     if (!channel || libssh2_channel_eof(channel))
         return YES;
     NSString *failure = nil;
-    [_lock lock];
-    NSData *pending = [_outgoing copy];
-    [_lock unlock];
+    if (!_terminalWrite) {
+        [_lock lock];
+        if (_outgoing.length)
+            _terminalWrite = [_outgoing subdataWithRange:NSMakeRange(0, MIN(_outgoing.length, 32700))];
+        [_lock unlock];
+    }
+    // New keystrokes must not change the arguments of an EAGAIN retry.
+    NSData *pending = _terminalWrite;
     if (pending.length) {
         ssize_t sent = libssh2_channel_write(channel, pending.bytes, pending.length);
+        if (sent == LIBSSH2_ERROR_EAGAIN)
+            _terminalWaitDirections |= libssh2_session_block_directions(_workerSession);
         if (sent > 0) {
             [_lock lock];
             [_outgoing replaceBytesInRange:NSMakeRange(0, sent) withBytes:NULL length:0];
             [_lock unlock];
+            _terminalWrite = nil;
         } else if (sent < 0 && sent != LIBSSH2_ERROR_EAGAIN) {
             failure = @"The SSH connection was interrupted.";
             return NO;
@@ -522,11 +546,16 @@ cleanup:
     int cols = (int)_columns;
     int rows = (int)_rows;
     [_lock unlock];
-    if (resize && libssh2_channel_request_pty_size(channel, cols, rows) == 0) {
-        [_lock lock];
-        if (cols == _columns && rows == _rows)
-            _resizePending = NO;
-        [_lock unlock];
+    if (resize) {
+        int rc = libssh2_channel_request_pty_size(channel, cols, rows);
+        if (rc == 0) {
+            [_lock lock];
+            if (cols == _columns && rows == _rows)
+                _resizePending = NO;
+            [_lock unlock];
+        } else if (rc == LIBSSH2_ERROR_EAGAIN) {
+            _terminalWaitDirections |= libssh2_session_block_directions(_workerSession);
+        }
     }
     char buffer[32768];
     for (int stream = 0; stream < 2; stream++) {
@@ -541,6 +570,8 @@ cleanup:
         if (count < 0 && count != LIBSSH2_ERROR_EAGAIN && !libssh2_channel_eof(channel)) {
             failure = @"The SSH connection was interrupted.";
         }
+        if (count == LIBSSH2_ERROR_EAGAIN)
+            _terminalWaitDirections |= libssh2_session_block_directions(_workerSession);
     }
     if (failure)
         return NO;
@@ -633,13 +664,20 @@ cleanup:
             [self disconnect];
             return NO;
         }
+        // A terminal write may also need socket readiness. Preserve both
+        // operations' directions, rather than waiting only for SFTP replies.
+        int terminalDirection = _terminalWaitDirections;
+        if (terminalDirection & LIBSSH2_SESSION_BLOCK_INBOUND)
+            events |= POLLIN;
+        if (terminalDirection & LIBSSH2_SESSION_BLOCK_OUTBOUND)
+            events |= POLLOUT;
     }
     if (atomic_load(&_stopped) || monotonicTime() >= deadline) {
         [self disconnect];
         return NO;
     }
     struct pollfd pending = {_socket, events, 0};
-    poll(&pending, 1, 50);
+    poll(&pending, 1, _workerChannel && atomic_load(&_terminalVisible) ? 10 : 50);
     return !atomic_load(&_stopped) && monotonicTime() < deadline;
 }
 - (NSDictionary *)performFileRequest:(NSDictionary *)request {
@@ -687,30 +725,6 @@ cleanup:
         }
     } else {
         NSString *localPath = request[@"local"];
-        if (upload && self.onFileConflict) {
-            LIBSSH2_SFTP_ATTRIBUTES existing = {0};
-            do {
-                rc = libssh2_sftp_lstat(_sftp, path.UTF8String, &existing);
-            } while (rc == LIBSSH2_ERROR_EAGAIN && [self waitForFileUntil:deadline]);
-            if (!rc) {
-                if (!(existing.flags & LIBSSH2_SFTP_ATTR_PERMISSIONS) ||
-                    (existing.permissions & LIBSSH2_SFTP_S_IFMT) != LIBSSH2_SFTP_S_IFREG) {
-                    error = @"Only regular destination files can be overwritten.";
-                    goto finish;
-                }
-                if (![self approveReplacement:path]) {
-                    error = @"Transfer stopped. No replacement was made.";
-                    goto finish;
-                }
-                replacing = YES;
-                remoteStaging = [self appendName:[@".farcast-transfer-" stringByAppendingString:NSUUID.UUID.UUIDString]
-                                          toPath:path.stringByDeletingLastPathComponent];
-            } else if (libssh2_sftp_last_error(_sftp) != LIBSSH2_FX_NO_SUCH_FILE) {
-                error = @"Could not check the server destination.";
-                goto finish;
-            }
-            deadline = monotonicTime() + 30;
-        }
         if (!upload) {
             struct stat existing;
             int found = lstat(localPath.fileSystemRepresentation, &existing);
@@ -743,6 +757,7 @@ cleanup:
         if (upload)
             total = st.st_size;
     }
+openRemote:
     do {
         NSString *openPath = remoteStaging ?: path;
         handle = libssh2_sftp_open_ex(_sftp, openPath.UTF8String, (unsigned int)strlen(openPath.UTF8String),
@@ -752,6 +767,31 @@ cleanup:
                                       0600, listing ? LIBSSH2_SFTP_OPENDIR : LIBSSH2_SFTP_OPENFILE);
     } while (!handle && libssh2_session_last_errno(_workerSession) == LIBSSH2_ERROR_EAGAIN &&
              [self waitForFileUntil:deadline]);
+    if (!handle && upload && self.onFileConflict && !remoteStaging && !atomic_load(&_filesCancelled) &&
+        !atomic_load(&_stopped)) {
+        // Exclusive create is the conflict check for new destinations: one request,
+        // no replacement and no symlink following. Inspect only a failed create.
+        LIBSSH2_SFTP_ATTRIBUTES existing = {0};
+        do {
+            rc = libssh2_sftp_lstat(_sftp, path.UTF8String, &existing);
+        } while (rc == LIBSSH2_ERROR_EAGAIN && [self waitForFileUntil:deadline]);
+        if (!rc) {
+            if (!(existing.flags & LIBSSH2_SFTP_ATTR_PERMISSIONS) ||
+                (existing.permissions & LIBSSH2_SFTP_S_IFMT) != LIBSSH2_SFTP_S_IFREG) {
+                error = @"Only regular destination files can be overwritten.";
+                goto finish;
+            }
+            if (![self approveReplacement:path]) {
+                error = @"Transfer stopped. No replacement was made.";
+                goto finish;
+            }
+            replacing = YES;
+            remoteStaging = [self appendName:[@".farcast-transfer-" stringByAppendingString:NSUUID.UUID.UUIDString]
+                                      toPath:path.stringByDeletingLastPathComponent];
+            deadline = monotonicTime() + 30;
+            goto openRemote;
+        }
+    }
     if (!handle) {
         error = @"Could not open the server item. Check permissions; existing files are never replaced.";
         goto finish;
@@ -789,7 +829,12 @@ cleanup:
                 @"name" : entry,
                 @"directory" : @(type == LIBSSH2_SFTP_S_IFDIR),
                 @"regular" : @(type == LIBSSH2_SFTP_S_IFREG),
-                @"size" : @(attrs.filesize)
+                @"size" : @(attrs.filesize),
+                @"snapshot" : (attrs.flags & (LIBSSH2_SFTP_ATTR_PERMISSIONS | LIBSSH2_SFTP_ATTR_SIZE |
+                                              LIBSSH2_SFTP_ATTR_ACMODTIME)) ==
+                        (LIBSSH2_SFTP_ATTR_PERMISSIONS | LIBSSH2_SFTP_ATTR_SIZE | LIBSSH2_SFTP_ATTR_ACMODTIME)
+                    ? remoteSnapshot(attrs)
+                    : @{}
             }];
             if (![self pumpTerminal:_workerChannel]) {
                 [self disconnect];
@@ -812,16 +857,25 @@ cleanup:
             }
             total = attrs.filesize;
         }
-        // libssh2 pipelines the SFTP packets inside this bounded window. A
-        // single 32 KiB call otherwise waits for an ACK per application chunk.
-        NSMutableData *window = [NSMutableData dataWithLength:upload ? 4 * 1024 * 1024 : 256 * 1024];
+        // Mark each leaf's start so UI throughput never spans unrelated files.
+        if (self.onFileProgress)
+            self.onFileProgress(requestID, 0, total);
+        // Files-only presentation retains the bulk pipeline. Interactive
+        // presentation bounds data queued ahead of terminal packets on the
+        // shared TCP stream (SFTP reads request four times the offered size).
+        NSUInteger maximumWindow = upload ? 4 * 1024 * 1024 : 1024 * 1024;
+        NSUInteger windowSize = (NSUInteger)MIN(MAX(1ULL, total), maximumWindow);
+        NSMutableData *window = [NSMutableData dataWithLength:windowSize];
         char *buffer = window.mutableBytes;
         size_t bufferSize = window.length;
         double lastProgress = 0;
         while (!atomic_load(&_stopped) && !atomic_load(&_filesCancelled)) {
+            size_t budget = _workerChannel && atomic_load(&_terminalVisible)
+                                ? MIN(bufferSize, upload ? 128 * 1024 : 32 * 1024)
+                                : bufferSize;
             ssize_t count;
             do {
-                count = upload ? read(fd, buffer, bufferSize) : libssh2_sftp_read(handle, buffer, bufferSize);
+                count = upload ? read(fd, buffer, budget) : libssh2_sftp_read(handle, buffer, budget);
             } while (!upload && count == LIBSSH2_ERROR_EAGAIN && [self waitForFileUntil:deadline]);
             if (atomic_load(&_filesCancelled))
                 break;
@@ -832,8 +886,14 @@ cleanup:
             if (count < 0)
                 break;
             ssize_t offset = 0;
+            size_t offered = 0;
             while (offset < count && !atomic_load(&_stopped)) {
-                ssize_t written = upload ? libssh2_sftp_write(handle, buffer + offset, count - offset)
+                if (!offered) {
+                    budget =
+                        _workerChannel && atomic_load(&_terminalVisible) ? MIN(bufferSize, 128 * 1024) : bufferSize;
+                    offered = MIN(count - offset, budget);
+                }
+                ssize_t written = upload ? libssh2_sftp_write(handle, buffer + offset, offered)
                                          : write(fd, buffer + offset, count - offset);
                 if (upload && (written == LIBSSH2_ERROR_EAGAIN || written == 0)) {
                     if ([self waitForFileUntil:deadline])
@@ -844,30 +904,33 @@ cleanup:
                     break;
                 offset += written;
                 bytes += written;
+                offered = 0;
                 deadline = monotonicTime() + 30;
                 // Refill only after a positive acknowledgement, never on EAGAIN:
                 // libssh2 requires identical unacknowledged bytes on retries.
                 // Keeping the bounded window full avoids draining it between reads.
-                if (upload && offset >= 256 * 1024 && !atomic_load(&_filesCancelled)) {
+                if (upload && offset >= MAX(32 * 1024, budget / 4) && !atomic_load(&_filesCancelled)) {
                     size_t remaining = count - offset;
                     memmove(buffer, buffer + offset, remaining);
-                    ssize_t added = read(fd, buffer + remaining, bufferSize - remaining);
+                    // After switching to Split, drain previously queued bulk
+                    // bytes before adding more; a TCP stream cannot reorder them.
+                    ssize_t added = remaining < budget ? read(fd, buffer + remaining, budget - remaining) : 0;
                     if (added < 0) {
                         error = @"Could not read the upload source.";
                         break;
                     }
                     count = remaining + added;
                     offset = 0;
-                    if (monotonicTime() - _lastTerminalPump >= 0.01) {
-                        _lastTerminalPump = monotonicTime();
-                        if (![self pumpTerminal:_workerChannel]) {
-                            [self disconnect];
-                            break;
-                        }
-                    }
                     if (self.onFileProgress && monotonicTime() - lastProgress >= 0.1) {
                         self.onFileProgress(requestID, bytes, total);
                         lastProgress = monotonicTime();
+                    }
+                }
+                if (upload && monotonicTime() - _lastTerminalPump >= 0.01) {
+                    _lastTerminalPump = monotonicTime();
+                    if (![self pumpTerminal:_workerChannel]) {
+                        [self disconnect];
+                        break;
                     }
                 }
             }
@@ -890,10 +953,13 @@ cleanup:
     }
 finish:
     if (handle) {
-        double closeDeadline = monotonicTime() + 5;
+        // Download read-ahead can leave up to four windows of replies ahead
+        // of CLOSE on a slow peer. Allow bounded draining without abandoning
+        // the shared login, and keep servicing terminal I/O while it completes.
+        double closeDeadline = monotonicTime() + (upload || listing ? 5 : 10);
         do {
             rc = libssh2_sftp_close_handle(handle);
-        } while (rc == LIBSSH2_ERROR_EAGAIN && [self waitSocket:_workerSession deadline:closeDeadline]);
+        } while (rc == LIBSSH2_ERROR_EAGAIN && [self waitForFileUntil:closeDeadline]);
         if (rc) {
             error = @"The server did not confirm closing the file. Check for an incomplete file.";
             complete = NO;
@@ -952,13 +1018,7 @@ finish:
     } while (rc == LIBSSH2_ERROR_EAGAIN && [self waitForFileUntil:deadline]);
     if (rc || !(attrs.flags & LIBSSH2_SFTP_ATTR_PERMISSIONS))
         return @{@"error" : @"Could not inspect the server item."};
-    unsigned long type = attrs.permissions & LIBSSH2_SFTP_S_IFMT;
-    return @{
-        @"directory" : @(type == LIBSSH2_SFTP_S_IFDIR),
-        @"regular" : @(type == LIBSSH2_SFTP_S_IFREG),
-        @"size" : @(attrs.filesize),
-        @"modified" : @(attrs.mtime)
-    };
+    return remoteSnapshot(attrs);
 }
 - (NSDictionary *)localAttributes:(NSString *)path {
     struct stat st;
@@ -984,18 +1044,44 @@ finish:
        requestID:(NSString *)requestID {
     if (atomic_load(&_stopped) || atomic_load(&_filesCancelled) || depth > 64 || manifest.count >= 20000)
         return NO;
-    NSDictionary *attrs = remote ? [self remoteAttributes:path] : [self localAttributes:path];
+    return [self scanPath:path
+                   remote:remote
+                 relative:relative
+                    depth:depth
+                 manifest:manifest
+                requestID:requestID
+          knownAttributes:nil];
+}
+- (BOOL)scanPath:(NSString *)path
+             remote:(BOOL)remote
+           relative:(NSString *)relative
+              depth:(NSUInteger)depth
+           manifest:(NSMutableArray *)manifest
+          requestID:(NSString *)requestID
+    knownAttributes:(NSDictionary *)knownAttributes {
+    if (atomic_load(&_stopped) || atomic_load(&_filesCancelled) || depth > 64 || manifest.count >= 20000)
+        return NO;
+    // READDIR already carries metadata. Reuse complete snapshots for preflight,
+    // with LSTAT fallback for servers omitting fields. Transfer-time source
+    // identity/metadata rechecks and move-deletion checks remain independent.
+    NSDictionary *attrs = knownAttributes ?: (remote ? [self remoteAttributes:path] : [self localAttributes:path]);
     if (attrs[@"error"] || (![attrs[@"directory"] boolValue] && ![attrs[@"regular"] boolValue]))
         return NO;
     [manifest addObject:@{@"relative" : relative, @"attributes" : attrs}];
     if (![attrs[@"directory"] boolValue])
         return YES;
     NSArray *names;
+    NSMutableDictionary *snapshots = [NSMutableDictionary new];
     if (remote) {
         NSDictionary *listing = [self performFileRequest:@{@"id" : requestID, @"path" : path, @"kind" : @"list"}];
         if (listing[@"error"])
             return NO;
         names = [listing[@"entries"] valueForKey:@"name"];
+        for (NSDictionary *entry in listing[@"entries"]) {
+            NSDictionary *snapshot = entry[@"snapshot"];
+            if (snapshot.count)
+                snapshots[entry[@"name"]] = snapshot;
+        }
     } else {
         names = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:path error:nil];
         if (!names)
@@ -1008,7 +1094,13 @@ finish:
             return NO;
         NSString *child = [self appendName:name toPath:path];
         NSString *rel = relative.length ? [self appendName:name toPath:relative] : name;
-        if (![self scanPath:child remote:remote relative:rel depth:depth + 1 manifest:manifest requestID:requestID])
+        if (![self scanPath:child
+                         remote:remote
+                       relative:rel
+                          depth:depth + 1
+                       manifest:manifest
+                      requestID:requestID
+                knownAttributes:snapshots[name]])
             return NO;
     }
     return YES;
@@ -1188,6 +1280,9 @@ finish:
     return @{@"items" : @(manifest.count)};
 }
 
+- (void)setTerminalVisible:(BOOL)visible {
+    atomic_store(&_terminalVisible, visible);
+}
 - (void)sendData:(NSData *)data {
     [_lock lock];
     if (!_terminalUnavailable && !atomic_load(&_stopped) && _outgoing.length + data.length <= 1024 * 1024)

@@ -23,7 +23,7 @@ struct ConnectionEditor: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Image(systemName: draft.kind.icon).font(.title2).foregroundStyle(.tint).frame(width: 44, height: 44)
+                Image(systemName: draft.kind.icon).font(.title2).foregroundStyle(.tint).frame(width: 32, height: 32)
                     .background(.tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
                 VStack(alignment: .leading, spacing: 3) {
                     Text(
@@ -89,7 +89,7 @@ struct ConnectionEditor: View {
                     commit(connect: true)
                 }.keyboardShortcut(.defaultAction).disabled(draft.validationMessage != nil)
             }.padding(18)
-        }.buttonStyle(ComfortableButtonStyle()).controlSize(.large).frame(width: 760)
+        }.buttonStyle(.bordered).controlSize(.regular).frame(width: 760)
             .sheet(isPresented: $showWireGuard) { WireGuardLibrary() }
             .onAppear {
                 do { if let stored = try CredentialStore.load(draft.id) { credential = stored } } catch {
@@ -288,7 +288,7 @@ private struct ConnectionOptionsStyle: DisclosureGroupStyle {
                     Spacer()
                     Image(systemName: configuration.isExpanded ? "chevron.down" : "chevron.right")
                         .font(.body.weight(.semibold)).foregroundStyle(.secondary)
-                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                }.frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
                     .contentShape(Rectangle())
             }.buttonStyle(.plain)
                 .accessibilityValue(configuration.isExpanded ? "Expanded" : "Collapsed")

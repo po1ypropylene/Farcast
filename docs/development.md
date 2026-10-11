@@ -58,14 +58,19 @@ source for the app's version (`MARKETING_VERSION`, such as `0.1.0`) and build nu
 read it; do not override these values in the project settings. Increase the build
 number for another build of the same version.
 
-To build an app and a DMG for uploading later, run:
+Every completed logical app code change requires a new versioned DMG. The existing
+agent rules advance the version using Semantic Versioning once per delivery. Starting
+with 1.7.0, add dated user-visible line items to [CHANGELOG.md](../CHANGELOG.md) before
+packaging; keep earlier entries. Documentation-only changes do not need a new app version.
+
+To build the app and required DMG, run:
 
 ```sh
 scripts/build-dmg.sh
 ```
 
 The script builds and verifies the Release app, copies it into a compressed,
-read-only DMG alongside an Applications shortcut, mounts the image to verify the
+read-only DMG alongside an Applications shortcut and CHANGELOG.md, mounts the image to verify the
 packaged app's signatures/libraries/loader, then ejects it. It writes:
 
 ```text
@@ -81,11 +86,15 @@ Upload the DMG as a GitHub release asset when ready; the SHA256 file is optional
 To check a downloaded DMG, place both files together and run
 `shasum -a 256 -c <filename>.dmg.sha256` from that directory.
 
-This workflow uses the current **ad-hoc, unnotarized development build**. It does
+This workflow uses a **certificate-signed, unnotarized development build**. It does
 not provide Developer ID signing or notarization; those remain a separate
 production-release task. Users drag Farcast into Applications after
 opening the DMG. Test the installed copy on another Apple silicon Mac before a
 public release. The minimum supported system is macOS 27.
+
+Keep the ignored `.local-signing` directory across local rebuilds. It pins the
+certificate and app requirement so updates retain Keychain identity. See
+[packaging](packaging.md) for certificate setup, renewal and explicit ad-hoc scratch builds.
 
 
 ## Dependency and output layout
