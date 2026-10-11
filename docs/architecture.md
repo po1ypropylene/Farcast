@@ -138,11 +138,35 @@ Terminal background fills respect every safe-area edge, including the navigation
 split view's sidebar boundary. Terminal and Split modes use the same bounded fill;
 the connection sidebar retains its native material independently of terminal themes.
 
-The grouped connection Form is the editor's only scrolling owner, with fixed header
-and actions. It omits organization/notes controls in all modes while preserving existing
-data. Full-width disclosure rows announce their state. Server address and port are
-separate; validation rejects combined host:port while preserving IPv6. Tabs use
-compact 28-point capsule Liquid Glass, normal body text and independent
+The connection editor uses one 128-point label column and 12-point gaps with bordered
+native inputs in a fixed 540 × 600-point sheet (height capped for its presenting
+window). Pinned text tabs replace the earlier short advanced scroll region: General,
+Display and Devices & audio for RDP, or General and Terminal for SSH, with Security
+when editing or when the entered endpoint already has a stored identity. Each selected
+tab owns the entire body and one scroll view; header, tab bar and actions stay fixed.
+The body scrolls for short windows or long selected-folder lists. Session-local tab
+state starts on General and falls back there if its tab becomes unavailable.
+
+All tabs share the draft and credential state, so changing tabs neither reloads nor
+resets settings/secrets. Existing validation rules still disable saving; a marked tab
+and clickable footer hint reveal the field needing attention. Edit initially clears
+automatic text selection; New/Quick Connect initially focus Address. Protocol editing,
+Save with unchanged settings and all existing credential behavior remain available.
+Security retains forgetting an existing identity when entering a previously trusted
+endpoint in a new profile.
+
+This is a presentation-only redesign. The Display popup maps Resize with window to
+existing fit plus dynamicResolution=true, and Fit to window to fit plus false.
+100% with scrolling and Match window at connection retain their original stored modes;
+non-Match modes still expose initial/fixed dimensions. The preset menu writes only the existing desktopWidth/desktopHeight values on explicit
+selection. Unmatched sizes open as Custom, and custom-entry state survives tab switches.
+Opening the form does not rewrite any settings. Credential storage/disclosure, protocol-switch resets, terminal settings,
+validation, Cancel/Esc and Save/Save & Connect/Return keep their existing behavior.
+The edit title identifies the profile; saving still applies settings on reconnect and
+Save & Connect still opens a session. No new reconnect action or terminal inheritance
+is introduced. Organization/notes stay preserved without editor controls.
+
+Tabs use compact 28-point capsule Liquid Glass, normal body text and independent
 22-point close targets. Icon actions use 24-point borderless native buttons; other
 controls use regular native bordered/glass styles without enlarged labels or touch
 margins. The Mac interface follows Safari proportions; future iPad sizing is separate.
@@ -159,6 +183,56 @@ and fixes that initial size (200–8192) until reconnect. Delivered server dimen
 remain authoritative. Fixed modes disable resize requests. Native NSScrollView clips
 and pans, with pointer coordinates derived from the same render rectangle. Scrollbars
 and Option-scroll pan locally; ordinary scrolling reaches Windows.
+
+Optional `rdpLaunchFullScreen`, `rdpUseAllMonitors` and `rdpRetinaDisplay` metadata
+preserves older profile identities; nil means the existing single-display defaults.
+The startup display snapshot uses current AppKit screen IDs (not persisted enumeration
+indices), ignores mirrored slaves, and converts logical geometry into signed primary-relative
+remote monitor rectangles. Retina scales each monitor's pixel size and Windows desktop
+scale separately, then reconstructs touching edges rather than multiplying global origins.
+FreeRDP serializes initial monitor data/attributes. Device scale remains protocol-valid;
+unknown physical dimensions are omitted. Geometry is validated in Swift and the native
+adapter: 1–16 touching, non-overlapping monitors; each up to 8192 pixels per side; the
+combined surface up to 16384 per side and 64 Mi pixels. Unsupported arrangements fail
+with an explicit explanation, without silently dropping displays.
+
+The session requests one remote desktop and waits for effective GDI dimensions. Multiple
+full-screen targets also require a matching server Monitor Layout PDU; missing/mismatched
+confirmation leaves a usable aggregate desktop in the workspace with an explanation after
+five seconds. Each borderless native window maps one confirmed source region to its local
+screen. All surfaces read one shared, immutable latest-frame mailbox; GPU uploads are cropped
+per region and the windowed texture is retired during full screen. No per-monitor login or
+full-desktop copy/queue is introduced. Input uses the inverse rendering transform and
+positive framebuffer coordinates; cursor image/hotspot scale with that transform. Padding
+rejects pointer input. Server geometry changes retire the full-screen targets before new
+regions are presented. Exit Full Screen / Control–Command–F returns to the existing session;
+Escape continues to reach Windows. Window activation retains one workspace clipboard owner.
+
+The top-right RDP full-screen action observes the session's presentation/connection state
+and reopens the existing authenticated desktop in attached or detached windows. Confirmed
+multi-monitor sessions reuse their negotiated layout after checking that local displays
+still match the connection snapshot. A single display fits the current server dimensions,
+including after windowed resizing or windowed startup, without renegotiation. SSH keeps
+the Mac-window full-screen action; RDP window full screen remains available through macOS
+window controls. Re-entry is refused with a notice for unconfirmed or changed multi-monitor
+geometry, and creates no new transport or authentication request.
+
+Retina is opt-in for initial/fixed geometry and Windows UI scaling. Legacy dynamic resizing
+already requests backing-sized pixels and retains that behavior when the new option is off.
+Window/backing changes refresh local drawable geometry. Single-display resize requests are
+coalesced, require received Display Control count/area caps and have a five-second observation
+notice. Channel submission is not acceptance. Multi-monitor geometry stays fixed until
+reconnect; hotplug/rotation/topology changes exit to the workspace with a reconnect notice.
+This release does not implement live multi-monitor topology updates. Reconnect creates new
+caps, generation and monitor state; disconnect closes all targets and releases input.
+
+Protocol contracts: [initial monitor data](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/a8029f8e-01e1-4f19-af67-bcad5bdef624),
+[monitor attributes](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/8fb3a83c-f3e2-4a81-8824-8173af03b6bc),
+[Display Control layout](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpedisp/ea2de591-9203-42cd-9908-be7a55237d1c), and
+[pointer coordinates](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/2c1ced34-340a-46cd-be6e-fc8cab7c3b17).
+The supplied display research informed the public-contract design; no reference application
+code/assets were copied or its installed app executed. Physical Mac/Windows validation is
+separate from synthetic protocol and renderer evidence.
 
 The worker retains clipboard updates before channel attachment and advertises after
 MonitorReady. The selected session synchronizes before paste and on its timer.
@@ -392,6 +466,6 @@ are required. See [development](development.md), [packaging](packaging.md) and
 
 Deferred: SCP/WebDAV, SFTP resume/Finder download promises, SSH
 config/agent/jump hosts/forwarding/certificates/hardware keys, RDP Gateway/RemoteApp/
-microphone/other devices/multiple monitors/hardware video, nested folders/cloud sync/
+microphone/other devices/hardware video, nested folders/cloud sync/
 updater. The source license is undecided; synthetic passes do not establish production
 interoperability or distribution readiness.

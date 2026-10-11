@@ -151,3 +151,32 @@ The proxy models propagation delay, not a bandwidth limit, packet loss or a prod
 server. Large workloads/high file counts can take minutes. The optional baseline
 must be compatible with the current adapter header. Fixtures/keys/binaries/local data
 are removed on exit. Keep only summarized measurements in docs/validation.md.
+
+## RDP display regressions
+
+`scripts/test-display-migration.sh` opens a disposable pre-display SwiftData store with
+the current schema and checks IDs, metadata, dimensions, legacy defaults and new-option
+round trips. Core tests cover signed/portrait/mixed-DPI topology, even-width normalization,
+invalid/gapped/overlapping/oversized layouts, pixel budgets and input inverse transforms.
+
+`scripts/test-rdp.sh` and the NLA wrapper also run native settings/capability checks.
+The pinned sample peer decodes actual initial monitor blocks/DPI attributes and checks
+pointer events for both framebuffer regions. The peer does not send Monitor Layout
+confirmation; this evidence proves negotiation/input submission, not Windows acceptance.
+`scripts/test-workspace.sh` exercises production cropped Metal uploads, marked source
+pixels, Retina/crop input mapping, letterbox refusal, stale-frame retirement and native
+full-screen teardown in owned off-screen windows, without user desktop input.
+
+`scripts/test-rdp-display-session.sh` independently pins its generated peer certificate
+and injects off-screen screen snapshots into the production session. It verifies Retina
+startup and repeated exit/re-entry without reconnecting or duplicate visible windows,
+windowed startup entering full screen at its current server dimensions,
+a finite missing-monitor-reply fallback (including refused unsafe re-entry), and cancellation/
+worker drain during pending startup. No real endpoint, saved credentials or user clipboard
+is used. The snapshot provider defaults to AppKit in the shipped app.
+
+Real validation still needs two/three physical displays (left/above/portrait), Retina
+plus 1× screens, Windows per-monitor maximize/DPI, cursor targets, Spaces/mirroring,
+repeated exit/top-right re-entry in attached and detached sessions, hotplug/rotation,
+unsupported policies and performance measurements. Do not claim these
+from settings success, channel writes or synthetic framebuffer tests.

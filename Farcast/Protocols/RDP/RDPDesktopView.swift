@@ -11,10 +11,17 @@ struct DesktopFrame {
 final class FrameMailbox: @unchecked Sendable {
     private let lock = NSLock()
     private var frame: DesktopFrame?
+    private var sequence: UInt64 = 0
     func put(_ next: DesktopFrame) {
         lock.lock()
         frame = next
+        sequence &+= 1
         lock.unlock()
+    }
+    func snapshot() -> (UInt64, DesktopFrame)? {
+        lock.lock()
+        defer { lock.unlock() }
+        return frame.map { (sequence, $0) }
     }
     func take() -> DesktopFrame? {
         lock.lock()
@@ -26,7 +33,22 @@ final class FrameMailbox: @unchecked Sendable {
 }
 
 final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
-    nonisolated let mailbox = FrameMailbox()
+    nonisolated let mailbox: FrameMailbox
+    var sourceRect: CGRect?
+    var expectedDesktopSize: CGSize?
+    var retinaDisplay = false
+    var exitFullScreen: (() -> Void)?
+    var routePointer: ((NSEvent) -> CGPoint?)?
+    private var lastPointerPoint: CGPoint?
+    private var pressedMouseButtons = Set<Int>()
+    private var renderedSequence: UInt64?
+    func suspendRendering(_ suspended: Bool) {
+        isPaused = suspended
+        if suspended {
+            texture = nil
+            renderedSequence = nil
+        }
+    }
     var sendKey: ((Int, Bool, Bool) -> Void)?
     var sendUnicode: ((Int, Bool) -> Void)?
     var preparePaste: (() -> Void)?
@@ -39,6 +61,7 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     func setDesktopSize(_ size: CGSize) {
         frameSize = size
         viewport?.layoutDesktop()
+        refreshCursor()
     }
     func withInitialSize(width: Int, height: Int, completion: @escaping (CGSize) -> Void) {
         if displayMode != .matchWindow {
@@ -56,19 +79,22 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     func viewportDidLayout(_ size: CGSize) {
         guard size.width > 0, size.height > 0, let completion = initialSizeReady else { return }
         initialSizeReady = nil
+        let scale = retinaDisplay ? window?.backingScaleFactor ?? 1 : 1
         let initial = CGSize(
-            width: min(8192, max(200, size.width.rounded(.down))),
-            height: min(8192, max(200, size.height.rounded(.down))))
+            width: min(8192, max(200, retinaDisplay ? floor(size.width * scale / 2) * 2 : size.width.rounded(.down))),
+            height: min(8192, max(200, floor(size.height * scale))))
         setDesktopSize(initial)
         completion(initial)
     }
     var desktopSize: CGSize { frameSize }
-    private var texture: MTLTexture?
+    private(set) var texture: MTLTexture?
     private var pipeline: MTLRenderPipelineState?
     private var queue: MTLCommandQueue?
     private var frameSize = CGSize(width: 1440, height: 900)
     private var resizeTask: DispatchWorkItem?
     private var remoteCursor = NSCursor.arrow
+    private var cursorImage: CGImage?
+    private var cursorHotSpot = CGPoint.zero
     private var pressedKeys: [UInt16: (Int, Bool)] = [:]
     private var modifierKeys: [UInt16: (Int, Bool)] = [:]
     private var marked = NSAttributedString(string: "")
@@ -96,7 +122,8 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         120: (0x3C, false), 121: (0x51, true), 122: (0x3B, false), 123: (0x4B, true), 124: (0x4D, true),
         125: (0x50, true), 126: (0x48, true),
     ]
-    init(frame: NSRect) {
+    init(frame: NSRect, mailbox: FrameMailbox = FrameMailbox()) {
+        self.mailbox = mailbox
         let device = MTLCreateSystemDefaultDevice()
         super.init(frame: frame, device: device)
         colorPixelFormat = .bgra8Unorm
@@ -136,27 +163,41 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         return super.resignFirstResponder()
     }
     nonisolated func submit(_ data: Data, width: Int, height: Int, stride: Int) {
-        guard width > 0, height > 0, width <= 8192, height <= 8192, stride >= width * 4, data.count >= stride * height
+        guard width > 0, height > 0, width <= RDPDisplayLimits.dimension, height <= RDPDisplayLimits.dimension,
+            width * height <= RDPDisplayLimits.pixels, stride >= width * 4, stride <= RDPDisplayLimits.dimension * 4,
+            data.count >= stride * height
         else { return }
         mailbox.put(DesktopFrame(pixels: data, width: width, height: height, stride: stride))
     }
     func draw(in view: MTKView) {
-        if let frame = mailbox.take(), let device {
-            if texture?.width != frame.width || texture?.height != frame.height {
+        if let (sequence, frame) = mailbox.snapshot(), sequence != renderedSequence, let device {
+            let region = sourceRect ?? CGRect(x: 0, y: 0, width: frame.width, height: frame.height)
+            guard region.minX >= 0, region.minY >= 0, region.maxX <= CGFloat(frame.width),
+                region.maxY <= CGFloat(frame.height), region.width > 0, region.height > 0,
+                expectedDesktopSize == nil || expectedDesktopSize == CGSize(width: frame.width, height: frame.height)
+            else {
+                texture = nil
+                return
+            }
+            let width = Int(region.width)
+            let height = Int(region.height)
+            if texture?.width != width || texture?.height != height {
                 let descriptor = MTLTextureDescriptor.texture2DDescriptor(
-                    pixelFormat: .bgra8Unorm, width: frame.width, height: frame.height, mipmapped: false)
+                    pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false)
                 descriptor.usage = .shaderRead
                 descriptor.storageMode = .shared
                 texture = device.makeTexture(descriptor: descriptor)
-                setDesktopSize(CGSize(width: frame.width, height: frame.height))
+                setDesktopSize(CGSize(width: width, height: height))
             }
             frame.pixels.withUnsafeBytes { bytes in
                 if let base = bytes.baseAddress {
                     texture?.replace(
-                        region: MTLRegionMake2D(0, 0, frame.width, frame.height), mipmapLevel: 0, withBytes: base,
+                        region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0,
+                        withBytes: base.advanced(by: Int(region.minY) * frame.stride + Int(region.minX) * 4),
                         bytesPerRow: frame.stride)
                 }
             }
+            renderedSequence = sequence
         }
         guard let drawable = currentDrawable, let pass = currentRenderPassDescriptor,
             let buffer = queue?.makeCommandBuffer(), let encoder = buffer.makeRenderCommandEncoder(descriptor: pass)
@@ -174,14 +215,21 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         buffer.present(drawable)
         buffer.commit()
     }
-    private func displayRect(in size: CGSize) -> CGRect {
+    func displayRect(in size: CGSize) -> CGRect {
         let factor =
             displayMode == .fit
             ? min(size.width / frameSize.width, size.height / frameSize.height)
-            : size.width / max(1, bounds.width)
+            : size.width / max(1, bounds.width) / (retinaDisplay ? window?.backingScaleFactor ?? 1 : 1)
         let width = frameSize.width * factor
         let height = frameSize.height * factor
         return CGRect(x: (size.width - width) / 2, y: (size.height - height) / 2, width: width, height: height)
+    }
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        drawableSize = convertToBacking(bounds).size
+        viewport?.layoutDesktop()
+        refreshCursor()
+        requestResize()
     }
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) { requestResize() }
     func requestResize() {
@@ -191,10 +239,28 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
             guard let self, self.inputEnabled, self.bounds.width > 0, self.bounds.height > 0 else { return }
             let factor = self.window?.backingScaleFactor ?? 1
             self.resizeRemote?(
-                Int(self.bounds.width * factor), Int(self.bounds.height * factor), factor > 1 ? 200 : 100)
+                Int(self.bounds.width * factor), Int(self.bounds.height * factor),
+                self.retinaDisplay ? Int((factor * 100).rounded()) : (factor > 1 ? 200 : 100))
         }
         resizeTask = task
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: task)
+    }
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        refreshCursor()
+    }
+    private func refreshCursor() {
+        guard let image = cursorImage else { return }
+        let rect = displayRect(in: bounds.size)
+        guard rect.width > 0, rect.height > 0 else { return }
+        let xScale = rect.width / max(1, frameSize.width)
+        let yScale = rect.height / max(1, frameSize.height)
+        remoteCursor = NSCursor(
+            image: NSImage(
+                cgImage: image,
+                size: NSSize(width: CGFloat(image.width) * xScale, height: CGFloat(image.height) * yScale)),
+            hotSpot: NSPoint(x: cursorHotSpot.x * xScale, y: cursorHotSpot.y * yScale))
+        window?.invalidateCursorRects(for: self)
     }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -207,7 +273,8 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     override func resetCursorRects() { addCursorRect(bounds, cursor: remoteCursor) }
     override func cursorUpdate(with event: NSEvent) { remoteCursor.set() }
     func setRemoteCursor(_ data: Data, width: Int, height: Int, hotX: Int, hotY: Int) {
-        guard width > 0, height > 0 else {
+        guard width > 0, height > 0, width <= 512, height <= 512 else {
+            cursorImage = nil
             remoteCursor = .arrow
             window?.invalidateCursorRects(for: self)
             return
@@ -220,20 +287,36 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
                     .byteOrder32Little), provider: provider, decode: nil, shouldInterpolate: true,
                 intent: .defaultIntent)
         else { return }
-        remoteCursor = NSCursor(
-            image: NSImage(cgImage: image, size: NSSize(width: width, height: height)),
-            hotSpot: NSPoint(x: hotX, y: hotY))
-        window?.invalidateCursorRects(for: self)
+        cursorImage = image
+        cursorHotSpot = CGPoint(x: hotX, y: hotY)
+        refreshCursor()
     }
+
     private func pointer(_ event: NSEvent, flags: Int) {
         guard inputEnabled else { return }
+        if let expectedDesktopSize, let (_, frame) = mailbox.snapshot(),
+            expectedDesktopSize != CGSize(width: frame.width, height: frame.height)
+        {
+            return
+        }
         let point = convert(event.locationInWindow, from: nil)
         let rect = displayRect(in: bounds.size)
-        let x = min(frameSize.width - 1, max(0, (point.x - rect.minX) * frameSize.width / max(1, rect.width)))
-        let y = min(
-            frameSize.height - 1, max(0, (bounds.height - point.y - rect.minY) * frameSize.height / max(1, rect.height))
-        )
-        sendPointer?(flags, Int(x), Int(y))
+        let source = sourceRect ?? CGRect(origin: .zero, size: frameSize)
+        let transform = RDPDisplayTransform(source: source, destination: rect)
+        let release = flags & 0x8000 == 0 && flags & 0x7000 != 0
+        var mapped = transform.remotePoint(local: point, viewHeight: bounds.height)
+        if mapped == nil
+            && (release || [.leftMouseDragged, .rightMouseDragged, .otherMouseDragged].contains(event.type))
+        {
+            mapped = routePointer?(event)
+        }
+        if mapped == nil && release { mapped = lastPointerPoint }
+        guard let mapped else { return }
+        lastPointerPoint = mapped
+        let button = flags & 0x7000
+        if flags & 0x8000 != 0 && button != 0 { pressedMouseButtons.insert(button) }
+        if release { pressedMouseButtons.remove(button) }
+        sendPointer?(flags, Int(mapped.x), Int(mapped.y))
     }
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
@@ -300,6 +383,10 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         }
     }
     func releaseInput() {
+        if let point = lastPointerPoint {
+            for button in pressedMouseButtons { sendPointer?(button, Int(point.x), Int(point.y)) }
+        }
+        pressedMouseButtons.removeAll()
         for code in pressedKeys.values { sendKey?(code.0, false, code.1) }
         for code in modifierKeys.values { sendKey?(code.0, false, code.1) }
         pressedKeys.removeAll()
@@ -308,6 +395,13 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard inputEnabled, window?.firstResponder === self else { return false }
         let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if modifiers == [.command, .control], event.charactersIgnoringModifiers?.lowercased() == "f",
+            let exitFullScreen
+        {
+            releaseInput()
+            exitFullScreen()
+            return true
+        }
         if modifiers == .command, [UInt16(8), 9, 7, 0].contains(event.keyCode),
             let code = Self.scanCodes[event.keyCode]
         {
@@ -406,8 +500,12 @@ final class RDPViewport: NSScrollView {
             desktop.displayMode == .fit
             ? available
             : CGSize(
-                width: max(available.width, desktop.desktopSize.width),
-                height: max(available.height, desktop.desktopSize.height))
+                width: max(
+                    available.width,
+                    desktop.desktopSize.width / (desktop.retinaDisplay ? desktop.window?.backingScaleFactor ?? 1 : 1)),
+                height: max(
+                    available.height,
+                    desktop.desktopSize.height / (desktop.retinaDisplay ? desktop.window?.backingScaleFactor ?? 1 : 1)))
         if desktop.frame.size != size { desktop.setFrameSize(size) }
         hasHorizontalScroller = desktop.displayMode != .fit
         hasVerticalScroller = desktop.displayMode != .fit

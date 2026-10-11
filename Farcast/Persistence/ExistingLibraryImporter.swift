@@ -88,6 +88,9 @@ enum PreviousLibraryIdentity {
                 copy.protocolName = profile.protocolName
                 copy.authentication = profile.authentication
                 copy.rdpDisplayMode = profile.rdpDisplayMode
+                copy.rdpLaunchFullScreen = profile.rdpLaunchFullScreen
+                copy.rdpUseAllMonitors = profile.rdpUseAllMonitors
+                copy.rdpRetinaDisplay = profile.rdpRetinaDisplay
                 copy.rdpFolderExports = profile.rdpFolderExports
                 copy.created = profile.created
                 copy.lastConnected = profile.lastConnected

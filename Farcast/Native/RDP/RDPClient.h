@@ -2,6 +2,11 @@
 #import <Foundation/Foundation.h>
 NS_ASSUME_NONNULL_BEGIN
 @interface FCRDPClient : NSObject
+// Initial geometry only; one connection owns all monitors. Empty retains legacy behavior.
+@property(nonatomic, copy) NSArray<NSDictionary *> *monitorDefinitions;
+@property(nonatomic, copy, nullable) void (^onDesktopSize)(NSInteger width, NSInteger height);
+@property(nonatomic, copy, nullable) void (^onMonitorLayout)(NSArray<NSDictionary *> *monitors);
+@property(nonatomic, copy, nullable) void (^onDisplayUpdate)(NSString *message);
 // Set before connect; zero preserves the direct transport.
 @property(nonatomic, copy) NSArray<NSDictionary *> *redirectedFolders;
 @property(nonatomic) NSInteger tunnelPort;

@@ -4,6 +4,127 @@ Validation is evidence for the stated environment and scope, not a production
 compatibility guarantee. Repeatable commands and fixture ownership are in
 [testing](testing.md); signing requirements are in [packaging](packaging.md).
 
+## RDP full-screen re-entry — 11 October 2026
+
+- Retain the unreleased marketing version 1.9.0 and advance build 1 to build 2 at the
+  user's request. The top-right RDP action returns to remote desktop full screen in
+  attached and detached windows, using the existing connection and monitor geometry.
+  Single-display presentation uses current server dimensions without resizing or logging in.
+  Unconfirmed or changed multi-monitor layouts remain in the workspace with a notice.
+- The user reports Retina and multiple screens working well in build 1. This is
+  user-reported live evidence; this agent has not independently reproduced that environment.
+- Four synthetic production-session checks passed, including repeated exit/re-entry,
+  no duplicate visible windows, windowed startup at the existing server dimensions,
+  refusal of unconfirmed multiple monitors and disconnect cleanup. Twenty-eight core,
+  33 workspace and 21 maintenance checks passed, along with formatting, hygiene and
+  whitespace checks. Maintenance used the test environment's Python because the system
+  Python lacks `Path.hardlink_to`. The workspace suite was rerun successfully after an
+  overlapping package build replaced a shared compiler input during its first run.
+- `Farcast-1.9.0-build-2-arm64.dmg` passed mounted bundle/platform/dependency/signature/
+  loader/helper checks, pinned signing continuity, image integrity and SHA256 verification.
+  No real servers, user database, saved credentials or general clipboard were accessed.
+  Physical multi-monitor re-entry and complete toolbar accessibility remain to verify.
+
+## RDP full screen, multiple monitors, Retina and editor tabs — 11 October 2026
+
+- Version advances from the last delivered 1.8.2 to 1.9.0 (build 1), a compatible
+  feature release combining the deferred tab/resolution improvements with new opt-in
+  display settings. Existing profiles retain their IDs/values and single-display
+  defaults. Credential policy, save/connect, protocol editing and SSH/SFTP workflows
+  are retained. RDP-RE was read as static design evidence; its app/database and
+  research files were not modified or executed, and no reference code/assets copied.
+- Twenty-eight core tests include signed/portrait/mixed-DPI topology, adjacency,
+  even-width quantization, a wide three-display layout, rejected geometry/scale/count/
+  pixel budgets, inverse input transforms and persisted display options. A separate
+  migration executable opened the actual pre-display SwiftData schema and preserved
+  IDs, dates, metadata, custom dimensions and legacy defaults before new-option round trips.
+- TLS and NLA suites passed nine/ten connection modes, three native display settings/
+  count/area/overflow checks each, and peer-side wire assertions. The peer decoded
+  distinct initial monitor blocks, signed origins, mixed desktop scales and valid
+  device scales, standalone Retina core pixel/DPI geometry, and pointer events for
+  both regions. It sends no Monitor Layout reply: this establishes wire submission
+  and GDI dimensions, not Windows monitor acceptance or per-monitor maximize behavior.
+- Production native presentation checks use marked synthetic pixels and owned
+  off-screen windows. They verify shared latest-frame ownership, cropped Metal upload
+  pixels, mixed-DPI input/Y mapping, letterbox refusal, cross-monitor drag routing,
+  balanced focus-loss mouse release, inactive rendering pause/resume, stale-frame
+  rejection, idempotent teardown and topology-change reconnect notices. Physical
+  screens, visible Metal sharpness, real Windows cursor/targets and Spaces were not
+  exercised by these checks. Full screen waits for effective geometry and, for
+  multiple displays, matching server monitor confirmation; unsupported confirmation
+  keeps the session usable in the workspace. Live multi-monitor topology updates
+  are not implemented; screen/backing changes require reconnecting.
+- Three production-session checks against an independently pinned synthetic TLS peer
+  passed: Retina full-screen startup and exit without reconnecting, finite missing-
+  monitor-confirmation fallback, and disconnect during pending presentation with
+  drained transport. Injected screen snapshots placed owned windows off screen;
+  this proves the session/presentation lifecycle, not real display interoperability.
+- Eighteen SSH, 82 SFTP, ten protected-probe synthetic, 21 maintenance and 33 workspace
+  checks passed. Pinned dependency preparation, Swift/Objective-C formatting,
+  shell syntax, repository hygiene and whitespace checks passed. The certificate-signed
+  Release passed platform/dependency/signature/loader/sandboxed-helper checks. Three
+  isolated signing-continuity checks passed.
+- The earlier isolated editor preview inspected light/dark tabs, default-size General,
+  Display, Devices & audio, Security, edit focus, validation navigation and custom
+  values retained across tabs. A final native dark-mode preview verified the entire
+  Display body fits, all-monitor enablement depends on startup full screen, toggled
+  options survive tab changes, preset selection commits dimensions, Custom retains
+  them, and Retina changes to Logical size / pt without changing numbers. All 25
+  presets and Custom were visible. Complete keyboard/VoiceOver, short-window/long-
+  folder-list and larger-system-text workflows remain to verify.
+- The final `Farcast-1.9.0-build-1-arm64.dmg` passed image integrity, mounted bundle/
+  certificate/signature/dependency/loader/helper verification, packaged-changelog
+  equality and SHA256 verification. Disposable review apps, test outputs and logs
+  were removed; dependency caches and the verified release remain.
+- Real two/three-monitor Windows sessions, mixed-DPI applications, portrait/different
+  primaries, mirroring, Spaces, hotplug/rotation, server restrictions, cursor hotspots,
+  sharpness, frame time, memory and bandwidth remain unverified. Synthetic tests and
+  the reference's static findings must not be described as that interoperability proof.
+  No user database, saved credentials, protected server input, general clipboard or
+  real servers were accessed. No commit or publication occurred. Local development
+  signing is retained; Developer ID distribution/notarization remains pending.
+
+## Connection editor presentation — 11 October 2026
+
+- Version advances from 1.8.1 to 1.8.2 (build 1), a compatible UI correction.
+  The 520-point editor uses a full-width native protocol selector, nearby right-aligned
+  labels, bordered fields, inline validation, adjacent credentials and RDP-only Network.
+  Terminal appearance, Display, Devices & audio and Security start collapsed. Common
+  fields stay fixed while advanced options scroll; short windows have one body scroller.
+- All existing terminal/display/authentication/folder options remain. The display popup
+  presents existing fit/dynamic combinations separately and keeps 100%/Match window and
+  initial/fixed resolutions. Storage and persistence schema, port/authentication resets,
+  validation, Cancel/Esc, Save/Save & Connect/Return and connection behavior are retained.
+  The requested Keychain-only migration, hidden password when not saving, terminal-default
+  feature, discard confirmation and Save & Reconnect action were excluded under the
+  user's presentation-only instruction. The existing credential fallback is still disclosed.
+- The production editor was inspected in an isolated native bundle with in-memory
+  SwiftData, injected empty credential loading and disposable trust/preferences.
+  Light/dark SSH/RDP views showed common fields without scrolling, explicit edit
+  title/context, complete labels, empty-host/username validation and disabled/enabled
+  save actions. Expanded display/terminal settings scrolled separately; the final
+  resolution and devices rows were reachable. Password visibility updated its
+  accessibility label. Protocol selection preserved metadata and the existing default
+  port transition. All four display choices were visible in the native menu.
+- Native menu automation timed out during selection; full menu selection/Return/Esc,
+  complete VoiceOver, larger system text and the external file pickers were not
+  established by this visual pass. Cached AppKit snapshots omit SwiftUI drawing;
+  the visual conclusions above use native window screenshots instead. No user
+  profiles, existing saved credentials, protected server input or general clipboard
+  were read. Synthetic preview tooling is disposable; no real-server compatibility
+  claim is made.
+- Pinned dependency preparation and the certificate-signed Release passed final
+  platform/dependency/signature/loader/sandboxed-helper/signing-continuity verification.
+  Twenty-one core and 21 maintenance tests, 18 SSH, 82 SFTP, seven TLS RDP, eight
+  NLA RDP, ten protected-probe synthetic and 26 workspace checks passed. Source comparison confirmed
+  that save/connect, private-key import and selected-folder operations are unchanged.
+  Swift formatting, repository hygiene and whitespace checks passed. The final
+  `Farcast-1.8.2-build-1-arm64.dmg` passed image integrity, mounted-bundle/signing/
+  loader/helper checks, packaged-changelog equality and SHA256 verification.
+  Preview processes/files and temporary test logs were removed. No commit or
+  publication occurred. Local development signing is retained; Developer ID
+  distribution/notarization remains pending.
+
 ## Supplied v5 logo — 11 October 2026
 
 - Version advances from 1.8.0 to 1.8.1 (build 1), a compatible branding correction.

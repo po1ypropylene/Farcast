@@ -16,9 +16,13 @@ future design task; do not apply a 44-point touch baseline to the Mac interface.
 - Keep sizing and contentShape within custom labels so their visible region is
   clickable. Preserve keyboard focus, shortcuts and native accessibility behavior.
   Avoid overlapping hit regions, hidden measuring labels and forced shrinking.
-- Disclosure headers activate across their full row and announce expanded/collapsed.
-  The connection editor's grouped Form is its only scrolling owner; header/actions
-  stay outside it. Keep labelled server address and port fields.
+- The connection editor uses pinned text tabs with a selected underline and one body
+  scroll view. Header/tab bar/actions stay fixed. Use bordered fields, a shared
+  128-point label column and a 12-point gap. Address and port share a row; resolution
+  units stay inside the fields' row. Short captions sit beneath their controls and
+  longer explanations use tooltips. Keep visible keyboard focus and announce invalid
+  tabs as well as marking them visually.
+- Disclosure headers elsewhere activate across their full row and announce state.
 - Use normal list rows and 24-point local/server headings/navigation controls, with
   matching file-panel heights. The Local Mac heading opens the folder picker.
   File-only SSH disables unavailable terminal modes and tools.

@@ -19,6 +19,9 @@ import SwiftData
     var desktopHeight: Int
     var rdpDisplayMode: String? = nil
     var dynamicResolution: Bool
+    var rdpLaunchFullScreen: Bool? = nil
+    var rdpUseAllMonitors: Bool? = nil
+    var rdpRetinaDisplay: Bool? = nil
     var clipboard: Bool
     var rdpFolderExports: Data? = nil
     var wireGuardID: UUID? = nil
@@ -43,6 +46,9 @@ import SwiftData
         desktopHeight = draft.desktopHeight
         rdpDisplayMode = draft.displayMode.rawValue
         dynamicResolution = draft.dynamicResolution
+        rdpLaunchFullScreen = draft.launchFullScreen
+        rdpUseAllMonitors = draft.useAllMonitors
+        rdpRetinaDisplay = draft.retinaDisplay
         clipboard = draft.clipboard
         rdpFolderExports = try? JSONEncoder().encode(draft.redirectedFolders)
         wireGuardID = draft.wireGuardID
@@ -67,6 +73,9 @@ import SwiftData
         desktopHeight = draft.desktopHeight
         rdpDisplayMode = draft.displayMode.rawValue
         dynamicResolution = draft.dynamicResolution
+        rdpLaunchFullScreen = draft.launchFullScreen
+        rdpUseAllMonitors = draft.useAllMonitors
+        rdpRetinaDisplay = draft.retinaDisplay
         clipboard = draft.clipboard
         rdpFolderExports = try? JSONEncoder().encode(draft.redirectedFolders)
         wireGuardID = draft.wireGuardID

@@ -18,6 +18,9 @@ struct ConnectionDraft: Identifiable {
     var desktopHeight = 900
     var displayMode = RDPDisplayMode.fit
     var dynamicResolution = true
+    var launchFullScreen = false
+    var useAllMonitors = false
+    var retinaDisplay = false
     var clipboard = false
     var redirectedFolders: [RDPFolderExport] = []
     var redirectedFoldersUnavailable = false
@@ -42,6 +45,9 @@ struct ConnectionDraft: Identifiable {
         desktopHeight = saved.desktopHeight
         displayMode = RDPDisplayMode(rawValue: saved.rdpDisplayMode ?? "") ?? .fit
         dynamicResolution = saved.dynamicResolution
+        launchFullScreen = saved.rdpLaunchFullScreen ?? false
+        useAllMonitors = saved.rdpUseAllMonitors ?? false
+        retinaDisplay = saved.rdpRetinaDisplay ?? false
         clipboard = saved.clipboard
         if let data = saved.rdpFolderExports {
             do { redirectedFolders = try JSONDecoder().decode([RDPFolderExport].self, from: data) } catch {

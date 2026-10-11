@@ -10,13 +10,14 @@ git -C .dependencies/sources/FreeRDP show HEAD:server/Sample/sfreerdp.c > "$fixt
 git -C .dependencies/sources/FreeRDP show HEAD:server/Sample/sfreerdp.h > "$fixture_source/server/Sample/sfreerdp.h"
 cp Tests/Integration/RDP/clipboard_fixture.h "$fixture_source/server/Sample/fc_clipboard_fixture.h"
 cp Tests/Integration/RDP/drive_fixture.h "$fixture_source/server/Sample/fc_drive_fixture.h"
+cp Tests/Integration/RDP/display_fixture.h "$fixture_source/server/Sample/fc_display_fixture.h"
 python3 - "$fixture_source/server/Sample/sfreerdp.c" <<'PY'
 from pathlib import Path
 import sys
 path = Path(sys.argv[1]); text = path.read_text()
 header = path.with_suffix('.h')
 header.write_text(header.read_text().replace('RdpsndServerContext* rdpsnd;', 'RdpsndServerContext* rdpsnd;\n    struct s_cliprdr_server_context* fc_clipboard;\n    struct s_rdpdr_server_context* fc_drive;'))
-text = text.replace('struct server_info', '#include "fc_clipboard_fixture.h"\n#include "fc_drive_fixture.h"\n\nstruct server_info', 1)
+text = text.replace('struct server_info', '#include "fc_clipboard_fixture.h"\n#include "fc_drive_fixture.h"\n#include "fc_display_fixture.h"\n\nstruct server_info', 1)
 text = text.replace('rdpsnd_server_context_free(context->rdpsnd);', 'fc_fixture_drive_stop(context);\n        fc_fixture_clipboard_stop(context);\n        rdpsnd_server_context_free(context->rdpsnd);')
 text = text.replace('/* Dynamic Virtual Channels */', 'if (!fc_fixture_clipboard_start(context)) return FALSE;\n    if (!fc_fixture_drive_start(context)) return FALSE;\n\n    /* Dynamic Virtual Channels */')
 text = text.replace('instance->Open(instance, nullptr, (UINT16)port)', 'instance->Open(instance, "127.0.0.1", (UINT16)port)')
@@ -24,6 +25,13 @@ text = text.replace('freerdp_settings_set_bool(settings, FreeRDP_NlaSecurity, FA
 text = text.replace('client->PostConnect = tf_peer_post_connect;', '''if (getenv("FARCAST_FIXTURE_SAM"))
         freerdp_settings_set_string(settings, FreeRDP_NtlmSamFile, getenv("FARCAST_FIXTURE_SAM"));
     client->PostConnect = tf_peer_post_connect;''')
+# Assert monitor blocks decoded from the client, and the actual pointer wire coordinates.
+needle = 'static BOOL tf_peer_post_connect(freerdp_peer* client)\n{'
+assert needle in text
+text = text.replace(needle, needle + '\n    if (!fc_fixture_display_check(client->context->settings)) return FALSE;', 1)
+needle = 'static BOOL tf_peer_mouse_event(rdpInput* input, UINT16 flags, UINT16 x, UINT16 y)\n{'
+assert needle in text
+text = text.replace(needle, needle + '\n    fc_fixture_display_pointer(input, x, y);', 1)
 path.write_text(text)
 PY
 # Correct a fixture-only server decoder that incorrectly expects file bytes after

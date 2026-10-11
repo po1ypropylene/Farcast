@@ -21,7 +21,9 @@
 #import <winpr/synch.h>
 #import <winpr/wlog.h>
 #pragma clang diagnostic pop
+#import "RDPDisplay.h"
 #import <errno.h>
+#import <math.h>
 #import <openssl/err.h>
 #import <openssl/pem.h>
 #import <openssl/x509.h>
@@ -35,6 +37,8 @@ typedef struct {
     rdpClientContext common;
     void *owner;
     DispClientContext *display;
+    UINT32 maximumMonitors, areaFactorA, areaFactorB;
+    BOOL displayCapsReady;
     CliprdrClientContext *clipboard;
     FCRDPClipboard *__unsafe_unretained clipboardBridge;
     double lastFrame;
@@ -49,6 +53,7 @@ typedef struct {
 @interface FCRDPClient () {
     NSLock *_lock;
     NSMutableArray<NSDictionary *> *_events;
+    NSDictionary *_pendingResize;
     freerdp *_instance;
     atomic_bool _stopped;
     atomic_bool _clipboardActive;
@@ -177,8 +182,47 @@ static BOOL endPaint(rdpContext *context) {
     return TRUE;
 }
 static BOOL desktopResize(rdpContext *context) {
-    return gdi_resize(context->gdi, freerdp_settings_get_uint32(context->settings, FreeRDP_DesktopWidth),
-                      freerdp_settings_get_uint32(context->settings, FreeRDP_DesktopHeight));
+    UINT32 width = freerdp_settings_get_uint32(context->settings, FreeRDP_DesktopWidth);
+    UINT32 height = freerdp_settings_get_uint32(context->settings, FreeRDP_DesktopHeight);
+    if (!width || !height || width > FCDisplayMaximumDimension || height > FCDisplayMaximumDimension ||
+        (UINT64)width * height > FCDisplayMaximumPixels)
+        return FALSE;
+    if (!gdi_resize(context->gdi, width, height))
+        return FALSE;
+    FCRDPClient *client = owner(context);
+    if (client.onDesktopSize)
+        client.onDesktopSize(width, height);
+    return TRUE;
+}
+static BOOL remoteMonitors(rdpContext *context, UINT32 count, const MONITOR_DEF *monitors) {
+    if (count > 16)
+        return FALSE;
+    NSMutableArray *definitions = [NSMutableArray new];
+    for (UINT32 i = 0; i < count; i++) {
+        const MONITOR_DEF *m = &monitors[i];
+        INT64 width = (INT64)m->right - m->left + 1, height = (INT64)m->bottom - m->top + 1;
+        if (width < 200 || height < 200 || width > 8192 || height > 8192)
+            return FALSE;
+        [definitions addObject:@{
+            @"x" : @(m->left),
+            @"y" : @(m->top),
+            @"width" : @(width),
+            @"height" : @(height),
+            @"primary" : @((m->flags & 1) != 0)
+        }];
+    }
+    FCRDPClient *client = owner(context);
+    if (client.onMonitorLayout)
+        client.onMonitorLayout(definitions);
+    return TRUE;
+}
+static UINT displayCapabilities(DispClientContext *display, UINT32 count, UINT32 a, UINT32 b) {
+    FCContext *ctx = display->custom;
+    ctx->maximumMonitors = count;
+    ctx->areaFactorA = a;
+    ctx->areaFactorB = b;
+    ctx->displayCapsReady = count && a && b;
+    return CHANNEL_RC_OK;
 }
 static BOOL pointerNew(rdpContext *context, rdpPointer *pointer) {
     FCPointer *p = (FCPointer *)pointer;
@@ -215,9 +259,12 @@ static void channelConnected(void *context, const ChannelConnectedEventArgs *eve
     FCContext *ctx = context;
     if (!strcmp(event->name, "rdpgfx"))
         gdi_graphics_pipeline_init(((rdpContext *)context)->gdi, event->pInterface);
-    else if (!strcmp(event->name, "disp"))
+    else if (!strcmp(event->name, "disp")) {
         ctx->display = event->pInterface;
-    else if (!strcmp(event->name, "cliprdr")) {
+        ctx->display->custom = ctx;
+        ctx->display->DisplayControlCaps = displayCapabilities;
+        ctx->displayCapsReady = NO;
+    } else if (!strcmp(event->name, "cliprdr")) {
         ctx->clipboard = event->pInterface;
         [ctx->clipboardBridge attach:ctx->clipboard];
     }
@@ -226,25 +273,40 @@ static void channelDisconnected(void *context, const ChannelDisconnectedEventArg
     FCContext *ctx = context;
     if (!strcmp(event->name, "rdpgfx"))
         gdi_graphics_pipeline_uninit(((rdpContext *)context)->gdi, event->pInterface);
-    else if (!strcmp(event->name, "disp"))
+    else if (!strcmp(event->name, "disp")) {
+        if (ctx->display) {
+            ctx->display->custom = NULL;
+            ctx->display->DisplayControlCaps = NULL;
+        }
         ctx->display = NULL;
-    else if (!strcmp(event->name, "cliprdr")) {
+        ctx->displayCapsReady = NO;
+    } else if (!strcmp(event->name, "cliprdr")) {
         ctx->clipboard = NULL;
         [ctx->clipboardBridge detach];
     }
 }
 static BOOL preConnect(freerdp *instance) {
     rdpContext *context = instance->context;
+    context->update->RemoteMonitors = remoteMonitors;
     PubSub_SubscribeChannelConnected(context->pubSub, channelConnected);
     PubSub_SubscribeChannelDisconnected(context->pubSub, channelDisconnected);
     return freerdp_client_load_addins(context->channels, context->settings);
 }
 static BOOL postConnect(freerdp *instance) {
+    if (freerdp_settings_get_uint32(instance->context->settings, FreeRDP_DesktopWidth) > FCDisplayMaximumDimension ||
+        freerdp_settings_get_uint32(instance->context->settings, FreeRDP_DesktopHeight) > FCDisplayMaximumDimension ||
+        (UINT64)freerdp_settings_get_uint32(instance->context->settings, FreeRDP_DesktopWidth) *
+                freerdp_settings_get_uint32(instance->context->settings, FreeRDP_DesktopHeight) >
+            FCDisplayMaximumPixels)
+        return FALSE;
     if (!gdi_init(instance, PIXEL_FORMAT_BGRA32))
         return FALSE;
     instance->context->update->BeginPaint = beginPaint;
     instance->context->update->EndPaint = endPaint;
     instance->context->update->DesktopResize = desktopResize;
+    FCRDPClient *client = owner(instance->context);
+    if (client.onDesktopSize)
+        client.onDesktopSize(instance->context->gdi->width, instance->context->gdi->height);
     rdpPointer pointer = {0};
     pointer.size = sizeof(FCPointer);
     pointer.New = pointerNew;
@@ -487,6 +549,11 @@ static void destroyContext(rdpContext *context) {
     freerdp_settings_set_uint32(s, FreeRDP_DesktopHeight, (UINT32)height);
     freerdp_settings_set_uint32(s, FreeRDP_DesktopScaleFactor, (UINT32)scale);
     freerdp_settings_set_uint32(s, FreeRDP_DeviceScaleFactor, scale >= 200 ? 180 : 100);
+    if (!FCConfigureMonitorDefinitions(s, self.monitorDefinitions ?: @[])) {
+        destroyContext(context);
+        [self status:@"failed" message:@"The requested RDP monitor layout is invalid."];
+        return;
+    }
     freerdp_settings_set_uint32(s, FreeRDP_ColorDepth, 32);
     freerdp_settings_set_uint32(s, FreeRDP_KeyboardLayout, 0x00000409);
     freerdp_settings_set_bool(s, FreeRDP_SoftwareGdi, TRUE);
@@ -569,6 +636,12 @@ static void destroyContext(rdpContext *context) {
 }
 - (void)enqueue:(NSDictionary *)event {
     [_lock lock];
+    if ([event[@"type"] isEqualToString:@"resize"]) {
+        NSIndexSet *old = [_events indexesOfObjectsPassingTest:^BOOL(NSDictionary *item, NSUInteger index, BOOL *stop) {
+          return [item[@"type"] isEqualToString:@"resize"];
+        }];
+        [_events removeObjectsAtIndexes:old];
+    }
     if (_events.count < 4096)
         [_events addObject:event];
     [_lock unlock];
@@ -592,22 +665,38 @@ static void destroyContext(rdpContext *context) {
         else if ([type isEqualToString:@"pointer"])
             freerdp_input_send_mouse_event(context->input, [event[@"flags"] unsignedShortValue],
                                            [event[@"x"] unsignedShortValue], [event[@"y"] unsignedShortValue]);
-        else if ([type isEqualToString:@"resize"] && ctx->display) {
-            DISPLAY_CONTROL_MONITOR_LAYOUT layout = {0};
-            layout.Flags = DISPLAY_CONTROL_MONITOR_PRIMARY;
-            layout.Width = [event[@"width"] unsignedIntValue];
-            layout.Height = [event[@"height"] unsignedIntValue];
-            layout.PhysicalWidth = MAX(10, layout.Width * 254 / 960);
-            layout.PhysicalHeight = MAX(10, layout.Height * 254 / 960);
-            layout.DesktopScaleFactor = [event[@"scale"] unsignedIntValue];
-            layout.DeviceScaleFactor = layout.DesktopScaleFactor >= 200 ? 180 : 100;
-            ctx->display->SendMonitorLayout(ctx->display, 1, &layout);
+        else if ([type isEqualToString:@"resize"]) {
+            _pendingResize = event;
         } else if ([type isEqualToString:@"clipboard"]) {
             [ctx->clipboardBridge setText:event[@"text"]];
         } else if ([type isEqualToString:@"clipboardFiles"]) {
             [ctx->clipboardBridge setFiles:event[@"files"]];
         } else if ([type isEqualToString:@"clipboardActive"]) {
             [ctx->clipboardBridge setActive:[event[@"active"] boolValue]];
+        }
+    }
+    if (_pendingResize && ctx->display && ctx->displayCapsReady) {
+        NSDictionary *event = _pendingResize;
+        _pendingResize = nil;
+        DISPLAY_CONTROL_MONITOR_LAYOUT layout = {0};
+        layout.Flags = DISPLAY_CONTROL_MONITOR_PRIMARY;
+        layout.Width = [event[@"width"] unsignedIntValue];
+        layout.Height = [event[@"height"] unsignedIntValue];
+        layout.DesktopScaleFactor = [event[@"scale"] unsignedIntValue];
+        layout.DeviceScaleFactor = layout.DesktopScaleFactor >= 200 ? 180 : 100;
+        // Unknown physical dimensions are omitted; backing density is not physical DPI.
+        if (self.monitorDefinitions.count > 1 || layout.DesktopScaleFactor < 100 || layout.DesktopScaleFactor > 500 ||
+            !FCDisplayAreaAllowed(1, (UINT64)layout.Width * layout.Height, ctx->maximumMonitors, ctx->areaFactorA,
+                                  ctx->areaFactorB)) {
+            if (self.onDisplayUpdate)
+                self.onDisplayUpdate(@"The server does not allow this resolution. The desktop keeps its current size.");
+        } else {
+            UINT result = ctx->display->SendMonitorLayout(ctx->display, 1, &layout);
+            if (self.onDisplayUpdate)
+                self.onDisplayUpdate(
+                    result == CHANNEL_RC_OK
+                        ? @"Display update submitted; waiting for the server’s desktop size."
+                        : @"The display update could not be sent. The desktop keeps its current size.");
         }
     }
 }

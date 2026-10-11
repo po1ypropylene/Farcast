@@ -156,12 +156,16 @@ struct WorkspaceView: View {
                             } label: {
                                 Label("Disconnect", systemImage: "stop.circle").labelStyle(.iconOnly)
                             }.disabled(!session.state.active).help("Disconnect this session")
-                            Button {
-                                NSApp.keyWindow?.toggleFullScreen(nil)
-                            } label: {
-                                Label("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right").labelStyle(
-                                    .iconOnly)
-                            }.help("Toggle full screen")
+                            if session.profile.kind == .rdp {
+                                SessionFullScreenButton(session: session)
+                            } else {
+                                Button {
+                                    NSApp.keyWindow?.toggleFullScreen(nil)
+                                } label: {
+                                    Label("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right").labelStyle(
+                                        .iconOnly)
+                                }.help("Toggle full screen")
+                            }
                             Button {
                                 workspace.showInspector.toggle()
                             } label: {

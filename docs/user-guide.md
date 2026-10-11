@@ -57,8 +57,9 @@ require approval; report recurring prompts rather than deleting your saved crede
 1. Choose **SSH Terminal**, **Remote Desktop**, or **Quick Connect**.
 2. Enter the protocol, name, server address, port, username and password in the
    connection editor. Server address is just the IP address or host name. Port is
-   a separate field, initially 22 for SSH or 3389 for RDP. RDP also has an optional domain. Display and trust options
-   expand below the main fields.
+   a separate field, initially 22 for SSH or 3389 for RDP. RDP also has an optional domain. Use the pinned **Display**, **Devices & audio**,
+   **Terminal** and **Security** tabs for the applicable options. The form opens on
+   **General**; tab changes keep the values you entered.
 3. For SSH, choose Password or select an imported private key. Password also supports
    servers that request it through keyboard-interactive; additional codes/questions
    appear separately. Explicit Keyboard-interactive displays every server prompt.
@@ -67,7 +68,7 @@ require approval; report recurring prompts rather than deleting your saved crede
    for the session only and does not create a saved profile.
 5. Compare an unknown SSH host-key or untrusted RDP certificate fingerprint with
    your administrator's fingerprint before accepting it. Changed remembered
-   identities trigger a separate warning. In Advanced, **Forget trusted identity**
+   identities trigger a separate warning. In the **Security** tab, **Forget trusted identity**
    removes the remembered exception.
 
 Double-click a saved connection to connect. Context menus provide editing,
@@ -91,7 +92,7 @@ before the app exits.
 
 Open **File → WireGuard Connections…** to import or create named WireGuard
 profiles. In an RDP connection’s Add/Edit screen, choose a profile under
-**WireGuard connection** and enter the private RDP server address. The tunnel
+**Network → Connect via** and enter the private RDP server address. The tunnel
 starts automatically and closes when its last RDP session disconnects. Multiple
 RDP tabs can share a profile. This embedded userspace transport needs no separate
 WireGuard app or macOS VPN setup and does not change other applications’ routes.
@@ -200,17 +201,44 @@ remains unverified.
 - Certificate chains and host names evaluated through macOS Security.framework.
   Untrusted certificates require explicit approval; trust exceptions are scoped
   to host, port, and protocol. No accept-all certificate setting is enabled.
-- BGRA framebuffer rendered through Metal. In **Display options → Remote desktop**,
-  choose **Fit to window**, **100% with scrolling**, or **Match window at connection**.
-  Fit scales the entire desktop and optionally requests server resizing. 100% uses
-  one remote pixel per Mac point, with your chosen desktop dimensions. Match window
+- BGRA framebuffer rendered through Metal. In **Display**,
+  choose **Fit to window**, **Resize with window**, **100% with scrolling**, or
+  **Match window at connection**. Fit scales the entire desktop; Resize with window
+  also requests server resizing, falling back to scaling when unsupported. 100% uses
+  one remote pixel per Mac point, with your chosen desktop dimensions. Choose a
+  preset in **Resolution / Initial resolution**, or **Custom…** to enter width and
+  height (200–8192 pixels each); existing custom sizes remain editable. Match window
   starts at the available desktop area and keeps that resolution until reconnecting;
   shrinking the window adds scrolling. Use scrollbars or Option-scroll to pan;
   ordinary scrolling goes to Windows. Display changes apply after reconnecting.
+- In **Display**, enable **Open in full screen** to start on the current display after
+  authentication. Enable **Use all monitors** for separate remote monitors matching
+  the connected screens; these use their screen sizes instead of the preset/custom
+  resolution. Mirrored displays are represented once. The session opens full screen
+  only after the server confirms its geometry (and monitor layout for multiple screens).
+  Missing or restricted confirmation keeps the desktop in the workspace with a notice.
+- **Optimize for Retina** requests more source pixels and Windows UI scaling using
+  each screen's backing density. The selected resolution becomes a **Logical size**
+  in Mac points (custom units change to **pt**); stored numbers are preserved when
+  toggling Retina. For example, a 1440 × 900 point region on a 2× display
+  requests 2880 × 1800 pixels and 200% desktop scaling. Fixed/100% modes then map remote
+  pixels to backing pixels. Legacy **Resize with window** already uses backing pixels
+  and keeps its existing behavior. Windows policies and application DPI support can
+  affect sharpness and UI size. More pixels require more memory and bandwidth.
+- Click **Exit Full Screen** or press **Control–Command–F** to return without disconnecting;
+  click **Enter Remote Desktop Full Screen** in the top-right toolbar to return to full
+  screen on the same connection. This also works in detached session windows and after
+  windowed startup. Confirmed multiple monitors are reused; a single display fits the
+  current remote desktop resolution. Escape stays available to Windows. Display hotplug, rotation or topology changes return
+  the session to the workspace: reconnect to use the new arrangement/density. Live
+  multi-monitor topology updates are not implemented. Each monitor is limited to
+  200–8192 pixels per side; the combined desktop is limited to 16384 pixels per side
+  and 64 Mi pixels. Unusable layouts fail explicitly; try disabling Retina or all monitors.
+  Physical multi-display/Spaces and real Windows mixed-DPI interoperability still need verification.
 - Mouse, keyboard, scrolling, remote cursor, Unicode text input, and
   **Ctrl + Alt + Delete**.
 - Optional text, file and folder clipboard sharing while the session is selected. It defaults off.
-  Enable **Share text and files clipboard** under **Sharing & server identity**, save and
+  Enable **Share clipboard** under **Devices & audio**, save and
   reconnect. Use Command+C / Command+V or Control+C / Control+V inside Windows.
   Command+C/X/V/A map to Windows Control shortcuts; otherwise Command maps to the Windows key;
   app shortcuts such as Command+W and Command+Q remain local.
@@ -226,8 +254,8 @@ remains unverified.
   remains open and the clipboard owns them. Keep the app open until Finder finishes
   copying; these temporary files are not permanent storage. Last-write timestamps
   are preserved.
-- Configure **Redirect local folders** under **Sharing & server identity**. Use
-  **Add local folders…**, choose the Mac folders, give each a unique drive name,
+- Configure **Local folders** under **Devices & audio**. Use
+  **Add Folder…**, choose the Mac folders, give each a unique drive name,
   save and reconnect. Windows exposes them in **This PC** and at
   `\\tsclient\DriveName`; no drive letter is assigned automatically. You can map that
   path to a drive letter using Windows Explorer if desired.
@@ -239,10 +267,10 @@ remains unverified.
   are unavailable, and advanced Windows filesystem features such as change
   notifications, byte-range locks and ACL editing are unsupported.
 - Remote sound plays through this Mac by default. Turn off **Play remote sound on
-  this Mac** under **Sharing & server identity** to mute it after reconnecting.
+  this Mac** under **Devices & audio** to mute it after reconnecting.
   The server must allow audio playback redirection. Microphone sharing is unavailable.
 - US physical scan-code layout plus Unicode text input. Additional physical
-  keyboard layouts, advanced IME behavior, multi-monitor support, hardware video
+  keyboard layouts, advanced IME behavior, live monitor-topology changes, hardware video
   decoding, microphone capture, RD Gateway, RemoteApp, smart cards and printers
   are not included in this release.
 

@@ -40,6 +40,12 @@ struct SessionPane: View {
                             }
                         }
                     }
+                } else if session.fullScreenPresented {
+                    VStack(spacing: 12) {
+                        Image(systemName: "display.2").font(.largeTitle).foregroundStyle(.secondary)
+                        Text("The remote desktop is in full screen.")
+                        Button("Exit Full Screen") { session.exitFullScreen() }
+                    }
                 } else if let desktop = session.desktop {
                     DesktopSurface(view: desktop)
                 }
@@ -84,6 +90,10 @@ struct SessionPane: View {
                         .accessibilityLabel("File clipboard: \(session.clipboardMessage)")
                 }
                 if session.profile.kind == .rdp {
+                    if !session.displayMessage.isEmpty {
+                        Text(session.displayMessage).lineLimit(1).help(session.displayMessage)
+                            .accessibilityLabel("Display: \(session.displayMessage)")
+                    }
                     Button("Ctrl + Alt + Delete") { session.controlAltDelete() }.disabled(session.state != .connected)
                 } else {
                     IconActionButton(title: "Decrease terminal font size", symbol: "minus.magnifyingglass") {

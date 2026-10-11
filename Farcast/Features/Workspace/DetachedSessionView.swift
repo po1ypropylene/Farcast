@@ -23,8 +23,13 @@ struct DetachedSessionView: View {
                         IconActionButton(title: "Disconnect this session", symbol: "stop.circle") {
                             session.disconnect()
                         }.disabled(!session.state.active)
-                        IconActionButton(title: "Toggle full screen", symbol: "arrow.up.left.and.arrow.down.right") {
-                            NSApp.keyWindow?.toggleFullScreen(nil)
+                        if session.profile.kind == .rdp {
+                            SessionFullScreenButton(session: session)
+                        } else {
+                            IconActionButton(title: "Toggle full screen", symbol: "arrow.up.left.and.arrow.down.right")
+                            {
+                                NSApp.keyWindow?.toggleFullScreen(nil)
+                            }
                         }
                         IconActionButton(title: "Show connection details", symbol: "sidebar.right") {
                             workspace.toggleInspector(slot: slot)

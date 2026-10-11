@@ -6,7 +6,7 @@ A native Mac workspace for SSH terminals, SFTP file transfers and RDP desktops.
 Keep saved connections and active sessions together in a tabbed SwiftUI interface.
 
 - **SSH & SFTP:** password, private-key or interactive sign-in; terminal and files share one connection.
-- **Remote Desktop:** RDP with display options, optional text/file clipboard, selected local folder drives and remote sound.
+- **Remote Desktop:** RDP with full-screen/multiple-monitor and Retina options, optional text/file clipboard, selected local folder drives and remote sound.
 - **Private servers:** optional embedded WireGuard connections for RDP.
 - **Local storage:** saved profiles and credentials stay on your Mac.
 

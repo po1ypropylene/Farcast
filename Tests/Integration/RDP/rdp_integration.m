@@ -16,6 +16,41 @@ int main(int argc, char **argv) {
         __weak FCRDPClient *weakClient = client;
         dispatch_semaphore_t done = dispatch_semaphore_create(0);
         __block BOOL trusted = NO, connected = NO, failed = NO, frame = NO;
+        BOOL monitorTest = [mode isEqualToString:@"monitors"];
+        BOOL retinaTest = [mode isEqualToString:@"retina"];
+        __block BOOL monitorLayout = NO, finishing = NO;
+        if (monitorTest || retinaTest) {
+            client.monitorDefinitions = @[
+                @{
+                    @"x" : @0,
+                    @"y" : @0,
+                    @"width" : @1280,
+                    @"height" : @720,
+                    @"primary" : @1,
+                    @"scale" : @200,
+                    @"physicalWidth" : @300,
+                    @"physicalHeight" : @200,
+                    @"orientation" : @0
+                },
+                @{
+                    @"x" : @(-800),
+                    @"y" : @0,
+                    @"width" : @800,
+                    @"height" : @600,
+                    @"primary" : @0,
+                    @"scale" : @100,
+                    @"physicalWidth" : @300,
+                    @"physicalHeight" : @200,
+                    @"orientation" : @0
+                }
+            ];
+            if (retinaTest)
+                client.monitorDefinitions = @[ client.monitorDefinitions.firstObject ];
+            client.onMonitorLayout = ^(NSArray<NSDictionary *> *monitors) {
+              monitorLayout =
+                  monitors.count == 2 && [monitors[0][@"x"] intValue] == 0 && [monitors[1][@"x"] intValue] == -800;
+            };
+        }
         BOOL clipboardTest = [mode isEqualToString:@"clipboard"];
         BOOL driveTest = [mode hasPrefix:@"drive"];
         __block BOOL drivePassed = NO;
@@ -101,6 +136,19 @@ int main(int argc, char **argv) {
         };
         client.onFrame = ^(NSData *pixels, NSInteger w, NSInteger h, NSInteger stride) {
           frame = pixels.length == stride * h && w > 0 && h > 0;
+          if (retinaTest)
+              frame = frame && w == 1280 && h == 720;
+          if (monitorTest) {
+              frame = frame && w == 2080 && h == 720;
+              if (frame && !finishing) {
+                  finishing = YES;
+                  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 2),
+                                 dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+                                   [weakClient disconnect];
+                                 });
+              }
+              return;
+          }
           if (frame && !driveTest && !fileTest && (!clipboardTest || clipboardCount == samples.count))
               [weakClient disconnect];
         };
@@ -110,6 +158,8 @@ int main(int argc, char **argv) {
               [weakClient sendScanCode:0x1E pressed:YES extended:NO];
               [weakClient sendScanCode:0x1E pressed:NO extended:NO];
               [weakClient sendPointerFlags:0x0800 x:50 y:50];
+              if (monitorTest)
+                  [weakClient sendPointerFlags:0x0800 x:900 y:100];
               if ([mode isEqualToString:@"cancel"])
                   [weakClient disconnect];
           }
@@ -144,6 +194,9 @@ int main(int argc, char **argv) {
             pass = pass && failed && !connected;
         else
             pass = pass && connected && !failed && ([mode isEqualToString:@"cancel"] || frame);
+        if (monitorTest)
+            printf("  Monitor layout reply %s; unconfirmed topology must remain windowed.\n",
+                   monitorLayout ? "received" : "unavailable");
         if (clipboardTest)
             pass = pass && clipboardCount == samples.count;
         if (fileTest) {

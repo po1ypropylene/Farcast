@@ -50,6 +50,15 @@ xcrun swiftc -parse-as-library -module-name Farcast -target arm64-apple-macos27.
   -Xlinker -rpath -Xlinker "$PWD/Vendor/Native/lib" -o "$fixture_root/presentation-client"
 "$fixture_root/presentation-client"
 
+# Full-screen display targets use synthetic frames and off-screen owned windows.
+xcrun swiftc -parse-as-library -module-name Farcast -target arm64-apple-macos27.0 \
+  -I "$products" -import-objc-header Farcast/Native-Bridge.h \
+  "${session_sources[@]}" Tests/Integration/Workspace/DisplayPresentationChecks.swift \
+  "$fixture_root/SSH.o" "$fixture_root/RDP.o" "$fixture_root/RDPClipboard.o" "$fixture_root/RDPDrive.o" "$products/SwiftTerm.o" \
+  -L Vendor/Native/lib -lssh2 -lfreerdp3 -lfreerdp-client3 -lwinpr3 -lcrypto \
+  -Xlinker -rpath -Xlinker "$PWD/Vendor/Native/lib" -o "$fixture_root/display-client"
+"$fixture_root/display-client"
+
 # Terminal interactions use synthetic output, a private pasteboard and preferences.
 xcrun swiftc -parse-as-library -module-name Farcast -target arm64-apple-macos27.0 \
   -I "$products" -import-objc-header Farcast/Native-Bridge.h \

@@ -2,6 +2,23 @@
 
 Changes are recorded from version 1.7.0 onwards.
 
+## 1.9.0 — 11 October 2026
+
+- Give General, Display, Devices & audio, Terminal and Security their own full-size editor tabs, replacing the cramped advanced disclosure area.
+- Keep the header, tab bar and actions fixed; align fields with a shared wider label column and keep resolution units within the row.
+- Choose common RDP resolutions from a preset list, or use Custom for free-form pixel dimensions. Existing custom sizes and display modes are preserved.
+- Add opt-in RDP startup full screen, all-monitor negotiation and Retina resolution/UI scaling, with one authenticated session and a cropped native surface per display. Retina identifies selected sizes as Mac points.
+- Share one latest framebuffer across displays; keep rendering, pointer coordinates and cursor scaling aligned. Missing or changed server layouts stay usable in the workspace.
+- Build 2: the top-right RDP full-screen action returns to the connected remote desktop after exiting, including its negotiated monitors, without reconnecting. It is also available in detached session windows and after windowed startup.
+- Preserve legacy display defaults and profile metadata. Display-topology changes require reconnecting; real Windows multi-display, mixed-DPI and Spaces behavior remains unverified.
+- Mark tabs with existing validation errors and let the footer hint navigate to them. Preserve all options, protocol editing, credential policy and save/connect behavior.
+
+## 1.8.2 — 11 October 2026
+
+- Make the connection editor compact, with nearby labels, bordered inputs, adjacent sign-in fields and collapsed advanced sections.
+- Separate RDP network, display, devices/audio and security controls; retain all existing display modes, initial resolutions, folder actions and terminal settings.
+- Add password visibility controls, inline validation and an explicit edit title. Keep existing credential storage, protocol switching, validation and save/connect behavior.
+
 ## 1.8.1 — 11 October 2026
 
 - Adopt the supplied v5 monitor-and-broadcast logo in the app icon, sidebar mark and README icon.

@@ -143,6 +143,16 @@ import UniformTypeIdentifiers
         updateActiveSession()
         window.makeKeyAndOrderFront(nil)
     }
+    func activatePresentation(of session: RemoteSession) {
+        guard sessions.contains(where: { $0 === session }) else { return }
+        if let slot = detachedSessions.first(where: { $0.value == session.id })?.key {
+            focusedDetachedSlot = slot
+        } else {
+            focusedDetachedSlot = nil
+            selectedSessionID = session.id
+        }
+        updateActiveSession()
+    }
     func activate(_ window: NSWindow) {
         if let slot = sessionWindows.first(where: { $0.value === window })?.key {
             focusedDetachedSlot = slot

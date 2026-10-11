@@ -24,6 +24,19 @@ import SwiftTerm
     let desktop: RDPDesktopView?
     private var ssh: FCSSHClient?
     private var rdp: FCRDPClient?
+    private var fullScreen: RDPFullScreenPresentation?
+    private var displayLayout: RDPDisplayLayout?
+    private var displayScreens: [RDPDisplayScreen] = []
+    private let screenSnapshot: @MainActor (Bool, NSScreen?) -> [RDPDisplayScreen]
+    private var observedDesktopSize: CGSize?
+    private var confirmedMonitors = false
+    private var startupPresentationPending = false
+    private var displayObservationTask: DispatchWorkItem?
+    private var requestedResize: CGSize?
+    private var requestedResizeScale: Int?
+    private var lastSubmittedScale: Int?
+    @Published private(set) var fullScreenPresented = false
+    @Published private(set) var displayMessage = ""
     private var tunnel: WireGuardTransport?
     private var tunnelTask: Task<Void, Never>?
     private var pendingWaiters: [PromptWaiter] = []
@@ -35,6 +48,7 @@ import SwiftTerm
         didSet {
             guard isSelected != oldValue else { return }
             rdp?.setClipboardActive(isSelected)
+            if !isSelected { fullScreen?.releaseInput() }
             if isSelected {
                 clipboardBridge.reset()
             } else {
@@ -45,8 +59,12 @@ import SwiftTerm
     }
     weak var workspace: Workspace?
 
-    init(profile: ConnectionDraft, workspace: Workspace, persistent: Bool = true, files: SFTPController? = nil) {
+    init(
+        profile: ConnectionDraft, workspace: Workspace, persistent: Bool = true, files: SFTPController? = nil,
+        screenSnapshot: @escaping @MainActor (Bool, NSScreen?) -> [RDPDisplayScreen] = RDPFullScreenPresentation.screens
+    ) {
         self.profile = profile
+        self.screenSnapshot = screenSnapshot
         self.workspace = workspace
         self.persistent = persistent
         self.files = files ?? SFTPController()
@@ -57,6 +75,7 @@ import SwiftTerm
             terminal = nil
             let view = RDPDesktopView(frame: NSRect(x: 0, y: 0, width: 1000, height: 700))
             view.displayMode = profile.displayMode
+            view.retinaDisplay = profile.retinaDisplay
             view.setDesktopSize(CGSize(width: profile.desktopWidth, height: profile.desktopHeight))
             desktop = view
         }
@@ -204,8 +223,77 @@ import SwiftTerm
                 profile.host, port: profile.port, username: profile.username, password: credential.password,
                 privateKey: credential.privateKey, authentication: profile.authentication.rawValue)
         } else if let desktop {
+            do {
+                if profile.launchFullScreen {
+                    displayScreens = screenSnapshot(
+                        profile.useAllMonitors, desktop.window?.screen ?? NSApp.keyWindow?.screen)
+                    displayLayout = try RDPDisplayLayout(screens: displayScreens, retina: profile.retinaDisplay)
+                    startupPresentationPending = true
+                }
+            } catch {
+                update("failed", message: error.localizedDescription, attempt: attempt)
+                return
+            }
             let client = FCRDPClient()
             rdp = client
+            client.monitorDefinitions =
+                displayLayout?.monitors.map { monitor in
+                    let physical = monitor.physicalSize
+                    let validPhysical = (10...10000).contains(physical.width) && (10...10000).contains(physical.height)
+                    return [
+                        "x": Int(monitor.rect.minX), "y": Int(monitor.rect.minY),
+                        "width": Int(monitor.rect.width), "height": Int(monitor.rect.height),
+                        "primary": monitor.primary ? 1 : 0, "scale": monitor.desktopScale,
+                        "physicalWidth": validPhysical ? Int(physical.width.rounded()) : 0,
+                        "physicalHeight": validPhysical ? Int(physical.height.rounded()) : 0,
+                        "orientation": monitor.orientation,
+                    ]
+                } ?? []
+            client.onMonitorLayout = { [weak self] monitors in
+                DispatchQueue.main.async {
+                    guard let self, self.generation == attempt, let layout = self.displayLayout else { return }
+                    self.confirmedMonitors =
+                        monitors.count == layout.monitors.count
+                        && layout.monitors.allSatisfy { wanted in
+                            monitors.contains { received in
+                                (received["x"] as? NSNumber)?.intValue == Int(wanted.rect.minX)
+                                    && (received["y"] as? NSNumber)?.intValue == Int(wanted.rect.minY)
+                                    && (received["width"] as? NSNumber)?.intValue == Int(wanted.rect.width)
+                                    && (received["height"] as? NSNumber)?.intValue == Int(wanted.rect.height)
+                                    && (received["primary"] as? NSNumber)?.boolValue == wanted.primary
+                            }
+                        }
+                    if self.fullScreenPresented && !self.confirmedMonitors {
+                        self.exitFullScreen(
+                            reason: "The server changed its monitor layout. The session continues in the workspace.")
+                    }
+                    self.presentStartupDesktopIfReady()
+                }
+            }
+            client.onDesktopSize = { [weak self] width, height in
+                DispatchQueue.main.async {
+                    guard let self, self.generation == attempt, self.state.active else { return }
+                    let size = CGSize(width: width, height: height)
+                    self.observedDesktopSize = size
+                    self.desktop?.setDesktopSize(size)
+                    if self.fullScreenPresented, size != self.fullScreen?.layout.bounds.size {
+                        self.exitFullScreen(
+                            reason: "The server changed the desktop size. The session continues in the workspace.")
+                    }
+                    if let requested = self.requestedResize, requested == size {
+                        self.displayObservationTask?.cancel()
+                        self.requestedResize = nil
+                        self.displayMessage = ""
+                    }
+                    self.presentStartupDesktopIfReady()
+                }
+            }
+            client.onDisplayUpdate = { [weak self] message in
+                DispatchQueue.main.async {
+                    guard let self, self.generation == attempt, self.state == .connected else { return }
+                    self.displayMessage = message
+                }
+            }
             client.redirectedFolders = profile.redirectedFolders.map {
                 ["name": $0.name, "bookmark": $0.bookmark, "readOnly": $0.readOnly] as [String: Any]
             }
@@ -219,9 +307,11 @@ import SwiftTerm
             client.onFrame = { [weak desktop] data, width, height, stride in
                 desktop?.submit(data, width: width, height: height, stride: stride)
             }
-            client.onCursor = { [weak desktop] data, width, height, x, y in
+            client.onCursor = { [weak self] data, width, height, x, y in
                 DispatchQueue.main.async {
-                    desktop?.setRemoteCursor(data, width: width, height: height, hotX: x, hotY: y)
+                    guard let self, self.generation == attempt, self.state.active else { return }
+                    self.desktop?.setRemoteCursor(data, width: width, height: height, hotX: x, hotY: y)
+                    self.fullScreen?.cursor(data, width: width, height: height, x: x, y: y)
                 }
             }
             client.onClipboard = { [weak self] text in
@@ -263,19 +353,134 @@ import SwiftTerm
             desktop.preparePaste = { [weak self] in self?.syncClipboard() }
             desktop.sendPointer = { [weak client] flags, x, y in client?.sendPointerFlags(flags, x: x, y: y) }
             desktop.resizeRemote = { [weak self, weak client] width, height, scale in
-                guard let self, self.profile.displayMode == .fit, self.profile.dynamicResolution else { return }
-                client?.resizeWidth(width, height: height, scale: scale)
+                guard let self, self.generation == attempt, self.profile.displayMode == .fit,
+                    self.profile.dynamicResolution, self.displayLayout == nil || !self.profile.useAllMonitors,
+                    !self.fullScreenPresented, !self.startupPresentationPending
+                else { return }
+                let size = CGSize(width: min(8192, max(200, width / 2 * 2)), height: min(8192, max(200, height)))
+                guard self.requestedResize != size || self.requestedResizeScale != scale else { return }
+                guard self.observedDesktopSize != size || self.lastSubmittedScale != scale else { return }
+                self.requestedResize = size
+                self.requestedResizeScale = scale
+                self.lastSubmittedScale = scale
+                self.displayObservationTask?.cancel()
+                let timeout = DispatchWorkItem { [weak self] in
+                    guard let self, self.generation == attempt, self.requestedResize != nil, self.state == .connected
+                    else { return }
+                    self.displayMessage =
+                        "The display change was not confirmed. The server may restrict resolution or scaling."
+                }
+                self.displayObservationTask = timeout
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: timeout)
+                client?.resizeWidth(Int(size.width), height: Int(size.height), scale: scale)
             }
-            desktop.withInitialSize(width: profile.desktopWidth, height: profile.desktopHeight) {
-                [weak self, weak client] size in
+            let connect: (CGSize, Int) -> Void = { [weak self, weak client] size, scale in
                 guard let self, self.generation == attempt, self.state.active else { return }
+                let dimension = self.displayLayout == nil ? 8192 : RDPDisplayLimits.dimension
+                guard size.width >= 200, size.height >= 200, size.width <= CGFloat(dimension),
+                    size.height <= CGFloat(dimension),
+                    size.width * size.height <= CGFloat(RDPDisplayLimits.pixels)
+                else {
+                    self.update("failed", message: RDPDisplayLayoutError.invalid.localizedDescription, attempt: attempt)
+                    return
+                }
+                self.lastSubmittedScale = scale
                 client?.connectHost(
                     self.profile.host, port: self.profile.port, username: self.profile.username,
-                    domain: self.profile.domain,
-                    password: credential.password, width: Int(size.width), height: Int(size.height), scale: 100,
+                    domain: self.profile.domain, password: credential.password,
+                    width: Int(size.width), height: Int(size.height), scale: scale,
                     clipboard: self.profile.clipboard, audioPlayback: self.profile.audioPlayback)
             }
+            if let layout = displayLayout {
+                connect(layout.bounds.size, layout.monitors[0].desktopScale)
+            } else {
+                desktop.withInitialSize(width: profile.desktopWidth, height: profile.desktopHeight) {
+                    [weak desktop] size in
+                    let factor =
+                        self.profile.retinaDisplay
+                        ? desktop?.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1 : 1
+                    let requested =
+                        self.profile.displayMode == .matchWindow
+                        ? size
+                        : CGSize(
+                            width: self.profile.retinaDisplay ? floor(size.width * factor / 2) * 2 : size.width,
+                            height: floor(size.height * factor))
+                    connect(requested, Int((factor * 100).rounded()))
+                }
+            }
         }
+    }
+    private func presentStartupDesktopIfReady() {
+        guard startupPresentationPending, state == .connected, let desktop, let layout = displayLayout,
+            observedDesktopSize == layout.bounds.size, layout.monitors.count == 1 || confirmedMonitors
+        else { return }
+        startupPresentationPending = false
+        displayObservationTask?.cancel()
+        presentDesktopFullScreen(desktop: desktop, screens: displayScreens, layout: layout)
+    }
+    func enterFullScreen() {
+        guard state == .connected, let desktop, !fullScreenPresented, let size = observedDesktopSize else { return }
+        let screens = screenSnapshot(
+            displayLayout != nil && profile.useAllMonitors, desktop.window?.screen ?? NSApp.keyWindow?.screen)
+        do {
+            let layout: RDPDisplayLayout
+            if let negotiated = displayLayout, negotiated.monitors.count > 1 {
+                guard confirmedMonitors, size == negotiated.bounds.size else {
+                    displayMessage =
+                        "The server has not confirmed the monitor layout. The desktop remains in the workspace."
+                    return
+                }
+                guard screens.count == displayScreens.count,
+                    displayScreens.allSatisfy({ screens.contains($0) })
+                else {
+                    displayMessage = "Displays changed. Reconnect to use the new monitor arrangement or Retina density."
+                    return
+                }
+                layout = negotiated
+                presentDesktopFullScreen(desktop: desktop, screens: displayScreens, layout: layout)
+            } else {
+                guard let screen = screens.first else { throw RDPDisplayLayoutError.invalid }
+                layout = try RDPDisplayLayout(
+                    screen: screen, desktopSize: size, desktopScale: lastSubmittedScale ?? 100)
+                presentDesktopFullScreen(desktop: desktop, screens: [screen], layout: layout)
+            }
+        } catch {
+            displayMessage = error.localizedDescription
+        }
+    }
+    private func presentDesktopFullScreen(
+        desktop: RDPDesktopView, screens: [RDPDisplayScreen], layout: RDPDisplayLayout
+    ) {
+        startupPresentationPending = false
+        displayObservationTask?.cancel()
+        requestedResize = nil
+        requestedResizeScale = nil
+        displayMessage = ""
+        let presentation = RDPFullScreenPresentation(desktop: desktop, screens: screens, layout: layout)
+        presentation.onActivate = { [weak self] in
+            guard let self, self.state == .connected else { return }
+            self.workspace?.activatePresentation(of: self)
+        }
+        presentation.onExit = { [weak self] reason in self?.exitFullScreen(reason: reason) }
+        fullScreen = presentation
+        fullScreenPresented = true
+        presentation.show()
+    }
+    func exitFullScreen(reason: String? = nil, restoreFocus: Bool = true) {
+        let presentation = fullScreen
+        fullScreen = nil
+        fullScreenPresented = false
+        startupPresentationPending = false
+        presentation?.exit(notify: false, restoreFocus: restoreFocus && state == .connected)
+        if let reason { displayMessage = reason }
+        desktop?.requestResize()
+    }
+    private func retireFullScreen() {
+        displayObservationTask?.cancel()
+        requestedResize = nil
+        requestedResizeScale = nil
+        startupPresentationPending = false
+        exitFullScreen(restoreFocus: false)
     }
     private func trustCallback(attempt: UUID) -> (String, String) -> Bool {
         { [weak self] fingerprint, details in
@@ -309,6 +514,18 @@ import SwiftTerm
         if state == .connected {
             if profile.kind == .ssh && sshMode != .terminal { files.showFiles() }
             desktop?.inputEnabled = true
+            presentStartupDesktopIfReady()
+            if startupPresentationPending {
+                displayObservationTask?.cancel()
+                let timeout = DispatchWorkItem { [weak self] in
+                    guard let self, self.generation == attempt, self.startupPresentationPending else { return }
+                    self.startupPresentationPending = false
+                    self.displayMessage =
+                        "The server did not confirm the requested monitor layout. The desktop remains in the workspace."
+                }
+                displayObservationTask = timeout
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: timeout)
+            }
             desktop?.requestResize()
             startClipboardTimer()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
@@ -317,6 +534,7 @@ import SwiftTerm
             }
         }
         if !state.active {
+            retireFullScreen()
             files.disconnected()
             tunnelTask?.cancel()
             tunnel?.stop()
@@ -350,6 +568,7 @@ import SwiftTerm
         }
     }
     func disconnect() {
+        retireFullScreen()
         generation = UUID()
         tunnelTask?.cancel()
         tunnelTask = nil
@@ -397,7 +616,13 @@ import SwiftTerm
     func controlAltDelete() { if state == .connected { rdp?.sendControlAltDelete() } }
     func focus() {
         guard profile.kind != .ssh || (terminalAvailable && sshMode != .files) else { return }
-        if let view = terminal?.view ?? desktop { view.window?.makeFirstResponder(view) }
+        if fullScreenPresented, let presentation = fullScreen,
+            let index = presentation.windows.firstIndex(where: { $0.isKeyWindow })
+        {
+            presentation.windows[index].makeFirstResponder(presentation.surfaces[index])
+        } else if let view = terminal?.view ?? desktop {
+            view.window?.makeFirstResponder(view)
+        }
     }
 }
 
