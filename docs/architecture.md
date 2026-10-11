@@ -129,6 +129,11 @@ bundle/path strings are restricted to migration recognition and test provenance.
 
 ## UI and desktop presentation
 
+Brand artwork comes from the supplied `farcast-logo-v5.svg`. The generation script
+retains its vector geometry and gradients in separate background/stand/monitor/
+broadcast PNG layers, while `AppIcon.icon` owns native materials and macOS appearance
+variants. A derived outline template supplies the sidebar mark. See [branding](branding.md).
+
 Terminal background fills respect every safe-area edge, including the navigation
 split view's sidebar boundary. Terminal and Split modes use the same bounded fill;
 the connection sidebar retains its native material independently of terminal themes.

@@ -23,11 +23,25 @@ After renaming the outer checkout, follow the cache relocation instructions in [
 
 ## Icon direction
 
-An original connected-node emblem represents several remote endpoints gathered in one workspace. It uses a restrained blue background, a clear central silhouette and independently layered foreground shapes. No Apple logo, hardware illustration or copied artwork is used.
+The supplied `farcast-logo-v5.svg` defines the monitor-and-broadcast artwork,
+with an indigo background and a warm orange-to-pink screen. Preserve the received
+SVG, including its provenance metadata. The sidebar uses a monochrome outline of
+the same monitor, stand and broadcast symbol so native tint remains legible.
 
-The editable app icon is a native Icon Composer document. macOS supplies the icon's outline, depth, lighting and appearance variants instead of baking a fake system mask or reflection into a single bitmap. Design references: [Apple app icon guidelines](https://developer.apple.com/design/human-interface-guidelines/app-icons/) and [Icon Composer workflow](https://developer.apple.com/documentation/xcode/creating-your-app-icon-using-icon-composer).
+The editable app icon is a native Icon Composer document at
+`Farcast/AppIcon.icon`. Its background, stand, monitor and broadcast symbol are
+separate layers. The background canvas is unmasked; macOS supplies the outline,
+depth, lighting and appearance variants. Colors and SVG geometry are retained,
+while materials and appearance effects remain editable in Icon Composer.
+Design references: [Apple app icon guidelines](https://developer.apple.com/design/human-interface-guidelines/app-icons/)
+and [Icon Composer workflow](https://developer.apple.com/documentation/xcode/creating-your-app-icon-using-icon-composer).
 
-Run scripts/update-icon-artwork.sh to regenerate the original layers and sidebar glyph using scripts/generate-icon.swift; run scripts/export-icon.sh for previews. Icon Composer remains the editable source of truth for materials and layering. Generated preview images are stored under .build and are not app runtime assets.
+Run `scripts/update-icon-artwork.sh` to regenerate layer PNGs and the sidebar glyph
+from the SVG using AppKit's native SVG renderer in `scripts/generate-icon.swift`.
+The script preserves the Icon Composer document's material settings. If the supplied
+SVG structure changes, review the layer split before regeneration. Run
+`scripts/export-icon.sh` for Default, Dark, Mono and small-size previews. Generated
+previews live under `.build` and are not app runtime assets.
 
 README retains the supplied screenshots in `docs/images`. Their contents show the
 previous name until updated; README explains that history. Filenames and references

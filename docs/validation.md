@@ -4,6 +4,31 @@ Validation is evidence for the stated environment and scope, not a production
 compatibility guarantee. Repeatable commands and fixture ownership are in
 [testing](testing.md); signing requirements are in [packaging](packaging.md).
 
+## Supplied v5 logo — 11 October 2026
+
+- Version advances from 1.8.0 to 1.8.1 (build 1), a compatible branding correction.
+  App Icon Composer layers, the sidebar template mark and the README icon use
+  the supplied monitor-and-broadcast artwork. The original SVG/provenance remains
+  intact. All five screenshot files are byte-for-byte unchanged.
+- Layer/sidebar regeneration is reproducible. Icon Composer Default, Dark and Mono
+  exports and 16/32/64/128-point previews were visually inspected, alongside the
+  compiled app icon and sidebar asset loaded directly from the Release bundle.
+  The README export is 512×512. These asset checks do not establish live Finder/Dock
+  cache refresh, complete accessibility or the sidebar's live material appearance.
+- Pinned dependency preparation, certificate-signed Release and final bundle/platform/
+  dependency/signature/loader/sandboxed-helper/signing-continuity checks passed.
+  Twenty-one core, 21 maintenance, 18 SSH, 82 SFTP, seven TLS RDP, eight NLA RDP
+  and ten protected-probe synthetic checks passed. 26 workspace checks passed.
+  Swift formatting, shell syntax,
+  repository hygiene and whitespace checks passed. Icon Composer export required
+  the approved environment; its sandbox failure was a tooling restriction.
+- Final `Farcast-1.8.1-build-1-arm64.dmg` passed image integrity, mounted-bundle/
+  signing-continuity/loader/helper verification, packaged-changelog equality and
+  SHA256 verification. No commit or publication occurred.
+- No real servers, protected input, saved profiles/credentials, user database or
+  general clipboard were accessed. Local development signing is retained;
+  Developer ID distribution and notarization remain pending.
+
 ## SSH terminal right-click — 11 October 2026
 
 - Version advances from 1.7.4 to 1.8.0 (build 1), a compatible feature. Settings

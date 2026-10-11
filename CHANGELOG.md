@@ -2,6 +2,11 @@
 
 Changes are recorded from version 1.7.0 onwards.
 
+## 1.8.1 — 11 October 2026
+
+- Adopt the supplied v5 monitor-and-broadcast logo in the app icon, sidebar mark and README icon.
+- Preserve editable native Icon Composer layers and existing screenshots.
+
 ## 1.8.0 — 11 October 2026
 
 - Add a Settings choice for SSH right-click: a native context menu (default), or automatic copy/paste. Changes apply to open terminals immediately.
