@@ -67,8 +67,10 @@ struct ConnectionDraft: Identifiable {
             return "Enter the server address and port in their separate fields."
         }
         if !(1...65535).contains(port) { return "Port must be between 1 and 65535." }
-        if username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Enter a username." }
-        if !(200...8192).contains(desktopWidth) || !(200...8192).contains(desktopHeight) {
+        if kind != .vnc && username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Enter a username."
+        }
+        if kind == .rdp && (!(200...8192).contains(desktopWidth) || !(200...8192).contains(desktopHeight)) {
             return "Desktop dimensions must be between 200 and 8192 pixels."
         }
         if kind == .rdp {

@@ -63,3 +63,9 @@ These require actual received pixels at the requested display dimensions, retain
 same trust checks and redaction, and send no desktop input. `FARCAST_TEST_RDP=1` selects
 RDP only at the ordinary 1024 × 768 baseline. Use `FARCAST_TEST_SERVER` to select an
 ordinal when needed; the configured-entry override still requires explicit authorization.
+
+VNC profiles can be imported with `"protocol": "VNC"` and an empty username for
+classic VNC authentication, then connected explicitly in the app. The redacted
+live-server command currently probes SSH/RDP only; it does not establish VNC live
+coverage. Use `scripts/test-vnc.sh` and the mixed WireGuard session suite for owned
+synthetic VNC checks. Do not put real connection data in tracked fixtures.

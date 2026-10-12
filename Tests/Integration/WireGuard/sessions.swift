@@ -68,13 +68,15 @@ import SwiftData
             draft.kind = kind
             draft.name = "Synthetic \(kind.rawValue)"
             draft.host = host
-            draft.port = kind == .ssh ? 22 : 3389
+            draft.port = kind.defaultPort
             draft.username = "fixture"
             draft.wireGuardID = tunnelID ?? saved.id
             draft.clipboard = false
             draft.audioPlayback = false
             draft.dynamicResolution = false
-            if trust { workspace.trust.remember(kind == .ssh ? sshPin : rdpPin, for: draft.endpointKey) }
+            if trust && kind != .vnc {
+                workspace.trust.remember(kind == .ssh ? sshPin : rdpPin, for: draft.endpointKey)
+            }
             let session = RemoteSession(
                 profile: draft, workspace: workspace, persistent: false,
                 files: SFTPController(homeURL: root, requiresAccess: false))
@@ -95,15 +97,21 @@ import SwiftData
         keysAvailable = false
         let noKeys = make(.ssh)
         precondition(noKeys.state == .failed && noKeys.message == WireGuardError.missingKeys.localizedDescription)
+        let vncNoKeys = make(.vnc)
+        precondition(vncNoKeys.state == .failed && vncNoKeys.message == WireGuardError.missingKeys.localizedDescription)
         keysAvailable = true
+        let vncMissing = make(.vnc, tunnelID: UUID())
+        precondition(
+            vncMissing.state == .failed && vncMissing.message == WireGuardError.unavailable.localizedDescription)
         precondition(helpers().isEmpty)
         print("PASS SSH refuses missing WireGuard profiles and keys before protocol startup")
 
         let first = make(.ssh)
         let second = make(.ssh)
         let desktop = make(.rdp)
+        let vnc = make(.vnc)
         try await waitUntil("Mixed encrypted sessions did not connect") {
-            [first, second, desktop].allSatisfy { $0.state == .connected }
+            [first, second, desktop, vnc].allSatisfy { $0.state == .connected }
         }
         try await listFiles(first)
         try await listFiles(second)
@@ -117,14 +125,14 @@ import SwiftData
         precondition(workspace.prompts.isEmpty)
         precondition(workspace.trust.fingerprint(for: first.profile.endpointKey) == sshPin)
         precondition(workspace.trust.fingerprint(for: "ssh|127.0.0.1|22") == nil)
-        print("PASS two SSH/SFTP sessions and RDP share exactly one helper; original endpoint trust is retained")
+        print("PASS two SSH/SFTP sessions, RDP and VNC share exactly one helper; original endpoint trust is retained")
 
         for host in ["127.0.0.1", "unresolved.invalid"] {
             let refused = make(.ssh, host: host)
             try await waitUntil("Unsafe tunneled destination did not fail closed") { refused.state == .failed }
             precondition(refused.message.contains(host == "127.0.0.1" ? "AllowedIPs" : "DNS servers"))
             precondition(!refused.credentialsRejected && workspace.prompts.isEmpty)
-            precondition([first, second, desktop].allSatisfy { $0.state == .connected })
+            precondition([first, second, desktop, vnc].allSatisfy { $0.state == .connected })
         }
         workspace.trust.forget(first.profile.endpointKey)
         let rejected = make(.ssh, trust: false)
@@ -138,6 +146,35 @@ import SwiftData
         workspace.trust.remember(sshPin, for: first.profile.endpointKey)
         precondition(helpers().count == 1)
         print("PASS tunneled SSH DNS/route refusal and host-key rejection leave other protocols connected")
+
+        for host in ["127.0.0.1", "unresolved.invalid"] {
+            let refused = make(.vnc, host: host)
+            try await waitUntil("Unsafe tunneled VNC destination did not fail closed") { refused.state == .failed }
+            precondition(refused.message.contains(host == "127.0.0.1" ? "AllowedIPs" : "DNS servers"))
+            precondition([first, second, desktop, vnc].allSatisfy { $0.state == .connected })
+        }
+        try await waitUntil("VNC did not render through WireGuard") { vnc.desktop?.mailbox.snapshot()?.1.width == 40 }
+        vnc.typeVNCText("Encrypted 中😀")
+        try await waitUntil("VNC typing through WireGuard did not finish") { !vnc.vncTyping }
+        vnc.controlAltDelete()
+        try await Task.sleep(for: .milliseconds(100))
+        vnc.disconnect()
+        let eventsFile = root.deletingLastPathComponent().appendingPathComponent("vnc/events-1.json")
+        try await waitUntil("VNC peer did not retire its socket") {
+            FileManager.default.fileExists(atPath: eventsFile.path)
+        }
+        let events = try JSONSerialization.jsonObject(with: Data(contentsOf: eventsFile)) as! [[Any]]
+        let keys = events.filter { ($0.first as? String) == "key" }
+        precondition(keys.contains { ($0[1] as? Int) == 1 && ($0[2] as? UInt32) == 0x0100_4E2D })
+        precondition(keys.contains { ($0[1] as? Int) == 1 && ($0[2] as? UInt32) == 0x0101_F600 })
+        precondition(
+            keys.suffix(6).map { ($0[1] as! Int, $0[2] as! Int) }.elementsEqual(
+                [(1, 0xFFE3), (1, 0xFFE9), (1, 0xFFFF), (0, 0xFFFF), (0, 0xFFE9), (0, 0xFFE3)], by: ==))
+        try await listFiles(second)
+        precondition(desktop.state == .connected && helpers().count == 1)
+        let replacementVNC = make(.vnc)
+        try await waitUntil("VNC did not reacquire its independent lease") { replacementVNC.state == .connected }
+        print("PASS VNC encrypted frames/input, DNS/route refusal and independent reconnect")
 
         first.disconnect()
         try await listFiles(second)
@@ -158,19 +195,22 @@ import SwiftData
         precondition(children.count == 1)
         precondition(kill(children[0], SIGTERM) == 0)
         try await waitUntil("Helper exit did not fail every mixed-protocol lease") {
-            reconnected.state == .failed && replacementDesktop.state == .failed
+            reconnected.state == .failed && replacementDesktop.state == .failed && replacementVNC.state == .failed
         }
         precondition(!reconnected.message.isEmpty && !replacementDesktop.message.isEmpty)
         precondition(workspace.prompts.isEmpty)
         let restartedSSH = make(.ssh)
         let restartedRDP = make(.rdp)
+        let restartedVNC = make(.vnc)
         try await waitUntil("Sessions did not restart after shared helper failure") {
-            restartedSSH.state == .connected && restartedRDP.state == .connected
+            restartedSSH.state == .connected && restartedRDP.state == .connected && restartedVNC.state == .connected
         }
         precondition(helpers().count == 1)
         await withCheckedContinuation { continuation in workspace.shutdown { continuation.resume() } }
         precondition(helpers().isEmpty)
         precondition(workspace.sessions.allSatisfy { $0.state == .disconnected })
-        print("PASS shared helper failure reaches SSH and RDP, recovery works, and shutdown drains all workers/helpers")
+        print(
+            "PASS shared helper failure reaches SSH, RDP and VNC, recovery works, and shutdown drains all workers/helpers"
+        )
     }
 }

@@ -10,7 +10,9 @@
 The adjacent files contain upstream license texts. SwiftTerm is resolved through
 Swift Package Manager; the others are built from pinned source revisions by
 `scripts/prepare-dependencies.sh`. Apple frameworks and the system zlib are
-provided by macOS.
+provided by macOS. The independently implemented VNC adapter uses the already
+bundled Apache-2.0 OpenSSL for DES/TLS and system zlib; no additional VNC library
+or external client is redistributed.
 
 FreeRDP includes Google's CPU-feature detection code; its NOTICE and license
 are also included below. Test-only Paramiko is not included in the application.

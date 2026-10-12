@@ -68,6 +68,8 @@ import CoreGraphics
             surface.inputEnabled = desktop.inputEnabled
             surface.sendKey = desktop.sendKey
             surface.sendUnicode = desktop.sendUnicode
+            surface.sendText = desktop.sendText
+            surface.typeClipboard = desktop.typeClipboard
             surface.sendPointer = desktop.sendPointer
             surface.preparePaste = desktop.preparePaste
             surface.exitFullScreen = { [weak self] in self?.exit() }
@@ -79,7 +81,7 @@ import CoreGraphics
             let exit = NSButton(title: "Exit Full Screen", target: self, action: #selector(exitAction))
             exit.bezelStyle = .rounded
             exit.controlSize = .small
-            exit.toolTip = "Return to the workspace (Control–Command–F). The RDP session stays connected."
+            exit.toolTip = "Return to the workspace (Control–Command–F). The desktop session stays connected."
             exit.setAccessibilityLabel("Exit remote desktop full screen")
             // An opaque native background keeps the label legible over arbitrary remote pixels.
             let exitBackground = NSBox(

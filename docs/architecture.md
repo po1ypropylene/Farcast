@@ -27,7 +27,7 @@ No runtime Homebrew, external protocol client or SSH agent is required.
 | Features/WireGuard | Profile library, transport leases and packaged helper probe |
 | Protocols/SSH | Persistent terminal view/delegate |
 | Protocols/RDP | Metal view, scrolling, input and latest-frame mailbox |
-| Native/SSH, Native/RDP | Independently written Objective-C protocol adapters |
+| Native/SSH, Native/RDP, Native/VNC | Independently written Objective-C protocol adapters |
 | Native/Transport | Shared authenticated WireGuard socket handshake and redacted diagnostics |
 | Networking/WireGuard | Independently written Go helper using pinned upstream modules |
 | Tests/CoreTests, Integration, Maintenance | Core, protocol/UI coordination and disposable script checks |
@@ -81,7 +81,7 @@ stores profile IDs and restores disconnected tabs in the main window.
 Closing the last app window requests termination. Quit and window close use the same
 asynchronous shutdown: save tab restoration metadata, reject new connections/prompts,
 cancel existing prompts and disconnect all sessions, then reply to AppKit only after
-SSH/RDP workers finish freeing their native handles and every launched WireGuard
+SSH/RDP/VNC workers finish freeing their native handles and every launched WireGuard
 helper exits. Protocol-wide worker/process groups also cover already-closed or
 replaced tabs and helpers whose final lease was released. WireGuard shutdown rejects
 new leases. Completion runs through the main run loop, including AppKit's nested
@@ -266,6 +266,48 @@ PDU carries no request ID; stream IDs reject late file responses. A silent peer 
 require reconnecting. Disk/codec work stays off the main actor. FreeRDP's Mac audio backend is bundled;
 playback defaults on, microphone capture stays off and changes apply after reconnect.
 
+## VNC protocol adapter
+
+`Native/VNC/VNCClient` independently implements RFB 3.3/3.7/3.8 using the existing
+OpenSSL dependency and macOS zlib. No external VNC client or copied protocol adapter
+is used. Its cancellable worker owns the socket, TLS context, zlib stream and BGRA
+framebuffer. Raw, overlapping CopyRect, Hextile and persistent Zlib encodings plus
+DesktopSize are negotiated; unadvertised encodings, malformed rectangles and
+oversized payloads fail closed. Bounds are 16384 per side / 64 Mi pixels, 4096
+rectangles per update, 64 MiB compressed payload and 1 MiB queued keyboard/pointer
+input. Frame publication copies an immutable snapshot into the existing latest-frame
+mailbox. The same Metal view, inverse pointer mapping, scroll viewport and single
+local-display full-screen presentation serve RDP and VNC; names of existing shared
+classes and persistence properties remain intact.
+
+VNC password authentication uses the specified DES challenge response (first eight
+Latin-1 password bytes); no-auth is also supported. VeNCrypt 0.2 accepts X509None,
+X509Vnc and X509Plain with TLS 1.2+. macOS evaluates the original hostname’s certificate,
+and the endpoint-scoped trust prompt requires approval before authentication bytes.
+An offered VeNCrypt mode is never downgraded to plaintext if no supported subtype
+exists. Anonymous TLS and proprietary/ARD authentication are refused. Classic VNC
+has no certificate identity or transport encryption; the editor explains this.
+WireGuard uses the common token-authenticated socket handshake before RFB bytes,
+with original host identity, independent destination leases, fail-closed tunnel
+startup/exit and app-shutdown worker draining.
+
+VNC reuses existing profile display/full-screen fields without a SwiftData schema
+change. It exposes only fit/actual-size and single-display startup full screen;
+server dimensions are authoritative and RDP-only device/resolution settings stay hidden.
+VNC key events use X11 keysyms, including full Unicode scalars. Explicit clipboard
+typing reads a snapshot on user action, normalizes CRLF/CR to Return, maps Tab,
+rejects other controls and caps the batch at 16384 scalars. Worker-paced down/up
+pairs at approximately 5 ms per character never send ClientCutText. Cancellation
+cannot retract characters already delivered. Focus loss releases pressed input;
+selection changes, disconnect and Ctrl+Alt+Delete cancel pending typing. Ctrl+Alt+Delete
+is one queued sequence with releases in reverse order. ServerCutText is bounded
+and discarded; no clipboard timer, file transfer or automatic clipboard reads
+exist for VNC. Physical shortcuts use the existing US scan-code map translated to
+keysyms; server keyboard/Unicode behavior remains a live interoperability limit.
+
+Protocol sources: [RFB specification](https://www.rfc-editor.org/rfc/rfc6143.html)
+and [RFB extensions including VeNCrypt and Zlib](https://github.com/rfbproto/rfbproto/blob/master/rfbproto.rst).
+
 ## RDP selected-folder redirection
 
 Per-connection exports store drive names, read-only flags and security-scoped
@@ -446,9 +488,9 @@ See [WireGuard](wireguard.md) and [packaging](packaging.md) for lifecycle/sandbo
 any protocol adapter. `Workspace.wireGuardSettings` owns metadata/key lookup, using
 the same injectable credential provider as ordinary connection credentials.
 The profile ID selects the existing process-wide `WireGuardTransport` registry;
-SSH and RDP acquire independent destination/token leases on one helper/device.
+SSH, RDP and VNC acquire independent destination/token leases on one helper/device.
 Disconnect releases only that lease; the final lease stops the helper. Helper exit
-fails every active lease and interrupts both adapters. Generation guards reject
+fails every active lease and interrupts all adapters. Generation guards reject
 late startup/status callbacks, and app shutdown drains native workers and helpers.
 
 `Native/Transport/WireGuardSocket.h` implements the common token/acknowledgement

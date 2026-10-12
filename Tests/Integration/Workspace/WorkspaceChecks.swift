@@ -46,6 +46,11 @@ enum FCRDPClient {
         CleanupDouble.drain(after: 0.1, completion: completion)
     }
 }
+enum FCVNCClient {
+    static func whenAllDisconnected(_ completion: @escaping () -> Void) {
+        CleanupDouble.drain(after: 0.12, completion: completion)
+    }
+}
 enum WireGuardTransport {
     static func shutdownAll(completion: @escaping () -> Void) {
         CleanupDouble.drain(after: 0.15, completion: completion)
@@ -213,7 +218,7 @@ enum WireGuardTransport {
         precondition(defaults.stringArray(forKey: "workspaceConnections") == remembered)
         let deadline = Date().addingTimeInterval(5)
         while replies < 2 && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.02)) }
-        precondition(replies == 2 && CleanupDouble.completed == 3)
+        precondition(replies == 2 && CleanupDouble.completed == 4)
         let delegate = AppDelegate()
         precondition(delegate.applicationShouldTerminate(NSApplication.shared) == .terminateNow)
         precondition(delegate.applicationShouldTerminateAfterLastWindowClosed(NSApplication.shared))
@@ -241,7 +246,7 @@ enum WireGuardTransport {
             forName: NSApplication.willTerminateNotification, object: app, queue: .main
         ) { _ in
             MainActor.assumeIsolated {
-                precondition(CleanupDouble.completed == 3 && workspace.isShuttingDown)
+                precondition(CleanupDouble.completed == 4 && workspace.isShuttingDown)
                 precondition(workspace.sessions.allSatisfy { $0.state == .disconnected })
                 let testDefaults = UserDefaults(suiteName: suite)!
                 testDefaults.removePersistentDomain(forName: suite)

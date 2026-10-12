@@ -54,10 +54,10 @@ require approval; report recurring prompts rather than deleting your saved crede
 
 ## Connect
 
-1. Choose **SSH Terminal**, **Remote Desktop**, or **Quick Connect**.
+1. Choose **SSH Terminal**, **Remote Desktop**, **VNC Desktop**, or **Quick Connect**.
 2. Enter the protocol, name, server address, port, username and password in the
    connection editor. Server address is just the IP address or host name. Port is
-   a separate field, initially 22 for SSH or 3389 for RDP. RDP also has an optional domain. Use the pinned **Display**, **Devices & audio**,
+   a separate field, initially 22 for SSH, 3389 for RDP or 5900 for VNC. VNC usernames are optional except with X509Plain authentication. RDP also has an optional domain. Use the pinned **Display**, **Devices & audio**,
    **Terminal** and **Security** tabs for the applicable options. The form opens on
    **General**; tab changes keep the values you entered.
 3. For SSH, choose Password or select an imported private key. Password also supports
@@ -330,3 +330,41 @@ SFTP shows the average transfer speed of the current file in bytes per second.
 The rate resets for each file in a folder transfer and disappears after the request
 finishes or is cancelled. RDP file-clipboard messages share the bottom connection
 status line, keeping the desktop height unchanged.
+
+## VNC desktops
+
+Choose **Add → New VNC Connection**, **VNC Desktop**, or select VNC in Quick Connect.
+Enter the host and TCP port (default 5900); display `:1` normally uses port 5901.
+Use the server’s VNC password, which may differ from the account password.
+Classic VNC authentication uses only the first eight Latin-1 password bytes.
+No-password servers accept an empty password. A username is needed only for
+VeNCrypt X509Plain; X509Vnc uses the VNC password. Authentication rejection offers
+Retry sign-in. Credentials follow the same disclosed saving policy as SSH/RDP.
+
+Under **General → Network → Connect via**, choose a WireGuard profile to use the
+same shared tunnel as other sessions. Plain VNC does not encrypt the desktop or
+verify server identity; use WireGuard on untrusted networks. VeNCrypt X509None,
+X509Vnc and X509Plain use TLS 1.2 or newer and require approval of the certificate
+fingerprint for the original server endpoint before credentials are sent.
+Anonymous TLS, Apple Remote Desktop authentication and proprietary RealVNC
+security modes are unsupported; configure a supported server mode.
+
+**Display** offers Fit to window, 100% with scrolling and startup full screen.
+The server controls desktop resolution. Window resizing only fits the local view;
+server-initiated size changes update it. The full-screen action reuses the current
+connection on one Mac display. Control–Command–F exits full screen.
+
+Click **Paste Text from Clipboard** in the session bar or Session menu (or press
+Command–V while the desktop has focus). This takes a text snapshot only when
+requested and simulates keyboard presses in the focused remote application.
+Tabs and newlines are typed too, so select the intended remote field first.
+Unicode support depends on the server/application’s X11 Unicode keysym handling.
+Up to 16,384 Unicode scalars are accepted; other control characters are refused.
+**Cancel Typing**, switching sessions and disconnecting stop the remaining text;
+characters already sent remain. No automatic VNC clipboard/file sharing occurs.
+**Ctrl + Alt + Delete** is available in the session bar and Session menu.
+
+Standard RFB can support clipboard text, but Farcast’s VNC workflow uses explicit
+keyboard typing. VNC file transfer, audio, server cursor images, remote resolution
+requests and multiple local full-screen monitors are unsupported. Compatibility
+with production VNC servers, remote keyboard layouts and IME still needs live testing.

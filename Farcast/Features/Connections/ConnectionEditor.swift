@@ -83,7 +83,7 @@ struct ConnectionEditor: View {
                 if draft.port == old.defaultPort { draft.port = new.defaultPort }
                 credential = ConnectionCredential()
                 revealPassword = false
-                if new == .rdp { draft.authentication = .password }
+                if new != .ssh { draft.authentication = .password }
             }
             .onChange(of: draft.authentication) { _, _ in
                 credential = ConnectionCredential()
@@ -118,7 +118,10 @@ struct ConnectionEditor: View {
             }
             section("Sign in") {
                 row("Username") {
-                    TextField("Username", text: $draft.username, prompt: Text("Required")).accessibilityLabel(
+                    TextField(
+                        "Username", text: $draft.username,
+                        prompt: Text(draft.kind == .vnc ? "Optional — X509Plain only" : "Required")
+                    ).accessibilityLabel(
                         "Username"
                     )
                     .focused($focusedField, equals: .username)
@@ -129,7 +132,7 @@ struct ConnectionEditor: View {
                     row("Domain") {
                         TextField("Domain", text: $draft.domain, prompt: Text("Optional")).accessibilityLabel("Domain")
                     }
-                } else {
+                } else if draft.kind == .ssh {
                     row("Authentication") {
                         Picker("Authentication", selection: $draft.authentication) {
                             ForEach(SSHAuthentication.allCases) { Text($0.title).tag($0) }
@@ -137,6 +140,11 @@ struct ConnectionEditor: View {
                     }
                 }
                 credentialFields
+                if draft.kind == .vnc {
+                    caption(
+                        "Classic VNC uses the first 8 Latin-1 password bytes and does not encrypt the desktop. Use WireGuard on untrusted networks. VeNCrypt X509 modes use verified TLS."
+                    )
+                }
             }
             section("Network") {
                 row("Connect via") {
@@ -168,7 +176,7 @@ struct ConnectionEditor: View {
         return message.contains("host name") || message.contains("server address") ? message : nil
     }
     @ViewBuilder private var credentialFields: some View {
-        if draft.kind == .rdp || draft.authentication == .password {
+        if draft.kind != .ssh || draft.authentication == .password {
             passwordRow("Password", placeholder: "Optional — asked when connecting")
         }
         if draft.kind == .ssh && draft.authentication == .privateKey {
@@ -237,7 +245,9 @@ struct ConnectionEditor: View {
         }
     }
     private var availableTabs: [EditorTab] {
-        var tabs: [EditorTab] = draft.kind == .ssh ? [.general, .terminal] : [.general, .display, .devices]
+        var tabs: [EditorTab] =
+            draft.kind == .ssh
+            ? [.general, .terminal] : (draft.kind == .vnc ? [.general, .display] : [.general, .display, .devices])
         // Keep the existing ability to forget a trusted endpoint when entering a new profile.
         if request.mode == .edit || fingerprint != nil { tabs.append(.security) }
         return tabs
@@ -299,9 +309,25 @@ struct ConnectionEditor: View {
         switch selectedTab {
         case .general: commonFields
         case .terminal: terminalAppearance
-        case .display: display
+        case .display:
+            if draft.kind == .vnc { vncDisplay } else { display }
         case .devices: devices
         case .security: security
+        }
+    }
+    private var vncDisplay: some View {
+        VStack(spacing: 10) {
+            row("Display") {
+                Picker("Display", selection: $draft.displayMode) {
+                    Text("Fit to window").tag(RDPDisplayMode.fit)
+                    Text("100% with scrolling").tag(RDPDisplayMode.actualSize)
+                }.labelsHidden().accessibilityLabel("Display")
+            }
+            caption("VNC uses the server’s desktop size. Fitting changes only the local view.")
+            row("") { Toggle("Start in full screen", isOn: $draft.launchFullScreen) }
+            caption(
+                "Paste Text from Clipboard types into the focused remote application. It does not share the clipboard or files."
+            )
         }
     }
     private var terminalAppearance: some View {

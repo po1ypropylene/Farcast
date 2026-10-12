@@ -23,7 +23,7 @@ struct DetachedSessionView: View {
                         IconActionButton(title: "Disconnect this session", symbol: "stop.circle") {
                             session.disconnect()
                         }.disabled(!session.state.active)
-                        if session.profile.kind == .rdp {
+                        if session.profile.kind != .ssh {
                             SessionFullScreenButton(session: session)
                         } else {
                             IconActionButton(title: "Toggle full screen", symbol: "arrow.up.left.and.arrow.down.right")

@@ -5,14 +5,14 @@ Read README.md, docs/architecture.md, docs/local-testing.md, docs/branding.md an
 ## Product boundaries
 
 - Native SwiftUI app, macOS 27+, **arm64 only**. No Intel/older-macOS compatibility work.
-- SSH console and on-demand SFTP file transfer share one authenticated SSH session; RDP provides desktop access. No SCP/WebDAV, SSH agent requirement or external protocol executable.
+- SSH console and on-demand SFTP file transfer share one authenticated SSH session; RDP and VNC provide desktop access. No SCP/WebDAV, SSH agent requirement or external protocol executable.
 - Authentication is in-app password, imported private key, or keyboard-interactive. No agent selection UI.
 - Protocol adapters are independently written. Do not copy code or assets from unrelated projects.
 - Do not spawn subagents unless the user explicitly asks for delegation.
 
 ## Code placement
 
-App contains lifecycle/composition. Domain contains connection drafts, protocol/auth types and session state. Persistence contains SwiftData entities/import operations. Features contains SwiftUI workflows and session/workspace controllers. Shared contains Keychain/trust, prompt coordination, and test-document parsing. Protocols contains persistent terminal/desktop surfaces. Native/SSH and Native/RDP contain Objective-C adapters and their headers. Tests/Integration is separated by protocol; fixtures are not app seed data.
+App contains lifecycle/composition. Domain contains connection drafts, protocol/auth types and session state. Persistence contains SwiftData entities/import operations. Features contains SwiftUI workflows and session/workspace controllers. Shared contains Keychain/trust, prompt coordination, and test-document parsing. Protocols contains persistent terminal/desktop surfaces. Native/SSH, Native/RDP and Native/VNC contain Objective-C adapters and their headers. Tests/Integration is separated by protocol; fixtures are not app seed data.
 
 Xcode uses a synchronized source folder. A file under Farcast is automatically included; avoid placing test-only tools or secrets there. The standalone Package.swift builds only Domain/Persistence/Shared for core tests. Preserve SwiftData entity names and property identities during refactoring; do not reset the user's database.
 
@@ -32,7 +32,7 @@ Xcode uses a synchronized source folder. A file under Farcast is automatically i
 2. scripts/build.sh (Release, pinned Apple Development signing, hardened runtime disabled for local development; bundle verifier and loader check included). Run scripts/test-signing-continuity.sh when changing signing or credential access.
 3. swift test --scratch-path .build/core-tests
 4. scripts/test-ssh.sh; scripts/test-sftp.sh
-5. scripts/prepare-rdp-fixture.sh; scripts/test-rdp.sh; scripts/test-rdp-nla.sh
+5. scripts/test-vnc.sh; scripts/prepare-rdp-fixture.sh; scripts/test-rdp.sh; scripts/test-rdp-nla.sh
 6. scripts/test-live-fixtures.sh (protected-file probe against synthetic servers)
 7. scripts/test-workspace.sh; python3 -m unittest discover -s Tests/Maintenance -v
 8. python3 scripts/check-repository-hygiene.py
@@ -54,7 +54,7 @@ to avoid approval. Renew/select certificates through the packaging workflow. San
 identity enumeration can report an empty list; check in the approved build environment
 before claiming that no certificate is installed.
 
-Run swift-format using .swift-format for owned Swift sources. Objective-C adapters use clang-format. Do not format vendored upstream code. Keep callbacks on protocol workers, UI updates on the main actor, SSH backpressure and RDP latest-frame buffering intact. Disconnect must cancel outstanding prompts and transport work; reconnections must ignore stale callbacks.
+Run swift-format using .swift-format for owned Swift sources. Objective-C adapters use clang-format. Do not format vendored upstream code. Keep callbacks on protocol workers, UI updates on the main actor, SSH backpressure and RDP/VNC latest-frame buffering intact. Disconnect must cancel outstanding prompts and transport work; reconnections must ignore stale callbacks.
 
 ## Automatic versioning
 

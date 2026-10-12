@@ -50,6 +50,8 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         }
     }
     var sendKey: ((Int, Bool, Bool) -> Void)?
+    var sendText: ((String) -> Void)?
+    var typeClipboard: (() -> Void)?
     var sendUnicode: ((Int, Bool) -> Void)?
     var preparePaste: (() -> Void)?
     var sendPointer: ((Int, Int, Int) -> Void)?
@@ -423,6 +425,11 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
             exitFullScreen()
             return true
         }
+        if modifiers == .command, event.keyCode == 9, let typeClipboard {
+            releaseInput()
+            typeClipboard()
+            return true
+        }
         if modifiers == .command, [UInt16(8), 9, 7, 0].contains(event.keyCode),
             let code = Self.scanCodes[event.keyCode]
         {
@@ -452,6 +459,11 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     func insertText(_ string: Any, replacementRange: NSRange) {
         guard inputEnabled else { return }
         let text = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
+        if let sendText {
+            sendText(text)
+            marked = NSAttributedString(string: "")
+            return
+        }
         for unit in text.utf16 {
             sendUnicode?(Int(unit), true)
             sendUnicode?(Int(unit), false)

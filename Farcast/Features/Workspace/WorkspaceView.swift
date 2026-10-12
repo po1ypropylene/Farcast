@@ -81,6 +81,7 @@ struct WorkspaceView: View {
                     Menu {
                         Button("New SSH Connection") { create(.ssh) }
                         Button("New RDP Connection") { create(.rdp) }
+                        Button("New VNC Connection") { create(.vnc) }
                         Divider()
                         Button("WireGuard Connections…") { workspace.showWireGuard = true }
                         Button("Import Test Servers…") { workspace.chooseTestServerFile() }
@@ -156,7 +157,7 @@ struct WorkspaceView: View {
                             } label: {
                                 Label("Disconnect", systemImage: "stop.circle").labelStyle(.iconOnly)
                             }.disabled(!session.state.active).help("Disconnect this session")
-                            if session.profile.kind == .rdp {
+                            if session.profile.kind != .ssh {
                                 SessionFullScreenButton(session: session)
                             } else {
                                 Button {
@@ -316,6 +317,9 @@ struct WorkspaceView: View {
                             "Remote Desktop", subtitle: "Control your Windows servers.", icon: "desktopcomputer",
                             color: .indigo
                         ) { create(.rdp) }
+                        launchCard(
+                            "VNC Desktop", subtitle: "Control a VNC server.", icon: "display", color: .orange
+                        ) { create(.vnc) }
                     }
                     if let selected = connections.first(where: { $0.id == selectedProfileID }) {
                         VStack(alignment: .leading, spacing: 12) {

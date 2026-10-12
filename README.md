@@ -2,8 +2,8 @@
 
 <img src="docs/images/Farcast-Icon.png" alt="Farcast app icon" width="128" height="128">
 
-SSH terminals, SFTP files and RDP desktops in one native Mac app.
-Includes saved connections, session tabs and optional shared WireGuard for SSH and RDP.
+SSH terminals, SFTP files and RDP/VNC desktops in one native Mac app.
+Includes saved connections, session tabs and optional shared WireGuard for SSH, RDP and VNC.
 
 Farcast is free and open source, and will stay that way forever.
 

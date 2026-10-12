@@ -22,6 +22,9 @@ import SwiftTerm
     let terminal: TerminalController?
     let desktop: RDPDesktopView?
     private var ssh: FCSSHClient?
+    private var vnc: FCVNCClient?
+    @Published private(set) var vncTyping = false
+    private var vncPointerMask = 0
     private var rdp: FCRDPClient?
     private var fullScreen: RDPFullScreenPresentation?
     private var displayLayout: RDPDisplayLayout?
@@ -46,7 +49,11 @@ import SwiftTerm
         didSet {
             guard isSelected != oldValue else { return }
             rdp?.setClipboardActive(isSelected)
-            if !isSelected { fullScreen?.releaseInput() }
+            if !isSelected {
+                fullScreen?.releaseInput()
+                desktop?.releaseInput()
+                vnc?.cancelTyping()
+            }
             if isSelected {
                 clipboardBridge.reset()
             } else {
@@ -72,8 +79,8 @@ import SwiftTerm
         } else {
             terminal = nil
             let view = RDPDesktopView(frame: NSRect(x: 0, y: 0, width: 1000, height: 700))
-            view.displayMode = profile.displayMode
-            view.retinaDisplay = profile.retinaDisplay
+            view.displayMode = profile.kind == .vnc && profile.displayMode != .actualSize ? .fit : profile.displayMode
+            view.retinaDisplay = profile.kind == .rdp && profile.retinaDisplay
             view.setDesktopSize(CGSize(width: profile.desktopWidth, height: profile.desktopHeight))
             desktop = view
         }
@@ -108,6 +115,7 @@ import SwiftTerm
                     guard let self = reference.value, self.generation == attempt, self.state.active else { return }
                     self.ssh?.disconnect()
                     self.rdp?.disconnect()
+                    self.vnc?.disconnect()
                     self.update("failed", message: WireGuardError.transport.localizedDescription, attempt: attempt)
                     self.generation = UUID()
                 }
@@ -219,6 +227,10 @@ import SwiftTerm
             client.connectHost(
                 profile.host, port: profile.port, username: profile.username, password: credential.password,
                 privateKey: credential.privateKey, authentication: profile.authentication.rawValue)
+        } else if profile.kind == .vnc, let desktop {
+            startVNC(
+                credential: credential, desktop: desktop, attempt: attempt, tunnelPort: tunnelPort,
+                tunnelToken: tunnelToken)
         } else if let desktop {
             do {
                 if profile.launchFullScreen {
@@ -428,6 +440,80 @@ import SwiftTerm
             && (displayLayout?.monitors.count ?? 1) == 1
             && !fullScreenPresented && !startupPresentationPending
     }
+    private func startVNC(
+        credential: ConnectionCredential, desktop: RDPDesktopView, attempt: UUID,
+        tunnelPort: Int, tunnelToken: String?
+    ) {
+        let client = FCVNCClient()
+        vnc = client
+        vncPointerMask = 0
+        client.tunnelPort = tunnelPort
+        client.tunnelToken = tunnelToken
+        client.onTrust = trustCallback(attempt: attempt)
+        client.onStatus = { [weak self] status, message in
+            DispatchQueue.main.async { self?.update(status, message: message, attempt: attempt) }
+        }
+        client.onAuthenticationRejected = { [weak self] in
+            DispatchQueue.main.async {
+                guard let self, self.generation == attempt else { return }
+                self.credentialsRejected = true
+            }
+        }
+        client.onTyping = { [weak self] typing in
+            DispatchQueue.main.async {
+                guard let self, self.generation == attempt else { return }
+                if self.vncTyping && !typing && self.displayMessage == "Typing clipboard text…" {
+                    self.displayMessage = ""
+                }
+                self.vncTyping = typing
+            }
+        }
+        client.onFrame = { [weak desktop] pixels, width, height, stride in
+            desktop?.submit(pixels, width: width, height: height, stride: stride)
+        }
+        client.onDesktopSize = { [weak self] width, height in
+            DispatchQueue.main.async {
+                guard let self, self.generation == attempt, self.state.active else { return }
+                if self.fullScreenPresented { self.exitFullScreen() }
+                let firstSize = self.observedDesktopSize == nil
+                self.observedDesktopSize = CGSize(width: width, height: height)
+                self.desktop?.adoptDesktopSize(CGSize(width: width, height: height))
+                if firstSize && self.profile.launchFullScreen {
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, self.generation == attempt else { return }
+                        self.enterFullScreen()
+                    }
+                }
+            }
+        }
+        desktop.sendKey = { [weak client] code, down, extended in
+            if let key = VNCKeyboard.keySym(scanCode: code, extended: extended) {
+                client?.sendKeySym(key, pressed: down)
+            }
+        }
+        desktop.sendText = { [weak client] text in
+            for scalar in text.unicodeScalars {
+                let key = scalar.value <= 255 ? scalar.value : 0x0100_0000 | scalar.value
+                client?.sendKeySym(key, pressed: true)
+                client?.sendKeySym(key, pressed: false)
+            }
+        }
+        desktop.typeClipboard = { [weak self] in self?.pasteTextFromClipboard() }
+        desktop.sendPointer = { [weak self, weak client] flags, x, y in
+            guard let self else { return }
+            let buttons = [(0x1000, 1), (0x2000, 4), (0x4000, 2)]
+            for (flag, mask) in buttons where flags & flag != 0 {
+                if flags & 0x8000 != 0 { self.vncPointerMask |= mask } else { self.vncPointerMask &= ~mask }
+            }
+            if flags & 0x0200 != 0 {
+                let wheel = flags & 0x0100 == 0 ? 8 : 16
+                client?.sendPointerMask(self.vncPointerMask | wheel, x: x, y: y)
+            }
+            client?.sendPointerMask(self.vncPointerMask, x: x, y: y)
+        }
+        client.connectHost(profile.host, port: profile.port, username: profile.username, password: credential.password)
+    }
+
     private func submitResize(_ submission: RDPResizeCoordinator.Submission?) {
         guard resizeEnabled, let submission else { return }
         let request = submission.request
@@ -556,6 +642,7 @@ import SwiftTerm
             if profile.kind == .ssh && sshMode != .terminal { files.showFiles() }
             desktop?.inputEnabled = true
             presentStartupDesktopIfReady()
+            if profile.kind == .vnc && profile.launchFullScreen { enterFullScreen() }
             if startupPresentationPending {
                 displayObservationTask?.cancel()
                 let timeout = DispatchWorkItem { [weak self] in
@@ -575,6 +662,7 @@ import SwiftTerm
             }
         }
         if !state.active {
+            vncTyping = false
             retireFullScreen()
             files.disconnected()
             tunnelTask?.cancel()
@@ -623,6 +711,8 @@ import SwiftTerm
         files.disconnected()
         ssh?.disconnect()
         rdp?.disconnect()
+        vnc?.disconnect()
+        vncTyping = false
         generation = UUID()
         state = .disconnected
         message = "Disconnected"
@@ -644,7 +734,7 @@ import SwiftTerm
         }
     }
     private func syncClipboard() {
-        guard profile.clipboard, isSelected, state == .connected else { return }
+        guard profile.kind == .rdp, profile.clipboard, isSelected, state == .connected else { return }
         clipboardBridge.synchronize(
             text: { rdp?.setClipboardText($0) }, files: { rdp?.setClipboardFiles($0) })
     }
@@ -654,7 +744,38 @@ import SwiftTerm
         clipboardBridge.invalidate()
         clipboardMessage = ""
     }
-    func controlAltDelete() { if state == .connected { rdp?.sendControlAltDelete() } }
+    func controlAltDelete() {
+        guard state == .connected else { return }
+        desktop?.releaseInput()
+        fullScreen?.releaseInput()
+        rdp?.sendControlAltDelete()
+        vnc?.sendControlAltDelete()
+    }
+    func pasteTextFromClipboard() {
+        guard profile.kind == .vnc, state == .connected, !vncTyping else { return }
+        guard let text = NSPasteboard.general.string(forType: .string) else {
+            displayMessage = "The clipboard does not contain text."
+            return
+        }
+        typeVNCText(text)
+    }
+    func typeVNCText(_ text: String) {
+        guard profile.kind == .vnc, state == .connected else { return }
+        desktop?.releaseInput()
+        fullScreen?.releaseInput()
+        if vnc?.typeText(text) == true {
+            vncTyping = true
+            displayMessage = "Typing clipboard text…"
+        } else {
+            displayMessage = "Use nonempty text up to 16,384 characters, with no controls other than tabs and newlines."
+        }
+    }
+    func cancelVNCTyping() {
+        vnc?.cancelTyping()
+        vncTyping = false
+        displayMessage = "Typing cancelled. Characters already sent remain on the server."
+    }
+
     func focus() {
         guard profile.kind != .ssh || (terminalAvailable && sshMode != .files) else { return }
         if fullScreenPresented, let presentation = fullScreen,

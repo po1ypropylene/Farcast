@@ -332,6 +332,8 @@ import UniformTypeIdentifiers
         cleanup.enter()
         FCRDPClient.whenAllDisconnected { cleanup.leave() }
         cleanup.enter()
+        FCVNCClient.whenAllDisconnected { cleanup.leave() }
+        cleanup.enter()
         WireGuardTransport.shutdownAll { cleanup.leave() }
         cleanup.notify(queue: .global(qos: .userInitiated)) { [self] in
             // AppKit can run a nested event loop while awaiting terminateLater.

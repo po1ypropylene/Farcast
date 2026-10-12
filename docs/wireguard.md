@@ -1,4 +1,4 @@
-# SSH and RDP through embedded WireGuard
+# SSH, RDP and VNC through embedded WireGuard
 
 ## Set up
 
@@ -7,11 +7,11 @@
 2. Choose **New**. Import your WireGuard `.conf` file, or enter a name, interface
    address/prefix, private key, peer public key, endpoint, and Allowed IPs. Add a
    preshared key if your server requires one. Save.
-3. Add or edit an **SSH or RDP** connection. Enter the server's private IP address or
+3. Add or edit an **SSH, RDP or VNC** connection. Enter the server's private IP address or
    its internal DNS name as **Address**, with its normal protocol port.
 4. Choose the saved profile under **General → Network → Connect via**, then **Save & Connect**.
    The app establishes the encrypted path automatically before the selected protocol negotiates.
-   Verify any SSH host-key or RDP certificate prompt against your administrator's fingerprint,
+   Verify any SSH host-key or RDP/VNC certificate prompt against your administrator's fingerprint,
    as with a direct connection.
 
 You can keep several named WireGuard profiles. **Direct** is
@@ -42,7 +42,7 @@ until disconnected. Reconnect loads the current connection and WireGuard setting
   the configured peer address to the private server. The app does not change
   the server's routing/firewall. RDP UDP multitransport is disabled on this path;
   the existing desktop, input, clipboard and audio channels continue over TCP.
-- SSH and RDP tabs using the same saved profile share one encrypted device with independent
+- SSH, RDP and VNC tabs using the same saved profile share one encrypted device with independent
   destination connections. Disconnecting one tab leaves the others connected.
   Disconnect all sessions using a profile before applying edited keys/settings.
   Do not create separate profiles with the same private key for simultaneous use,
@@ -68,7 +68,7 @@ never command arguments or temporary configuration files. A separate random
 only its selected host/port; it is not a SOCKS or general proxy. Closing a session
 cancels its listener, handshake and sockets. The last session closes the helper;
 parent exit/EOF and termination signals also close its device/listeners. Failures
-are redacted, with no direct fallback. SSH host-key trust and RDP TLS/NLA use the **original** host/port;
+are redacted, with no direct fallback. SSH host-key trust and RDP TLS/NLA and VNC TLS use the **original** host/port;
 server redirection to a different endpoint is refused on the tunneled path.
 
 ## Build and verification

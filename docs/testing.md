@@ -20,6 +20,7 @@ scripts/prepare-rdp-fixture.sh
 | Command | Coverage |
 | --- | --- |
 | `swift test --scratch-path .build/core-tests` | Domain, persistence, credentials, trust, prompts, imports and display/resize geometry |
+| `scripts/test-vnc.sh` | RFB 3.3/3.7/3.8, password/no-auth, VeNCrypt X509 modes/refusal, marked frames, malformed geometry/encoding, Unicode typing, Ctrl+Alt+Delete, pointer and cancellation |
 | `scripts/test-ssh.sh` | Password/key/interactive authentication, trust, input, PTY resize and cancellation |
 | `scripts/test-sftp.sh` | Same-session files, file-only fallback, conflicts, recursion, moves, source races, progress and cancellation |
 | `scripts/test-sftp-throughput.sh` | Byte-verified upload-window comparison under controlled latency |
@@ -32,7 +33,7 @@ scripts/prepare-rdp-fixture.sh
 | `scripts/test-rdp-display-session.sh` | Production full-screen startup, exit/re-entry, missing confirmation and worker cleanup |
 | `scripts/test-display-migration.sh`, `scripts/test-wireguard-migration.sh`, `scripts/test-library-migration.sh` | Pre-feature/old-module store migration, IDs/defaults/bookmarks, opt-in credentials and reopening |
 | `scripts/test-workspace.sh` | Tabs/reconnect, prompts, sign-in retry, AppKit shutdown, detached surfaces, cropped Metal frames and terminal menus |
-| `scripts/test-wireguard.sh`, `scripts/test-wireguard-rdp.sh`, `scripts/test-wireguard-sessions.sh`, `scripts/test-wireguard-lifecycle.sh` | Go race checks, encrypted RDP, concurrent production SSH/SFTP/RDP sessions sharing one helper, endpoint identity, fail-closed routing and shared-lease lifecycle |
+| `scripts/test-wireguard.sh`, `scripts/test-wireguard-rdp.sh`, `scripts/test-wireguard-sessions.sh`, `scripts/test-wireguard-lifecycle.sh` | Go race checks, encrypted RDP, concurrent production SSH/SFTP/RDP/VNC sessions sharing one helper, endpoint identity, fail-closed routing and shared-lease lifecycle |
 | `scripts/test-signing-continuity.sh` | Changed binaries retain certificate requirement and synthetic Keychain access |
 | `python3 -m unittest discover -s Tests/Maintenance -v` | Cleanup, update rollback, signing rules and harness teardown |
 | `scripts/test-live-fixtures.sh` | Redacted probe behavior against synthetic SSH/RDP servers |
@@ -61,7 +62,9 @@ patched from tracked headers; production FreeRDP libraries stay unchanged.
 
 Tests use loopback peers, generated keys/certificates, disposable stores/preferences
 and owned files. SSH fixtures never execute shell commands. Clipboard checks use
-private named pasteboards. UI review uses isolated apps and synthetic profiles;
+private named pasteboards. VNC typing fixtures inject public synthetic text directly;
+they do not read the general clipboard. Mixed-session tests use an owned encrypted
+peer and check VNC frames and key events alongside SSH/SFTP/RDP helper sharing. UI review uses isolated apps and synthetic profiles;
 never browse the user's Home, restored sessions or general clipboard for inspection.
 Signing probes create an owned temporary Keychain, restore the search list and
 remove the test Keychain; they never query saved user credentials.

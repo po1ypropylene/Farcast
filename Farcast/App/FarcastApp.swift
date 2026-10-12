@@ -72,8 +72,14 @@ import SwiftUI
                         .keyboardShortcut("w").disabled(workspace.activeSession == nil)
                     Divider()
                     Button("Send Ctrl+Alt+Delete") { workspace.activeSession?.controlAltDelete() }.disabled(
-                        workspace.activeSession?.profile.kind != .rdp
+                        workspace.activeSession?.profile.kind == .ssh
                             || workspace.activeSession?.state != .connected)
+                    Button("Paste Text from Clipboard") { workspace.activeSession?.pasteTextFromClipboard() }
+                        .disabled(
+                            workspace.activeSession?.profile.kind != .vnc
+                                || workspace.activeSession?.state != .connected)
+                    Button("Cancel Typing") { workspace.activeSession?.cancelVNCTyping() }
+                        .disabled(workspace.activeSession?.vncTyping != true)
                     Button("Connection Details") { workspace.toggleInspector() }.keyboardShortcut(
                         "i", modifiers: [.command, .option])
                 }

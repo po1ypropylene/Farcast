@@ -361,6 +361,7 @@ func TestMixedProtocolSessions(t *testing.T) {
 	for _, target := range []struct{ port, local string }{
 		{"22", os.Getenv("FARCAST_WG_SESSION_SSH_PORT")},
 		{"3389", os.Getenv("FARCAST_WG_SESSION_RDP_PORT")},
+		{"5900", os.Getenv("FARCAST_WG_SESSION_VNC_PORT")},
 	} {
 		listener, err := server.ListenTCPAddrPort(netip.MustParseAddrPort("10.111.0.1:" + target.port))
 		if err != nil {

@@ -2,6 +2,14 @@
 
 Changes are recorded from version 1.7.0 onwards.
 
+## 2.0.0 — 13 October 2026
+
+- Add saved and Quick Connect VNC desktops with password/no-password and certificate-based VeNCrypt TLS authentication, native Metal presentation, fit/scrolling and single-display full screen.
+- Share the existing WireGuard tunnel across SSH, RDP and VNC with independent leases, no direct fallback, reconnect and coordinated shutdown. Preserve existing profile metadata and credentials.
+- Add Paste Text from Clipboard and Command–V for explicit, cancellable Unicode keyboard typing into VNC. Add Ctrl+Alt+Delete controls; no automatic VNC clipboard or file sharing occurs.
+- Classic VNC is unencrypted; use WireGuard on untrusted networks. ARD/proprietary authentication, anonymous TLS, file/audio/cursor channels, remote resolution requests and multiple local VNC displays are unsupported. Production-server and keyboard-layout interoperability remains unverified.
+- Advance to 2.0.0 as requested for the VNC delivery; existing data and SSH/RDP workflows remain compatible.
+
 ## 1.10.0 — 12 October 2026
 
 - Add WireGuard to SSH connections, including terminal and SFTP access over the same authenticated SSH session.

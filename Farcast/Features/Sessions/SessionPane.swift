@@ -89,10 +89,21 @@ struct SessionPane: View {
                         .help(session.clipboardMessage)
                         .accessibilityLabel("File clipboard: \(session.clipboardMessage)")
                 }
-                if session.profile.kind == .rdp {
+                if session.profile.kind != .ssh {
                     if !session.displayMessage.isEmpty {
                         Text(session.displayMessage).lineLimit(1).help(session.displayMessage)
                             .accessibilityLabel("Display: \(session.displayMessage)")
+                    }
+                    if session.profile.kind == .vnc {
+                        if session.vncTyping {
+                            Button("Cancel Typing") { session.cancelVNCTyping() }
+                        } else {
+                            Button("Paste Text from Clipboard") { session.pasteTextFromClipboard() }
+                                .help(
+                                    "Types clipboard text into the focused remote application, including tabs and newlines."
+                                )
+                                .disabled(session.state != .connected)
+                        }
                     }
                     Button("Ctrl + Alt + Delete") { session.controlAltDelete() }.disabled(session.state != .connected)
                 } else {
