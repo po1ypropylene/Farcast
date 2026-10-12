@@ -81,9 +81,22 @@ import CoreGraphics
             exit.controlSize = .small
             exit.toolTip = "Return to the workspace (Control–Command–F). The RDP session stays connected."
             exit.setAccessibilityLabel("Exit remote desktop full screen")
-            exit.frame = CGRect(x: root.bounds.width - 142, y: root.bounds.height - 34, width: 130, height: 24)
-            exit.autoresizingMask = [.minXMargin, .minYMargin]
-            root.addSubview(exit)
+            // An opaque native background keeps the label legible over arbitrary remote pixels.
+            let exitBackground = NSBox(
+                frame: CGRect(x: root.bounds.width - 150, y: root.bounds.height - 42, width: 138, height: 32))
+            exitBackground.boxType = .custom
+            exitBackground.cornerRadius = 8
+            exitBackground.borderWidth = 1
+            exitBackground.borderColor = .separatorColor
+            exitBackground.fillColor = .windowBackgroundColor
+            exitBackground.contentViewMargins = NSSize(width: 4, height: 4)
+            exitBackground.autoresizingMask = [.minXMargin, .minYMargin]
+            if let content = exitBackground.contentView {
+                exit.frame = content.bounds
+                exit.autoresizingMask = [.width, .height]
+                content.addSubview(exit)
+            }
+            root.addSubview(exitBackground)
             window.contentView = root
             window.setFrame(target.screen.frame, display: false)
             surfaces.append(surface)

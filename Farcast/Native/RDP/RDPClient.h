@@ -6,7 +6,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, copy) NSArray<NSDictionary *> *monitorDefinitions;
 @property(nonatomic, copy, nullable) void (^onDesktopSize)(NSInteger width, NSInteger height);
 @property(nonatomic, copy, nullable) void (^onMonitorLayout)(NSArray<NSDictionary *> *monitors);
-@property(nonatomic, copy, nullable) void (^onDisplayUpdate)(NSString *message);
+@property(nonatomic, copy, nullable) void (^onDisplayAvailability)(BOOL available);
+@property(nonatomic, copy, nullable) void (^onResizeResult)(NSInteger requestID, NSString *result);
 // Set before connect; zero preserves the direct transport.
 @property(nonatomic, copy) NSArray<NSDictionary *> *redirectedFolders;
 @property(nonatomic) NSInteger tunnelPort;
@@ -32,6 +33,8 @@ NS_ASSUME_NONNULL_BEGIN
           clipboard:(BOOL)clipboard
       audioPlayback:(BOOL)audioPlayback;
 - (void)resizeWidth:(NSInteger)width height:(NSInteger)height scale:(NSInteger)scale;
+- (void)resizeWidth:(NSInteger)width height:(NSInteger)height scale:(NSInteger)scale requestID:(NSInteger)requestID;
+- (void)cancelResize;
 - (void)sendScanCode:(NSInteger)code pressed:(BOOL)pressed extended:(BOOL)extended;
 - (void)sendUnicode:(NSInteger)code pressed:(BOOL)pressed;
 - (void)sendPointerFlags:(NSInteger)flags x:(NSInteger)x y:(NSInteger)y;

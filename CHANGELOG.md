@@ -2,6 +2,17 @@
 
 Changes are recorded from version 1.7.0 onwards.
 
+## 1.9.2 — 12 October 2026
+
+- Keep Exit Full Screen readable over bright and dark remote desktops with an opaque native background that follows the Mac appearance.
+- Disable windowed display modes and resolution controls when Open in full screen is selected; retain those settings for windowed connections.
+
+## 1.9.1 — 12 October 2026
+
+- Make Resize with window reach the server's Display Control channel and update the existing desktop without reconnecting. Coalesce live/programmatic resizing, use viewport points or Retina backing pixels once, and keep input/rendering tied to received geometry.
+- Retain the newest request while capabilities arrive, enforce server limits, and report a usable local-fit fallback for unsupported, rejected or unconfirmed changes. Multi-monitor layouts remain fixed until reconnecting.
+- Fix single-monitor full-screen activation timeouts caused by waiting for an unnecessary Monitor Layout reply. Preserve full display resolution and Retina scaling; full-screen exit/re-entry remains available.
+
 ## 1.9.0 — 11 October 2026
 
 - Give General, Display, Devices & audio, Terminal and Security their own full-size editor tabs, replacing the cramped advanced disclosure area.

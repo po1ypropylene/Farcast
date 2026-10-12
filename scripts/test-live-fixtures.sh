@@ -42,6 +42,18 @@ scripts/test-live-servers.sh "$fixture_root/servers.json" > "$fixture_root/defau
 rg -q '^PASS server 1 \(SSH\)' "$fixture_root/default-probe.log"
 rg -q '^PASS server 2 \(RDP\)' "$fixture_root/default-probe.log"
 cat "$fixture_root/default-probe.log"
+for mode in plain retina; do
+  options=(--rdp-full-screen)
+  [[ "$mode" != retina ]] || options+=(--rdp-retina)
+  if ! WLOG_LEVEL=OFF FARCAST_RDP_CONFIG="$fixture_root/fullscreen-$mode" \
+    "$fixture_root/client" "$fixture_root/servers.json" "${options[@]}" > "$fixture_root/fullscreen-$mode.log" 2>/dev/null; then
+    cat "$fixture_root/fullscreen-$mode.log"
+    exit 1
+  fi
+  rg -Fq 'PASS server 2 (RDP)' "$fixture_root/fullscreen-$mode.log"
+  [[ $(wc -l < "$fixture_root/fullscreen-$mode.log") == 1 ]]
+done
+echo 'PASS RDP-only full-screen probes retain trust and verify exact plain/Retina geometry'
 WLOG_LEVEL=OFF "$fixture_root/client" "$fixture_root/servers.json" --server=1 --sftp 2>/dev/null
 if WLOG_LEVEL=OFF FARCAST_TEST_SSH_PIN=SHA256:wrong \
   "$fixture_root/client" "$fixture_root/servers.json" --server=1 --sftp > "$fixture_root/pin-override.log" 2>/dev/null; then

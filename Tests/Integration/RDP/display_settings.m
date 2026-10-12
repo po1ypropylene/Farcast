@@ -26,6 +26,7 @@ int main(void) {
         assert(freerdp_settings_get_uint32(settings, FreeRDP_DesktopHeight) == 720);
         assert(freerdp_settings_get_uint32(settings, FreeRDP_MonitorCount) == 2);
         assert(freerdp_settings_get_bool(settings, FreeRDP_UseMultimon));
+        assert(freerdp_settings_get_bool(settings, FreeRDP_SupportMonitorLayoutPdu));
         assert(!freerdp_settings_get_bool(settings, FreeRDP_SpanMonitors));
         assert(freerdp_settings_get_bool(settings, FreeRDP_HasMonitorAttributes));
         const rdpMonitor *p = freerdp_settings_get_pointer_array(settings, FreeRDP_MonitorDefArray, 0);
@@ -34,6 +35,14 @@ int main(void) {
                p->attributes.deviceScaleFactor == 100);
         assert(l->x == -800 && l->attributes.desktopScaleFactor == 100);
         printf("PASS native separate monitor settings, signed origins, per-monitor DPI and valid device scale\n");
+        assert(FCConfigureMonitorDefinitions(settings, @[ primary ]));
+        assert(!freerdp_settings_get_bool(settings, FreeRDP_UseMultimon));
+        assert(!freerdp_settings_get_bool(settings, FreeRDP_SupportMonitorLayoutPdu));
+        assert(freerdp_settings_get_uint32(settings, FreeRDP_DesktopWidth) == 1280);
+        assert(freerdp_settings_get_uint32(settings, FreeRDP_DesktopHeight) == 720);
+        assert(freerdp_settings_get_uint32(settings, FreeRDP_DesktopScaleFactor) == 200);
+        printf(
+            "PASS single-monitor full screen retains resolution and Retina without requiring a Monitor Layout reply\n");
         rdpMonitor monitors[16];
         UINT32 w, h;
         for (NSDictionary *change in @[

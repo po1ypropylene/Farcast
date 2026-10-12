@@ -218,10 +218,15 @@ static BOOL remoteMonitors(rdpContext *context, UINT32 count, const MONITOR_DEF 
 }
 static UINT displayCapabilities(DispClientContext *display, UINT32 count, UINT32 a, UINT32 b) {
     FCContext *ctx = display->custom;
+    if (!ctx)
+        return CHANNEL_RC_OK;
     ctx->maximumMonitors = count;
     ctx->areaFactorA = a;
     ctx->areaFactorB = b;
     ctx->displayCapsReady = count && a && b;
+    FCRDPClient *client = owner((rdpContext *)ctx);
+    if (client.onDisplayAvailability)
+        client.onDisplayAvailability(ctx->displayCapsReady);
     return CHANNEL_RC_OK;
 }
 static BOOL pointerNew(rdpContext *context, rdpPointer *pointer) {
@@ -259,7 +264,7 @@ static void channelConnected(void *context, const ChannelConnectedEventArgs *eve
     FCContext *ctx = context;
     if (!strcmp(event->name, "rdpgfx"))
         gdi_graphics_pipeline_init(((rdpContext *)context)->gdi, event->pInterface);
-    else if (!strcmp(event->name, "disp")) {
+    else if (!strcmp(event->name, DISP_DVC_CHANNEL_NAME)) {
         ctx->display = event->pInterface;
         ctx->display->custom = ctx;
         ctx->display->DisplayControlCaps = displayCapabilities;
@@ -273,13 +278,17 @@ static void channelDisconnected(void *context, const ChannelDisconnectedEventArg
     FCContext *ctx = context;
     if (!strcmp(event->name, "rdpgfx"))
         gdi_graphics_pipeline_uninit(((rdpContext *)context)->gdi, event->pInterface);
-    else if (!strcmp(event->name, "disp")) {
+    else if (!strcmp(event->name, DISP_DVC_CHANNEL_NAME)) {
         if (ctx->display) {
             ctx->display->custom = NULL;
             ctx->display->DisplayControlCaps = NULL;
         }
         ctx->display = NULL;
         ctx->displayCapsReady = NO;
+        FCRDPClient *client = owner((rdpContext *)ctx);
+        [client cancelResize];
+        if (client.onDisplayAvailability)
+            client.onDisplayAvailability(NO);
     } else if (!strcmp(event->name, "cliprdr")) {
         ctx->clipboard = NULL;
         [ctx->clipboardBridge detach];
@@ -628,6 +637,7 @@ static void destroyContext(rdpContext *context) {
     _clipboardBridge = nil;
     [_lock lock];
     [_events removeAllObjects];
+    _pendingResize = nil;
     [_lock unlock];
     if (failure)
         [self status:@"failed" message:failure];
@@ -667,6 +677,8 @@ static void destroyContext(rdpContext *context) {
                                            [event[@"x"] unsignedShortValue], [event[@"y"] unsignedShortValue]);
         else if ([type isEqualToString:@"resize"]) {
             _pendingResize = event;
+        } else if ([type isEqualToString:@"cancelResize"]) {
+            _pendingResize = nil;
         } else if ([type isEqualToString:@"clipboard"]) {
             [ctx->clipboardBridge setText:event[@"text"]];
         } else if ([type isEqualToString:@"clipboardFiles"]) {
@@ -684,29 +696,36 @@ static void destroyContext(rdpContext *context) {
         layout.Height = [event[@"height"] unsignedIntValue];
         layout.DesktopScaleFactor = [event[@"scale"] unsignedIntValue];
         layout.DeviceScaleFactor = layout.DesktopScaleFactor >= 200 ? 180 : 100;
+        NSString *result;
         // Unknown physical dimensions are omitted; backing density is not physical DPI.
         if (self.monitorDefinitions.count > 1 || layout.DesktopScaleFactor < 100 || layout.DesktopScaleFactor > 500 ||
+            layout.Width < 200 || layout.Width > 8192 || layout.Width % 2 || layout.Height < 200 ||
+            layout.Height > 8192 ||
             !FCDisplayAreaAllowed(1, (UINT64)layout.Width * layout.Height, ctx->maximumMonitors, ctx->areaFactorA,
                                   ctx->areaFactorB)) {
-            if (self.onDisplayUpdate)
-                self.onDisplayUpdate(@"The server does not allow this resolution. The desktop keeps its current size.");
+            result = @"restricted";
         } else {
-            UINT result = ctx->display->SendMonitorLayout(ctx->display, 1, &layout);
-            if (self.onDisplayUpdate)
-                self.onDisplayUpdate(
-                    result == CHANNEL_RC_OK
-                        ? @"Display update submitted; waiting for the server’s desktop size."
-                        : @"The display update could not be sent. The desktop keeps its current size.");
+            UINT sent = ctx->display->SendMonitorLayout(ctx->display, 1, &layout);
+            result = sent == CHANNEL_RC_OK ? @"submitted" : @"failed";
         }
+        if (self.onResizeResult)
+            self.onResizeResult([event[@"requestID"] integerValue], result);
     }
 }
 - (void)resizeWidth:(NSInteger)width height:(NSInteger)height scale:(NSInteger)scale {
+    [self resizeWidth:width height:height scale:scale requestID:0];
+}
+- (void)resizeWidth:(NSInteger)width height:(NSInteger)height scale:(NSInteger)scale requestID:(NSInteger)requestID {
     [self enqueue:@{
         @"type" : @"resize",
         @"width" : @(MAX(200, MIN(8192, width / 2 * 2))),
         @"height" : @(MAX(200, MIN(8192, height))),
-        @"scale" : @(scale)
+        @"scale" : @(scale),
+        @"requestID" : @(requestID)
     }];
+}
+- (void)cancelResize {
+    [self enqueue:@{@"type" : @"cancelResize"}];
 }
 - (void)sendScanCode:(NSInteger)code pressed:(BOOL)pressed extended:(BOOL)extended {
     [self enqueue:@{@"type" : @"key", @"code" : @(code), @"pressed" : @(pressed), @"extended" : @(extended)}];

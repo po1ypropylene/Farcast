@@ -160,7 +160,9 @@ existing fit plus dynamicResolution=true, and Fit to window to fit plus false.
 100% with scrolling and Match window at connection retain their original stored modes;
 non-Match modes still expose initial/fixed dimensions. The preset menu writes only the existing desktopWidth/desktopHeight values on explicit
 selection. Unmatched sizes open as Custom, and custom-entry state survives tab switches.
-Opening the form does not rewrite any settings. Credential storage/disclosure, protocol-switch resets, terminal settings,
+Startup full screen disables the windowed mode and resolution controls without rewriting
+them; full-screen geometry comes from the selected displays. Turning it off restores access
+to the retained windowed settings. Opening the form does not rewrite any settings. Credential storage/disclosure, protocol-switch resets, terminal settings,
 validation, Cancel/Esc and Save/Save & Connect/Return keep their existing behavior.
 The edit title identifies the profile; saving still applies settings on reconnect and
 Save & Connect still opens a session. No new reconnect action or terminal inheritance
@@ -206,7 +208,8 @@ full-desktop copy/queue is introduced. Input uses the inverse rendering transfor
 positive framebuffer coordinates; cursor image/hotspot scale with that transform. Padding
 rejects pointer input. Server geometry changes retire the full-screen targets before new
 regions are presented. Exit Full Screen / Control–Command–F returns to the existing session;
-Escape continues to reach Windows. Window activation retains one workspace clipboard owner.
+Escape continues to reach Windows. The exit button sits on an opaque native background
+that follows the local appearance, so remote desktop pixels cannot wash out its label. Window activation retains one workspace clipboard owner.
 
 The top-right RDP full-screen action observes the session's presentation/connection state
 and reopens the existing authenticated desktop in attached or detached windows. Confirmed
@@ -217,11 +220,28 @@ the Mac-window full-screen action; RDP window full screen remains available thro
 window controls. Re-entry is refused with a notice for unconfirmed or changed multi-monitor
 geometry, and creates no new transport or authentication request.
 
-Retina is opt-in for initial/fixed geometry and Windows UI scaling. Legacy dynamic resizing
-already requests backing-sized pixels and retains that behavior when the new option is off.
-Window/backing changes refresh local drawable geometry. Single-display resize requests are
-coalesced, require received Display Control count/area caps and have a five-second observation
-notice. Channel submission is not acceptance. Multi-monitor geometry stays fixed until
+Retina is opt-in for initial/fixed geometry, dynamic resize and Windows UI scaling.
+Dynamic resize samples the usable viewport and its own backing conversion; Retina off
+uses point-sized geometry and 100% desktop scale, while Retina on uses backing pixels once.
+Window/backing changes refresh local drawables independently. Live resize flushes after
+dragging ends; programmatic/backing changes use a replaceable 200 ms debounce.
+
+`RDPResizeCoordinator` retains desired, pending submission and observed dimensions plus
+local request IDs. One request awaits geometry at a time; newer intentions replace the
+queued target and are reevaluated after an actual intermediate reset or finite deadline.
+The native adapter recognizes `DISP_DVC_CHANNEL_NAME`, installs received capabilities,
+validates area/count and sends on its worker. Channel loss retires caps/pending work;
+session generation guards and local IDs reject stale callbacks. A failed/ignored target
+is not resent endlessly; a changed viewport or new channel can try again. A DPI-only send
+is handled once without claiming that dimensions confirm Windows UI scale.
+
+Local fitting/input retain effective geometry while waiting. Actual desktop resets retire
+obsolete textures and reject old-sized frames/pointer transforms before adopting new output.
+There is a five-second observation/availability notice; send success is submission only.
+Single-monitor full screen does not request the Monitor Layout PDU: that would make the
+pinned FreeRDP activation state machine wait for a reply some hosts omit when multimon is
+off. It uses actual GDI dimensions; multi-monitor confirmation remains required.
+Multi-monitor geometry stays fixed until
 reconnect; hotplug/rotation/topology changes exit to the workspace with a reconnect notice.
 This release does not implement live multi-monitor topology updates. Reconnect creates new
 caps, generation and monitor state; disconnect closes all targets and releases input.

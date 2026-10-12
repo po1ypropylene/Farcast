@@ -211,6 +211,9 @@ remains unverified.
   starts at the available desktop area and keeps that resolution until reconnecting;
   shrinking the window adds scrolling. Use scrollbars or Option-scroll to pan;
   ordinary scrolling goes to Windows. Display changes apply after reconnecting.
+  **Open in full screen** disables the windowed display mode and resolution controls
+  because full screen uses the selected displays’ sizes. Turn it off to edit the
+  retained windowed settings; all-monitor and Retina choices remain available.
 - In **Display**, enable **Open in full screen** to start on the current display after
   authentication. Enable **Use all monitors** for separate remote monitors matching
   the connected screens; these use their screen sizes instead of the preset/custom
@@ -222,9 +225,16 @@ remains unverified.
   in Mac points (custom units change to **pt**); stored numbers are preserved when
   toggling Retina. For example, a 1440 × 900 point region on a 2× display
   requests 2880 × 1800 pixels and 200% desktop scaling. Fixed/100% modes then map remote
-  pixels to backing pixels. Legacy **Resize with window** already uses backing pixels
-  and keeps its existing behavior. Windows policies and application DPI support can
+  pixels to backing pixels. **Resize with window** uses the usable viewport's Mac points
+  when Retina is off, or its backing pixels and matching desktop scale when Retina is on.
+  Windows policies and application DPI support can
   affect sharpness and UI size. More pixels require more memory and bandwidth.
+- **Resize with window** updates the single-monitor remote desktop on the same
+  connection after dragging ends or a short debounce. The existing image fits locally
+  while Windows changes resolution. A server without Display Control, or one that
+  restricts/ignores an update, keeps its actual desktop size and shows a notice.
+  Another viewport change can request a new size. Resizing the aggregate workspace
+  view of a multi-monitor session keeps its negotiated monitors unchanged.
 - Click **Exit Full Screen** or press **Control–Command–F** to return without disconnecting;
   click **Enter Remote Desktop Full Screen** in the top-right toolbar to return to full
   screen on the same connection. This also works in detached session windows and after

@@ -32,8 +32,7 @@ import SwiftTerm
     private var confirmedMonitors = false
     private var startupPresentationPending = false
     private var displayObservationTask: DispatchWorkItem?
-    private var requestedResize: CGSize?
-    private var requestedResizeScale: Int?
+    private var resizeCoordinator = RDPResizeCoordinator()
     private var lastSubmittedScale: Int?
     @Published private(set) var fullScreenPresented = false
     @Published private(set) var displayMessage = ""
@@ -275,23 +274,18 @@ import SwiftTerm
                     guard let self, self.generation == attempt, self.state.active else { return }
                     let size = CGSize(width: width, height: height)
                     self.observedDesktopSize = size
-                    self.desktop?.setDesktopSize(size)
+                    self.desktop?.adoptDesktopSize(size)
                     if self.fullScreenPresented, size != self.fullScreen?.layout.bounds.size {
                         self.exitFullScreen(
                             reason: "The server changed the desktop size. The session continues in the workspace.")
                     }
-                    if let requested = self.requestedResize, requested == size {
+                    let next = self.resizeCoordinator.observe(size)
+                    if self.resizeCoordinator.pending == nil {
                         self.displayObservationTask?.cancel()
-                        self.requestedResize = nil
                         self.displayMessage = ""
                     }
+                    self.submitResize(next)
                     self.presentStartupDesktopIfReady()
-                }
-            }
-            client.onDisplayUpdate = { [weak self] message in
-                DispatchQueue.main.async {
-                    guard let self, self.generation == attempt, self.state == .connected else { return }
-                    self.displayMessage = message
                 }
             }
             client.redirectedFolders = profile.redirectedFolders.map {
@@ -352,27 +346,47 @@ import SwiftTerm
             desktop.sendUnicode = { [weak client] code, down in client?.sendUnicode(code, pressed: down) }
             desktop.preparePaste = { [weak self] in self?.syncClipboard() }
             desktop.sendPointer = { [weak client] flags, x, y in client?.sendPointerFlags(flags, x: x, y: y) }
-            desktop.resizeRemote = { [weak self, weak client] width, height, scale in
-                guard let self, self.generation == attempt, self.profile.displayMode == .fit,
-                    self.profile.dynamicResolution, self.displayLayout == nil || !self.profile.useAllMonitors,
-                    !self.fullScreenPresented, !self.startupPresentationPending
-                else { return }
-                let size = CGSize(width: min(8192, max(200, width / 2 * 2)), height: min(8192, max(200, height)))
-                guard self.requestedResize != size || self.requestedResizeScale != scale else { return }
-                guard self.observedDesktopSize != size || self.lastSubmittedScale != scale else { return }
-                self.requestedResize = size
-                self.requestedResizeScale = scale
-                self.lastSubmittedScale = scale
-                self.displayObservationTask?.cancel()
-                let timeout = DispatchWorkItem { [weak self] in
-                    guard let self, self.generation == attempt, self.requestedResize != nil, self.state == .connected
-                    else { return }
-                    self.displayMessage =
-                        "The display change was not confirmed. The server may restrict resolution or scaling."
+            client.onDisplayAvailability = { [weak self] available in
+                DispatchQueue.main.async {
+                    guard let self, self.generation == attempt, self.state.active else { return }
+                    let next = self.resizeCoordinator.availability(available)
+                    self.submitResize(next)
+                    if !available, self.resizeCoordinator.desired != nil {
+                        self.scheduleResizeObservation()
+                    }
                 }
-                self.displayObservationTask = timeout
-                DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: timeout)
-                client?.resizeWidth(Int(size.width), height: Int(size.height), scale: scale)
+            }
+            client.onResizeResult = { [weak self] id, result in
+                DispatchQueue.main.async {
+                    guard let self, self.generation == attempt, self.state == .connected,
+                        let pending = self.resizeCoordinator.pending, pending.id == id
+                    else { return }
+                    let next = self.resizeCoordinator.result(id: id, submitted: result == "submitted")
+                    if result == "submitted" {
+                        self.lastSubmittedScale = pending.request.scale
+                        self.displayMessage =
+                            self.resizeCoordinator.pending == nil
+                            ? "Scaling requested; Windows controls its application."
+                            : "Resolution requested; waiting for the server’s desktop."
+                    } else {
+                        self.displayMessage =
+                            result == "restricted"
+                            ? "The server does not allow this resolution. The desktop is fitted locally."
+                            : "The resolution update could not be sent. The desktop is fitted locally."
+                    }
+                    self.displayObservationTask?.cancel()
+                    if self.resizeCoordinator.pending != nil { self.scheduleResizeObservation() }
+                    self.submitResize(next)
+                }
+            }
+            desktop.resizeRemote = { [weak self] width, height, scale in
+                guard let self, self.generation == attempt, self.resizeEnabled,
+                    let request = RDPResizeRequest(width: width, height: height, scale: scale)
+                else { return }
+                let changed = self.resizeCoordinator.desired != request
+                let next = self.resizeCoordinator.request(request)
+                self.submitResize(next)
+                if changed, !self.resizeCoordinator.available { self.scheduleResizeObservation() }
             }
             let connect: (CGSize, Int) -> Void = { [weak self, weak client] size, scale in
                 guard let self, self.generation == attempt, self.state.active else { return }
@@ -385,6 +399,7 @@ import SwiftTerm
                     return
                 }
                 self.lastSubmittedScale = scale
+                self.resizeCoordinator.initialScale(scale)
                 client?.connectHost(
                     self.profile.host, port: self.profile.port, username: self.profile.username,
                     domain: self.profile.domain, password: credential.password,
@@ -409,6 +424,34 @@ import SwiftTerm
                 }
             }
         }
+    }
+    private var resizeEnabled: Bool {
+        state == .connected && profile.displayMode == .fit && profile.dynamicResolution
+            && (displayLayout?.monitors.count ?? 1) == 1
+            && !fullScreenPresented && !startupPresentationPending
+    }
+    private func submitResize(_ submission: RDPResizeCoordinator.Submission?) {
+        guard resizeEnabled, let submission else { return }
+        let request = submission.request
+        rdp?.resizeWidth(request.width, height: request.height, scale: request.scale, requestID: submission.id)
+        scheduleResizeObservation()
+    }
+    private func scheduleResizeObservation() {
+        displayObservationTask?.cancel()
+        let attempt = generation
+        let timeout = DispatchWorkItem { [weak self] in
+            guard let self, self.generation == attempt, self.resizeEnabled,
+                self.resizeCoordinator.desired != nil
+            else { return }
+            let next = self.resizeCoordinator.expire()
+            self.displayMessage =
+                self.resizeCoordinator.available
+                ? "The resolution change was not confirmed. The desktop is fitted locally."
+                : "The server has not enabled resolution updates. The desktop is fitted locally."
+            self.submitResize(next)
+        }
+        displayObservationTask = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: timeout)
     }
     private func presentStartupDesktopIfReady() {
         guard startupPresentationPending, state == .connected, let desktop, let layout = displayLayout,
@@ -453,8 +496,8 @@ import SwiftTerm
     ) {
         startupPresentationPending = false
         displayObservationTask?.cancel()
-        requestedResize = nil
-        requestedResizeScale = nil
+        resizeCoordinator.cancel()
+        rdp?.cancelResize()
         displayMessage = ""
         let presentation = RDPFullScreenPresentation(desktop: desktop, screens: screens, layout: layout)
         presentation.onActivate = { [weak self] in
@@ -477,8 +520,8 @@ import SwiftTerm
     }
     private func retireFullScreen() {
         displayObservationTask?.cancel()
-        requestedResize = nil
-        requestedResizeScale = nil
+        resizeCoordinator.cancel()
+        rdp?.cancelResize()
         startupPresentationPending = false
         exitFullScreen(restoreFocus: false)
     }

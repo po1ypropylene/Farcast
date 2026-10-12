@@ -90,7 +90,10 @@ static BOOL FCConfigureMonitorDefinitions(rdpSettings *settings, NSArray<NSDicti
            freerdp_settings_set_bool(settings, FreeRDP_SpanMonitors, FALSE) &&
            freerdp_settings_set_bool(settings, FreeRDP_ForceMultimon, FALSE) &&
            freerdp_settings_set_bool(settings, FreeRDP_HasMonitorAttributes, TRUE) &&
-           freerdp_settings_set_bool(settings, FreeRDP_SupportMonitorLayoutPdu, TRUE) &&
+           // A single desktop needs only effective graphics dimensions. Requesting
+           // a Monitor Layout reply makes FreeRDP wait for a PDU some hosts omit
+           // when multimon is off, preventing activation even at ordinary sizes.
+           freerdp_settings_set_bool(settings, FreeRDP_SupportMonitorLayoutPdu, definitions.count > 1) &&
            freerdp_settings_set_uint32(settings, FreeRDP_DesktopWidth, width) &&
            freerdp_settings_set_uint32(settings, FreeRDP_DesktopHeight, height) &&
            freerdp_settings_set_uint32(settings, FreeRDP_DesktopScaleFactor,

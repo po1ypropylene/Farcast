@@ -4,6 +4,72 @@ Validation is evidence for the stated environment and scope, not a production
 compatibility guarantee. Repeatable commands and fixture ownership are in
 [testing](testing.md); signing requirements are in [packaging](packaging.md).
 
+## Full-screen control contrast and editor options — 12 October 2026
+
+- Advance delivered 1.9.1 to 1.9.2 build 1 for compatible UI corrections. The
+  full-screen exit button has an opaque native background that follows local
+  appearance. Startup full screen disables windowed mode/resolution controls,
+  preserving their values. Session, transport and persistence behavior is retained.
+- An isolated production editor with in-memory SwiftData, empty credential loading
+  and disposable preferences confirmed disabled mode/resolution/custom-size controls
+  with startup full screen selected. Turning it off restored their accessibility
+  states and retained Resize with window plus custom 1550 × 950 values. Match window
+  at connection was also selected and disabled by startup full screen. Native
+  snapshots confirmed readable exit controls in light/dark appearances over both
+  white and black backgrounds. No user database, credentials, general clipboard,
+  protected input or real servers were accessed. Complete VoiceOver and physical
+  multi-monitor appearance remain unverified.
+- 35 core, 33 workspace, 18 SSH, 82 SFTP, 14 TLS RDP, 15 NLA RDP,
+  11 protected-probe synthetic and 21 maintenance checks passed. Four production
+  full-screen session checks also passed, including exit/re-entry without reconnecting,
+  windowed startup, missing multi-monitor confirmation and disconnect cleanup.
+  Configured Swift formatting, repository hygiene and whitespace checks passed.
+- Pinned dependency preparation and the final signed Release passed. The
+  `Farcast-1.9.2-build-1-arm64.dmg` passed image integrity, mounted bundle/platform/
+  dependency/signature/loader/helper checks, pinned certificate continuity,
+  packaged changelog equality and SHA256 verification. Disposable preview app,
+  preferences and fixture outputs were removed. No commit/publication occurred;
+  local development signing remains unnotarized.
+
+## RDP resize and full-screen activation — 12 October 2026
+
+- Advance 1.9.0 build 2 to 1.9.1 build 1 at the user's request to resume normal
+  versioning. This is a compatible correction to existing resize and full-screen
+  workflows; profile identities, credentials, trust and authenticated sessions remain intact.
+- Read the new RDP-RE resize contract/static trace as design evidence without changing
+  its files, saved database or installed reference app. The adapter now recognizes the
+  actual Display Control DVC name; desired/submitted/observed geometry and local request
+  IDs remain separate. Retina conversion is applied once to the usable viewport;
+  fixed modes and negotiated multi-monitor layouts retain their geometry.
+- Reproduced the supplied RDP endpoint's full-screen activation timeout through the
+  redacted authorized probe. The ordinary small-resolution baseline passed. Full screen
+  was requiring a Monitor Layout reply even for one monitor; the pinned FreeRDP state
+  machine waits for that reply during activation, and this host omits it in that case.
+  Removing the single-monitor reply requirement resolved startup without lowering the
+  requested size. Plain and Retina full-screen probes received visible desktop pixels;
+  the Retina probe also verified exact requested backing dimensions. Multi-monitor
+  confirmation remains required. Trust pins/validation were preserved; no desktop input,
+  clipboard, remote files, saved credentials or user database were accessed.
+- Seven new core resize tests passed for geometry/quantization, Retina conversion,
+  delayed capabilities, storms/intermediate resets, conflicting pending requests,
+  DPI-only handling, finite failure/retry policy and stale local tokens. Five production
+  session scenarios plus peer assertions passed using actual Display Control PDUs and
+  graphics reactivation, including post-resize pointer input, ignored/missing/restricted
+  updates and full-screen exit. These are synthetic resize checks; real Windows resize
+  timing, DPI application appearance and topology changes remain unverified.
+- Final checks passed: 35 core, 33 workspace, four production full-screen-session,
+  18 SSH, 82 SFTP, 14 TLS RDP, 15 NLA RDP, two native keyboard/display,
+  11 protected-probe synthetic and 21 maintenance checks. The resize suite passed
+  five scenarios plus wire/pointer assertions. Formatting, shell syntax, repository
+  hygiene and whitespace checks passed. Compilation-based suites completed before
+  packaging so shared products were not replaced during tests.
+- Pinned dependency preparation and the signed Release passed. The final
+  `Farcast-1.9.1-build-1-arm64.dmg` passed image integrity, mounted bundle/platform/
+  dependency/signature/loader/helper verification, pinned certificate continuity,
+  packaged changelog equality and SHA256 verification. Disposable fixture outputs,
+  failed-test preference domains and logs were removed; caches and the release remain.
+  No commit/publication or reference-repository changes occurred.
+
 ## RDP full-screen re-entry — 11 October 2026
 
 - Retain the unreleased marketing version 1.9.0 and advance build 1 to build 2 at the

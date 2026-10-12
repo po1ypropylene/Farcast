@@ -27,6 +27,7 @@ scripts/test-rdp-drives.sh
 scripts/test-rdp-nla.sh
 scripts/test-rdp-audio.sh
 scripts/test-rdp-keyboard.sh
+scripts/test-rdp-resize.sh
 scripts/test-live-fixtures.sh
 python3 scripts/check-repository-hygiene.py
 
@@ -153,6 +154,20 @@ must be compatible with the current adapter header. Fixtures/keys/binaries/local
 are removed on exit. Keep only summarized measurements in docs/validation.md.
 
 ## RDP display regressions
+
+`scripts/test-rdp-resize.sh` opens a real library Display Control channel on a synthetic
+peer with delayed capabilities. Production AppKit viewport changes send wire layouts;
+the peer reactivates the desktop and the test waits for actual dimensions and pixels.
+It checks resize storms, Retina conversion, full-screen exit followed by resizing,
+received area restrictions, ignored requests, missing channels and disconnect cleanup.
+The peer also receives marked pointer input after reactivation. Its DVC startup is
+delayed until activation, avoiding the upstream sample's premature channel initialization;
+the production FreeRDP libraries remain untouched.
+
+The pure resize coordinator tests cover queued supersession, intermediate graphics,
+returning to the original size while another size is pending, DPI-only sends,
+finite failure handling and channel/session token retirement. These tests do not
+establish real Windows DPI appearance, live-drag timing or multi-monitor topology updates.
 
 `scripts/test-display-migration.sh` opens a disposable pre-display SwiftData store with
 the current schema and checks IDs, metadata, dimensions, legacy defaults and new-option

@@ -26,6 +26,8 @@ static BOOL fc_fixture_display_check(rdpSettings *settings) {
     return TRUE;
 }
 static void fc_fixture_display_pointer(rdpInput *input, UINT16 x, UINT16 y) {
+    if (getenv("FARCAST_FIXTURE_RESIZE") && x == 450 && y == 325)
+        fprintf(stderr, "PASS resize pointer after reactivation\n");
     if (!getenv("FARCAST_FIXTURE_DISPLAY") ||
         freerdp_settings_get_uint32(input->context->settings, FreeRDP_MonitorCount) != 2)
         return;

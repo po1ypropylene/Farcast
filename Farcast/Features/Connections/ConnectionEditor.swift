@@ -327,6 +327,26 @@ struct ConnectionEditor: View {
     }
     private var display: some View {
         VStack(spacing: 10) {
+            windowedDisplayOptions.disabled(draft.launchFullScreen)
+            if draft.launchFullScreen {
+                caption(
+                    "Full screen uses the selected displays’ sizes. Window options are kept for windowed connections.")
+            }
+            Divider().padding(.vertical, 4)
+            row("") { Toggle("Open in full screen", isOn: $draft.launchFullScreen) }
+            row("") {
+                Toggle("Use all monitors", isOn: $draft.useAllMonitors).disabled(!draft.launchFullScreen)
+            }
+            caption("All monitors use their screen sizes and arrangement instead of the selected resolution.")
+            row("") { Toggle("Optimize for Retina", isOn: $draft.retinaDisplay) }
+            caption("With Retina on, sizes use Mac points; remote pixels follow backing density.")
+                .help(
+                    "Retina multiplies the selected logical size by the display’s backing density and requests matching Windows UI scale. Each remote monitor is limited to 8192 pixels per side. Server DPI behavior varies; larger desktops use more memory and bandwidth. Changes apply after reconnecting."
+                )
+        }
+    }
+    private var windowedDisplayOptions: some View {
+        VStack(spacing: 10) {
             row("Display") {
                 Picker("Display", selection: displaySelection) {
                     Text("Fit to window").tag("fit")
@@ -367,17 +387,6 @@ struct ConnectionEditor: View {
                     inlineMessage("Desktop dimensions must be between 200 and 8192 pixels.")
                 }
             }
-            Divider().padding(.vertical, 4)
-            row("") { Toggle("Open in full screen", isOn: $draft.launchFullScreen) }
-            row("") {
-                Toggle("Use all monitors", isOn: $draft.useAllMonitors).disabled(!draft.launchFullScreen)
-            }
-            caption("All monitors use their screen sizes and arrangement instead of the selected resolution.")
-            row("") { Toggle("Optimize for Retina", isOn: $draft.retinaDisplay) }
-            caption("With Retina on, sizes use Mac points; remote pixels follow backing density.")
-                .help(
-                    "Retina multiplies the selected logical size by the display’s backing density and requests matching Windows UI scale. Each remote monitor is limited to 8192 pixels per side. Server DPI behavior varies; larger desktops use more memory and bandwidth. Changes apply after reconnecting."
-                )
         }
     }
     private var resolutionSelection: Binding<String> {

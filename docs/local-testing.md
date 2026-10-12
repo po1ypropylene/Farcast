@@ -57,3 +57,15 @@ is unchanged. All validation and SSH/untrusted-RDP pin requirements still apply.
 Blank disabled entries remain skipped. A missing SSH pin is a failure, and a
 connected RDP session without visible pixels is also a failure. The latter test
 can time out on an intentionally completely black desktop.
+
+For an explicitly authorized RDP-only full-screen probe on the current primary display:
+
+```sh
+FARCAST_TEST_RDP_FULLSCREEN=1 scripts/test-live-servers.sh
+FARCAST_TEST_RDP_FULLSCREEN=1 FARCAST_TEST_RDP_RETINA=1 scripts/test-live-servers.sh
+```
+
+These require actual received pixels at the requested display dimensions, retain the
+same trust checks and redaction, and send no desktop input. `FARCAST_TEST_RDP=1` selects
+RDP only at the ordinary 1024 × 768 baseline. Use `FARCAST_TEST_SERVER` to select an
+ordinal when needed; the configured-entry override still requires explicit authorization.

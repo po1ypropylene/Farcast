@@ -63,6 +63,14 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         viewport?.layoutDesktop()
         refreshCursor()
     }
+    func adoptDesktopSize(_ size: CGSize) {
+        expectedDesktopSize = size
+        if texture?.width != Int(size.width) || texture?.height != Int(size.height) {
+            texture = nil
+            renderedSequence = nil
+        }
+        setDesktopSize(size)
+    }
     func withInitialSize(width: Int, height: Int, completion: @escaping (CGSize) -> Void) {
         if displayMode != .matchWindow {
             completion(CGSize(width: width, height: height))
@@ -234,20 +242,33 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) { requestResize() }
     func requestResize() {
         resizeTask?.cancel()
-        guard displayMode == .fit else { return }
+        guard displayMode == .fit, !inLiveResize, !isPaused else { return }
         let task = DispatchWorkItem { [weak self] in
-            guard let self, self.inputEnabled, self.bounds.width > 0, self.bounds.height > 0 else { return }
+            guard let self, self.inputEnabled, !self.inLiveResize, !self.isPaused, self.window != nil else { return }
             let factor = self.window?.backingScaleFactor ?? 1
-            self.resizeRemote?(
-                Int(self.bounds.width * factor), Int(self.bounds.height * factor),
-                self.retinaDisplay ? Int((factor * 100).rounded()) : (factor > 1 ? 200 : 100))
+            let points = self.viewport?.contentView.bounds.size ?? self.bounds.size
+            let backing = self.convertToBacking(CGRect(origin: .zero, size: points)).size
+            guard
+                let request = RDPResizeRequest(
+                    points: points, backing: backing, backingScale: factor, retina: self.retinaDisplay)
+            else { return }
+            self.resizeRemote?(request.width, request.height, request.scale)
         }
         resizeTask = task
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: task)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: task)
+    }
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        requestResize()
+    }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        requestResize()
     }
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         refreshCursor()
+        requestResize()
     }
     private func refreshCursor() {
         guard let image = cursorImage else { return }

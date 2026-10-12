@@ -1,6 +1,8 @@
 #import "RDPClient.h"
 #import "SSHClient.h"
+#import <AppKit/AppKit.h>
 #import <Foundation/Foundation.h>
+#include <math.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -11,13 +13,19 @@ int main(int argc, char **argv) {
     @autoreleasepool {
         if (argc < 2)
             return 2;
-        BOOL configured = NO, sftp = NO;
+        BOOL configured = NO, sftp = NO, rdpOnly = NO, fullScreen = NO, retina = NO;
         NSInteger selectedServer = 0;
         for (int argument = 2; argument < argc; argument++) {
             if (!strcmp(argv[argument], "--configured"))
                 configured = YES;
             else if (!strcmp(argv[argument], "--sftp"))
                 sftp = YES;
+            else if (!strcmp(argv[argument], "--rdp-only"))
+                rdpOnly = YES;
+            else if (!strcmp(argv[argument], "--rdp-full-screen"))
+                fullScreen = rdpOnly = YES;
+            else if (!strcmp(argv[argument], "--rdp-retina"))
+                retina = YES;
             else if (!strncmp(argv[argument], "--server=", 9)) {
                 char *end;
                 selectedServer = strtol(argv[argument] + 9, &end, 10);
@@ -26,6 +34,8 @@ int main(int argc, char **argv) {
             } else
                 return 2;
         }
+        if ((retina && !fullScreen) || (sftp && rdpOnly))
+            return 2;
         NSString *pinOverride = NSProcessInfo.processInfo.environment[@"FARCAST_TEST_SSH_PIN"];
         if (pinOverride && (!selectedServer || ![pinOverride hasPrefix:@"SHA256:"])) {
             puts("FAIL: a trusted SSH pin override requires one selected server.");
@@ -56,6 +66,8 @@ int main(int argc, char **argv) {
                 puts("FAIL: invalid server entry.");
                 return 2;
             }
+            if (rdpOnly && ![item[@"protocol"] isEqual:@"RDP"])
+                continue;
             if (![item[@"enabled"] boolValue]) {
                 if (!configured || ![item[@"host"] isKindOfClass:NSString.class] || ![item[@"host"] length] ||
                     ![item[@"username"] isKindOfClass:NSString.class] || ![item[@"username"] length])
@@ -113,8 +125,11 @@ int main(int argc, char **argv) {
                   } else if (ssh && !sftp)
                       [weakSSH disconnect];
               }
-              if ([state isEqualToString:@"failed"])
+              if ([state isEqualToString:@"failed"]) {
                   failed = YES;
+                  if ([message containsString:@"ERRCONNECT_ACTIVATION_TIMEOUT"])
+                      stage = @"desktop activation";
+              }
               if ([state isEqualToString:@"failed"] || [state isEqualToString:@"disconnected"])
                   dispatch_semaphore_signal(done);
             };
@@ -144,10 +159,37 @@ int main(int argc, char **argv) {
                             privateKey:nil
                         authentication:@"password"];
             } else {
+                NSInteger requestedWidth = 1024, requestedHeight = 768, requestedScale = 100;
+                if (fullScreen) {
+                    [NSApplication sharedApplication];
+                    NSScreen *screen = NSScreen.mainScreen ?: NSScreen.screens.firstObject;
+                    double factor = retina ? screen.backingScaleFactor : 1;
+                    requestedWidth = (NSInteger)(floor(screen.frame.size.width * factor / 2) * 2);
+                    requestedHeight = (NSInteger)floor(screen.frame.size.height * factor);
+                    requestedScale = (NSInteger)llround(factor * 100);
+                    rdpClient.monitorDefinitions = @[ @{
+                        @"x" : @0,
+                        @"y" : @0,
+                        @"width" : @(requestedWidth),
+                        @"height" : @(requestedHeight),
+                        @"primary" : @1,
+                        @"scale" : @(requestedScale),
+                        @"physicalWidth" : @0,
+                        @"physicalHeight" : @0,
+                        @"orientation" : @0
+                    } ];
+                }
                 rdpClient.onTrust = trust;
                 rdpClient.onStatus = status;
                 rdpClient.onFrame = ^(NSData *pixels, NSInteger width, NSInteger height, NSInteger stride) {
                   frame = width > 0 && height > 0 && stride >= width * 4 && pixels.length == stride * height;
+                  if (frame && fullScreen && (width != requestedWidth || height != requestedHeight)) {
+                      frame = NO;
+                      failed = YES;
+                      stage = @"full-screen geometry";
+                      [weakRDP disconnect];
+                      return;
+                  }
                   if (frame) {
                       // Empty allocation/paint callbacks do not prove a usable desktop.
                       const uint8_t *data = pixels.bytes;
@@ -171,9 +213,9 @@ int main(int argc, char **argv) {
                               username:username
                                 domain:domain
                               password:password
-                                 width:1024
-                                height:768
-                                 scale:100
+                                 width:requestedWidth
+                                height:requestedHeight
+                                 scale:requestedScale
                              clipboard:NO
                          audioPlayback:NO];
             }
