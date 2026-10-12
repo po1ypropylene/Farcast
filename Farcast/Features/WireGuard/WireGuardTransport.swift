@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-/// One helper/device per saved profile, with independently cancellable RDP leases.
+/// One helper/device per saved profile, with independently cancellable session leases.
 /// Blocking pipe work is performed on protocol workers, never on the main actor.
 final class WireGuardTransport: @unchecked Sendable {
     private let lock = NSLock()

@@ -58,7 +58,7 @@ struct WireGuardLibrary: View {
                         TextField(
                             "Keepalive (seconds)", value: $configuration.keepalive, format: .number.grouping(.never))
                         Text(
-                            "DNS servers inside Allowed IPs use WireGuard; other configured DNS servers use this Mac’s normal network. Leave DNS empty when the RDP server uses an IP address. Active RDP sessions share this profile’s tunnel. Disconnect them before applying changes to tunnel settings or keys."
+                            "DNS servers inside Allowed IPs use WireGuard; other configured DNS servers use this Mac’s normal network. Leave DNS empty when the server uses an IP address. Active sessions share this profile’s tunnel. Disconnect them before applying changes to tunnel settings or keys."
                         )
                         .font(.callout).foregroundStyle(.secondary)
                     }
@@ -72,7 +72,7 @@ struct WireGuardLibrary: View {
             }
             Divider()
             HStack {
-                Text(error ?? validation ?? "Select this profile in an RDP connection’s Add/Edit screen.")
+                Text(error ?? validation ?? "Select this profile under Connect via in the connection editor.")
                     .font(.callout).foregroundStyle(error == nil ? Color.secondary : .red)
                 Spacer()
                 PrimaryActionButton(title: "Save") { save() }.disabled(validation != nil)
@@ -83,7 +83,7 @@ struct WireGuardLibrary: View {
                 Button("Delete", role: .destructive) { delete() }
             } message: {
                 Text(
-                    "RDP profiles that use it will refuse to connect until you choose another WireGuard connection or explicitly select None. Active sessions continue until disconnected."
+                    "Connection profiles that use it will refuse to connect until you choose another WireGuard connection or explicitly select Direct. Active sessions continue until disconnected."
                 )
             }
     }
@@ -166,7 +166,7 @@ struct WireGuardLibrary: View {
             try CredentialStore.delete(id)
             context.delete(profile)
             try context.save()
-            // Retain dangling IDs deliberately: deletion must never select direct RDP.
+            // Retain dangling IDs deliberately: deletion must never select direct networking.
             reset()
         } catch { self.error = "Could not delete this WireGuard profile." }
     }

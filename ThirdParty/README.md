@@ -37,7 +37,7 @@ upstream module graph but is not compiled or bundled on macOS.
 scripts/prepare-wireguard.sh builds a self-contained, arm64/macOS 27 helper with
 wireguard-go's existing tun/netstack integration. Its compatible gVisor module
 is deliberately pinned by wireguard-go; an arbitrary newer gVisor checkout is
-not substituted. The user-provided reference repositories remain unmodified.
+not substituted.
 Upstreams: https://github.com/WireGuard/wireguard-go and
 https://github.com/google/gvisor. Dependency pinning/checksum verification is
 not a completed vulnerability or distribution/legal review.

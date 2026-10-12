@@ -68,25 +68,29 @@ final class WireGuardTests: XCTestCase {
         configuration.mtu = 1279
         XCTAssertNotNil(configuration.validationMessage)
     }
-    @MainActor func testWireGuardSelectionPersistsAndDeletionDoesNotEnableDirectRDP() throws {
+    @MainActor func testWireGuardSelectionPersistsAcrossProtocolsAndDeletionDoesNotEnableDirect() throws {
         let schema = Schema([SavedConnection.self, ConnectionFolder.self, SavedWireGuard.self])
         let container = try ModelContainer(for: schema, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
         let tunnel = try SavedWireGuard(
             name: "Synthetic tunnel", configuration: WireGuardImport.parse(Data(fixture.utf8)).configuration)
-        var draft = ConnectionDraft()
-        draft.host = "10.111.0.1"
-        draft.username = "fixture"
-        draft.kind = .rdp
-        draft.port = 3389
-        draft.wireGuardID = tunnel.id
-        let connection = SavedConnection(draft: draft)
         container.mainContext.insert(tunnel)
-        container.mainContext.insert(connection)
+        var connections: [SavedConnection] = []
+        for kind in RemoteProtocol.allCases {
+            var draft = ConnectionDraft()
+            draft.host = "10.111.0.1"
+            draft.username = "fixture"
+            draft.kind = kind
+            draft.port = kind == .ssh ? 22 : 3389
+            draft.wireGuardID = tunnel.id
+            let connection = SavedConnection(draft: draft)
+            connections.append(connection)
+            container.mainContext.insert(connection)
+        }
         try container.mainContext.save()
-        XCTAssertEqual(ConnectionDraft(connection).wireGuardID, tunnel.id)
+        for connection in connections { XCTAssertEqual(ConnectionDraft(connection).wireGuardID, tunnel.id) }
         container.mainContext.delete(tunnel)
         try container.mainContext.save()
-        XCTAssertEqual(ConnectionDraft(connection).wireGuardID, draft.wireGuardID)
+        for connection in connections { XCTAssertEqual(ConnectionDraft(connection).wireGuardID, tunnel.id) }
         XCTAssertTrue(try container.mainContext.fetch(FetchDescriptor<SavedWireGuard>()).isEmpty)
         let names = schema.entities.first { $0.name == "SavedWireGuard" }!.properties.map(\.name)
         XCTAssertFalse(names.contains("privateKey"))

@@ -10,7 +10,7 @@ that spelling. The Swift module is `Farcast`, the core package/product is
 Scripts resolve the outer repository root from their own paths, so its folder
 and Git repository can be renamed independently.
 
-The new identity uses a separate macOS sandbox and credential namespace. Previous
+Farcast uses its own macOS sandbox and credential namespace. Imported source
 data stays untouched. **File → Import Existing Library…** explicitly imports a
 user-selected prior library into an empty Farcast library, preserving profile,
 folder and WireGuard IDs and metadata. Copying local credentials requires opt-in;
@@ -43,9 +43,9 @@ SVG structure changes, review the layer split before regeneration. Run
 `scripts/export-icon.sh` for Default, Dark, Mono and small-size previews. Generated
 previews live under `.build` and are not app runtime assets.
 
-README retains the supplied screenshots in `docs/images`. Their contents show the
-previous name until updated; README explains that history. Filenames and references
-use Farcast. Its 512×512 icon PNG is rendered from the Default macOS appearance of
+Keep the README screenshot files, order, captions and markup unchanged unless
+explicitly asked to update them. The README's 512×512 icon PNG uses the Default
+macOS appearance of
 `Farcast/AppIcon.icon`. Regenerate
 `docs/images/Farcast-Icon.png` with `scripts/export-icon.sh --readme` after
 editing the icon. The README displays it at 128×128; the Icon Composer document

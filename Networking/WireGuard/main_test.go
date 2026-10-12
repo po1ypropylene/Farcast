@@ -349,3 +349,51 @@ func TestCancellationDuringHandshake(t *testing.T) {
 		t.Fatal("handshake cancellation orphan")
 	}
 }
+
+// Drive production Swift session startup and its shared helper registry, rather
+// than constructing separate helpers for the two protocol adapters.
+func TestMixedProtocolSessions(t *testing.T) {
+	client := os.Getenv("FARCAST_WG_SESSION_CLIENT")
+	if client == "" {
+		t.Skip("mixed session fixture not requested")
+	}
+	r, server := fixture(t)
+	for _, target := range []struct{ port, local string }{
+		{"22", os.Getenv("FARCAST_WG_SESSION_SSH_PORT")},
+		{"3389", os.Getenv("FARCAST_WG_SESSION_RDP_PORT")},
+	} {
+		listener, err := server.ListenTCPAddrPort(netip.MustParseAddrPort("10.111.0.1:" + target.port))
+		if err != nil {
+			t.Fatal("protocol listener")
+		}
+		t.Cleanup(func() { listener.Close() })
+		go func(local string) {
+			for {
+				a, err := listener.Accept()
+				if err != nil {
+					return
+				}
+				go func() {
+					defer a.Close()
+					b, err := net.Dial("tcp4", "127.0.0.1:"+local)
+					if err != nil {
+						return
+					}
+					defer b.Close()
+					relay(a, b)
+				}()
+			}
+		}(target.local)
+	}
+	root := os.Getenv("FARCAST_WG_SESSION_ROOT")
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, client, root+"/ssh/fingerprint", root+"/cert.pem", root+"/ssh")
+	data, _ := json.Marshal(r)
+	cmd.Stdin = bytes.NewReader(data)
+	if result, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("mixed protocol fixture failed: %s", result)
+	} else {
+		t.Log(string(result))
+	}
+}

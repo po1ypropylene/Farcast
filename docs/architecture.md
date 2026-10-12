@@ -6,7 +6,7 @@ Farcast is a native SwiftUI app for macOS 27+ and arm64 only. Xcode,
 Package.swift and native builds share that minimum. SwiftData stores metadata;
 Security.framework provides Keychain and certificate trust. SwiftTerm handles
 terminal emulation, libssh2 SSH/SFTP, FreeRDP/WinPR RDP/NLA/channels, OpenSSL native
-cryptography, Metal desktop frames, and wireguard-go/gVisor private RDP transport.
+cryptography, Metal desktop frames, and wireguard-go/gVisor private session transport.
 Pins, checksums and licenses live in the build scripts, Go manifests and ThirdParty.
 No runtime Homebrew, external protocol client or SSH agent is required.
 
@@ -28,6 +28,7 @@ No runtime Homebrew, external protocol client or SSH agent is required.
 | Protocols/SSH | Persistent terminal view/delegate |
 | Protocols/RDP | Metal view, scrolling, input and latest-frame mailbox |
 | Native/SSH, Native/RDP | Independently written Objective-C protocol adapters |
+| Native/Transport | Shared authenticated WireGuard socket handshake and redacted diagnostics |
 | Networking/WireGuard | Independently written Go helper using pinned upstream modules |
 | Tests/CoreTests, Integration, Maintenance | Core, protocol/UI coordination and disposable script checks |
 | Tests/Fixtures | Blank disabled server-document example required by setup/import |
@@ -36,8 +37,19 @@ App source folders are under Farcast. Xcode's synchronized group includes
 files there automatically; keep test-only tools/secrets outside it. Package.swift
 builds only Domain/Persistence/Shared. Preserve existing SwiftData entity/property
 identities; never reset the user's database during refactoring. The app module is
-Farcast, with separate lowercase bundle/storage identifiers. Explicit rename migration
-is described below.
+Farcast; bundle/storage identifiers are lowercase. See [branding](branding.md).
+
+### Native adapter organization
+
+SSH authentication, socket ownership and the worker loop remain in `SSHClient.m`.
+Private categories hold terminal pumping (`SSHClient+Terminal.m`), SFTP request,
+conflict and single-file transfer work (`SSHClient+SFTP.m`), and bounded recursive
+preflight/copy/move/removal (`SSHClient+SFTPTree.m`). `SSHClientInternal.h` declares
+shared private state and worker methods; it is excluded from the public bridge.
+The split creates no extra sessions, authentication, queues or native-handle owners.
+RDP folder provider/bookmark/device registration lives in `RDPDriveManager.m`;
+root-confined filesystem requests and handles stay in `RDPDrive.m`.
+Integration harnesses reuse one native source list and object-compilation helper.
 
 ## Session ownership and cancellation
 
@@ -75,13 +87,10 @@ replaced tabs and helpers whose final lease was released. WireGuard shutdown rej
 new leases. Completion runs through the main run loop, including AppKit's nested
 termination loop; the main actor never blocks waiting for protocol cleanup.
 
-CredentialStore currently exposes synchronous Keychain operations used by UI callers.
-Certificate-backed local builds preserve the recorded code identity across updates,
-avoiding the repeated approval caused by changing ad-hoc hashes. Existing items may
-need one final grant for that transition. Credential contents/ACLs are unchanged.
-Other Keychain authorization can still stall synchronous callers; worker-based credential
-I/O with explicit prompt/cancellation policy remains an open improvement. Injected
-credential lookup and preferences let workspace tests avoid real Keychain/user defaults.
+CredentialStore exposes synchronous Keychain operations to UI callers; authorization
+can stall them. Worker-based I/O needs an explicit prompt/cancellation policy.
+Injected credential lookup/preferences isolate workspace tests. Local builds preserve
+the certificate requirement across updates; see [packaging](packaging.md).
 
 ## Storage and trust
 
@@ -129,57 +138,33 @@ bundle/path strings are restricted to migration recognition and test provenance.
 
 ## UI and desktop presentation
 
-Brand artwork comes from the supplied `farcast-logo-v5.svg`. The generation script
-retains its vector geometry and gradients in separate background/stand/monitor/
-broadcast PNG layers, while `AppIcon.icon` owns native materials and macOS appearance
-variants. A derived outline template supplies the sidebar mark. See [branding](branding.md).
+Brand assets and regeneration are documented in [branding](branding.md); control
+sizes, focus and accessibility rules are in [UI guidelines](ui-guidelines.md).
+Terminal/Split background fills respect safe-area edges; the sidebar retains its
+own native material. Sidebar destinations resolve WireGuard names from live metadata,
+show missing references explicitly and expose full labels in tooltips.
 
-Terminal background fills respect every safe-area edge, including the navigation
-split view's sidebar boundary. Terminal and Split modes use the same bounded fill;
-the connection sidebar retains its native material independently of terminal themes.
+The editor is a 540 × 600-point sheet capped to its presenting window, with a
+128-point label column and 12-point gaps. General, Display, Devices & audio,
+Terminal and Security tabs appear as applicable. Header/tabs/actions stay fixed;
+one body scroll view handles short windows and long folder lists. Tab state starts
+on General and falls back there if a tab becomes unavailable. All tabs share the
+draft/credentials; switching tabs never reloads values. Invalid fields disable
+saving and are reachable through marked tabs and a clickable footer hint.
+Edit clears automatic text selection; New/Quick Connect focus Address.
 
-The connection editor uses one 128-point label column and 12-point gaps with bordered
-native inputs in a fixed 540 × 600-point sheet (height capped for its presenting
-window). Pinned text tabs replace the earlier short advanced scroll region: General,
-Display and Devices & audio for RDP, or General and Terminal for SSH, with Security
-when editing or when the entered endpoint already has a stored identity. Each selected
-tab owns the entire body and one scroll view; header, tab bar and actions stay fixed.
-The body scrolls for short windows or long selected-folder lists. Session-local tab
-state starts on General and falls back there if its tab becomes unavailable.
+Display labels map to existing stored modes: Resize with window is Fit plus
+`dynamicResolution=true`; Fit to window is Fit plus false. 100% with scrolling
+and Match window at connection retain their modes. Explicit preset selection
+writes only width/height; unmatched dimensions use Custom and survive tab changes.
+Startup full screen disables windowed mode/resolution controls while preserving
+their values. Opening the editor never rewrites settings. Security can forget an
+existing identity for the entered endpoint. Save applies settings on reconnect;
+Save & Connect opens a session. Organization/notes persist without editor controls.
 
-All tabs share the draft and credential state, so changing tabs neither reloads nor
-resets settings/secrets. Existing validation rules still disable saving; a marked tab
-and clickable footer hint reveal the field needing attention. Edit initially clears
-automatic text selection; New/Quick Connect initially focus Address. Protocol editing,
-Save with unchanged settings and all existing credential behavior remain available.
-Security retains forgetting an existing identity when entering a previously trusted
-endpoint in a new profile.
-
-This is a presentation-only redesign. The Display popup maps Resize with window to
-existing fit plus dynamicResolution=true, and Fit to window to fit plus false.
-100% with scrolling and Match window at connection retain their original stored modes;
-non-Match modes still expose initial/fixed dimensions. The preset menu writes only the existing desktopWidth/desktopHeight values on explicit
-selection. Unmatched sizes open as Custom, and custom-entry state survives tab switches.
-Startup full screen disables the windowed mode and resolution controls without rewriting
-them; full-screen geometry comes from the selected displays. Turning it off restores access
-to the retained windowed settings. Opening the form does not rewrite any settings. Credential storage/disclosure, protocol-switch resets, terminal settings,
-validation, Cancel/Esc and Save/Save & Connect/Return keep their existing behavior.
-The edit title identifies the profile; saving still applies settings on reconnect and
-Save & Connect still opens a session. No new reconnect action or terminal inheritance
-is introduced. Organization/notes stay preserved without editor controls.
-
-Tabs use compact 28-point capsule Liquid Glass, normal body text and independent
-22-point close targets. Icon actions use 24-point borderless native buttons; other
-controls use regular native bordered/glass styles without enlarged labels or touch
-margins. The Mac interface follows Safari proportions; future iPad sizing is separate.
-Sidebar RDP hosts append the selected
-WireGuard profile name from the live metadata query; missing references explicitly
-show an unavailable tunnel. Long destination labels expose the full text in a tooltip. See [UI guidelines](ui-guidelines.md).
-
-RDP negotiates software bitmap rendering: enabling the graphics pipeline authenticated
-but delivered no visible paint callbacks on a supplied server. This is a bounded
-interoperability workaround, not a diagnosis for every server. Metal/BGRA/latest-frame
-ownership stays intact. Fit scales the desktop and optionally requests server resize;
+RDP negotiates software bitmap rendering for compatibility, then presents BGRA
+frames through Metal and the latest-frame mailbox. Changing graphics negotiation
+requires validating actual paint delivery, not authentication alone. Fit scales the desktop and optionally requests server resize;
 100% maps one remote pixel to one Mac point; Match window waits for a laid-out viewport
 and fixes that initial size (200–8192) until reconnect. Delivered server dimensions
 remain authoritative. Fixed modes disable resize requests. Native NSScrollView clips
@@ -208,8 +193,8 @@ full-desktop copy/queue is introduced. Input uses the inverse rendering transfor
 positive framebuffer coordinates; cursor image/hotspot scale with that transform. Padding
 rejects pointer input. Server geometry changes retire the full-screen targets before new
 regions are presented. Exit Full Screen / Control–Command–F returns to the existing session;
-Escape continues to reach Windows. The exit button sits on an opaque native background
-that follows the local appearance, so remote desktop pixels cannot wash out its label. Window activation retains one workspace clipboard owner.
+Escape continues to reach Windows. The exit control has an opaque native background following local appearance.
+Window activation retains one workspace clipboard owner.
 
 The top-right RDP full-screen action observes the session's presentation/connection state
 and reopens the existing authenticated desktop in attached or detached windows. Confirmed
@@ -243,16 +228,13 @@ pinned FreeRDP activation state machine wait for a reply some hosts omit when mu
 off. It uses actual GDI dimensions; multi-monitor confirmation remains required.
 Multi-monitor geometry stays fixed until
 reconnect; hotplug/rotation/topology changes exit to the workspace with a reconnect notice.
-This release does not implement live multi-monitor topology updates. Reconnect creates new
+Live multi-monitor topology updates are unsupported. Reconnect creates new
 caps, generation and monitor state; disconnect closes all targets and releases input.
 
 Protocol contracts: [initial monitor data](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/a8029f8e-01e1-4f19-af67-bcad5bdef624),
 [monitor attributes](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/8fb3a83c-f3e2-4a81-8824-8173af03b6bc),
 [Display Control layout](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpedisp/ea2de591-9203-42cd-9908-be7a55237d1c), and
 [pointer coordinates](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/2c1ced34-340a-46cd-be6e-fc8cab7c3b17).
-The supplied display research informed the public-contract design; no reference application
-code/assets were copied or its installed app executed. Physical Mac/Windows validation is
-separate from synthetic protocol and renderer evidence.
 
 The worker retains clipboard updates before channel attachment and advertises after
 MonitorReady. The selected session synchronizes before paste and on its timer.
@@ -281,11 +263,8 @@ ends, cleanup waits 60 seconds for consumers already copying. App exit can leave
 OS temporary files pending system cleanup; this is not persistent file storage.
 Unidentified late format responses must drain before another request because that
 PDU carries no request ID; stream IDs reject late file responses. A silent peer may
-require reconnecting. Disk/codec work stays off the main actor, and the existing
-input/latest-frame pipeline remains unchanged.
-FreeRDP's Mac audio backend is
-bundled, playback defaults on, and microphone capture stays off. Changes apply after
-reconnect; real-server clipboard/audio policies still need broader verification.
+require reconnecting. Disk/codec work stays off the main actor. FreeRDP's Mac audio backend is bundled;
+playback defaults on, microphone capture stays off and changes apply after reconnect.
 
 ## RDP selected-folder redirection
 
@@ -348,7 +327,7 @@ Reconnect then replaces the tab in place and requests fresh credentials, bypassi
 the saved lookup for that retry. Explicit Interactive retries ask the server again
 without a separate password dialog. Stored credentials are changed only through the
 existing user-controlled saving flow; transport/identity failures retain normal
-reconnect behavior. No persistent model identity changes are involved.
+reconnect behavior.
 
 A session owns one SSH login and an SFTPController. Terminal/Files/Split only changes
 presentation; SFTP opens lazily on the existing libssh2 session. Terminal channel,
@@ -357,7 +336,9 @@ authenticated transport before reporting a file-only connection. Shell EOF also
 checks SFTP rather than ending usable file access. Transport errors, authentication
 and trust failures still fail the connection; neither service available is an error.
 Worker capability callbacks use the session's generation guard, select Files and
-disable Terminal/Split and terminal tools. Reconnect checks capabilities anew.
+disable Terminal/Split and terminal tools. The native NSSegmentedControl enforces
+per-segment disabled states; preserve that behavior when changing the mode picker.
+Reconnect checks capabilities anew.
 Subsystem refusal with a usable shell leaves the terminal available. The worker
 services terminal I/O/resize between file
 chunks and socket waits. Callbacks check generation and operation IDs. Listings are
@@ -378,8 +359,8 @@ snapshots, falling back to LSTAT when fields are absent. Every transfer still re
 source metadata immediately before copying, and moves rescan before source deletion.
 Buffers are file-sized within 4 MiB upload / 1 MiB download maxima. Uploads refill
 after a quarter-window has been acknowledged, reducing memmove work; EAGAIN retries
-retain identical unacknowledged bytes. These changes remove redundant requests and
-allocations without a second login, worker or protocol channel. Download handle-close cleanup
+retain identical unacknowledged bytes. Transfers use the same login, worker and
+protocol channel. Download handle-close cleanup
 allows ten seconds for queued read-ahead replies (five for other handles) and pumps
 terminal I/O while draining. Shutdown still interrupts socket waits immediately.
 See [libssh2 exclusive-open flags](https://libssh2.org/libssh2_sftp_open_ex_r.html).
@@ -388,16 +369,15 @@ SFTP displays average bytes per second for the current file using a monotonic cl
 The worker emits a zero-byte start event for each leaf, including recursive trees;
 new requests, completion, disconnect and cancellation clear or hide the rate. A periodic
 UI refresh updates the average during stalls without changing worker backpressure.
-First-use setup explains Full Disk Access and opens its System Settings pane. The app
-neither silently grants nor probes protected personal data to infer that permission.
+First-use setup explains Full Disk Access and opens its System Settings pane. The
+app never grants or probes protected personal data to infer that permission.
 Full Disk Access does not replace sandbox folder grants; the Local Mac picker remains
 necessary and Home bookmarks retain their existing scope.
 
 Home comes from getpwuid, since NSHomeDirectory names the sandbox container. Explicit
 NSOpenPanel read/write permission gates access; a Home security-scoped bookmark is
-remembered/refreshed, while other folder scopes stay session-owned. The plain Local
-Mac heading opens the same folder picker with compact Mac sizing; both file-pane
-headings and navigation rows use matching minimum heights. Local operations run on
+remembered/refreshed, while other folder scopes stay session-owned. The Local Mac
+heading opens the same folder picker. Local operations run on
 workers with O_NOFOLLOW, cancellation and retained scopes. No broad filesystem
 entitlement is used. Multi-selection jobs run sequentially and stop on the first error.
 File buffers capture session-local paths/scopes; Paste never reads system clipboard.
@@ -444,7 +424,7 @@ promises and actual production drag/sandbox interoperability remain deferred/unv
 ## Embedded WireGuard
 
 Saved profiles hold bounded single-peer metadata; keys use existing credential storage.
-Dangling RDP profile references fail closed instead of silently connecting directly.
+Dangling connection profile references fail closed instead of silently connecting directly.
 One userspace helper/device per profile serves token-authenticated loopback TCP leases,
 each restricted to its destination/AllowedIPs. Requests/keys use anonymous pipes;
 diagnostics use allowlisted codes, never upstream config/keys/hosts. Blocking pipe work
@@ -453,39 +433,63 @@ EOF/signals close devices/listeners. Startup/dial/auth waits are bounded; edited
 require all leases to disconnect before new settings apply.
 
 FreeRDP TCPConnect changes dialing only. Original host/port remain in TLS/NLA/trust;
-endpoint redirects fail closed and multitransport is disabled. RDP destination IPs must
+endpoint redirects fail closed and multitransport is disabled. Destination IPs must
 be within AllowedIPs. Configured DNS covered by those routes uses gVisor/WireGuard;
 uncovered DNS uses ordinary UDP/TCP scoped to DNS only, with bounded A/AAAA queries
 and TCP fallback. Literal destinations need no DNS. Resolving public addresses never
-permits direct RDP fallback. No system VPN/TUN/routes/DNS/admin changes occur.
+permits direct fallback. No system VPN/TUN/routes/DNS/admin changes occur.
 See [WireGuard](wireguard.md) and [packaging](packaging.md) for lifecycle/sandbox rules.
+
+### Protocol-independent tunnel startup
+
+`RemoteSession.start` resolves a selected WireGuard profile before dispatching to
+any protocol adapter. `Workspace.wireGuardSettings` owns metadata/key lookup, using
+the same injectable credential provider as ordinary connection credentials.
+The profile ID selects the existing process-wide `WireGuardTransport` registry;
+SSH and RDP acquire independent destination/token leases on one helper/device.
+Disconnect releases only that lease; the final lease stops the helper. Helper exit
+fails every active lease and interrupts both adapters. Generation guards reject
+late startup/status callbacks, and app shutdown drains native workers and helpers.
+
+`Native/Transport/WireGuardSocket.h` implements the common token/acknowledgement
+exchange, finite worker deadline, cancellation and redacted DNS/route diagnostics.
+Adapters retain ownership of dialing, sockets and protocol negotiation. SSH dials
+only the lease listener before libssh2 negotiation; its terminal and SFTP subsystem
+retain one authenticated SSH transport. RDP overrides only TCP dialing and refuses
+endpoint redirection. Trust always uses the original protocol/host/port. Missing
+profiles/keys, invalid listener settings, failed tunnel DNS or uncovered destinations
+never trigger direct dialing.
+
+Future TCP protocols must use the same session startup and lease manager, then
+consume the authenticated socket handshake in their adapter. They must retain
+original endpoint identity and interrupt their worker when the lease fails. A
+non-TCP protocol needs an explicit transport adapter; the existing helper provides
+TCP destination leases, not a system VPN or arbitrary UDP forwarding.
 
 ## Build and maintenance
 
-`.dependencies` retains native source/build trees, Go caches, Xcode package downloads,
-test Python and the reproducible RDP sample server. `Vendor/Native` holds installed
-headers/libraries/helper. `.build` is entirely disposable. Test runs under `.build/tests`
-are unique, owner-only and removed on exit with their processes/logs/data. Keep source
-fixtures that exercise distinct regressions; discard one-off generated review artifacts.
+`.dependencies` contains reusable source/build/package/module/test caches;
+`Vendor/Native` holds installed headers/libraries/helper. `.build` is disposable.
+Integration runs use unique owner-only `.build/tests` trees and clean up their
+processes/data/logs. Retain source fixtures only for distinct reproducible regressions.
 
-The updater compares numeric stable bare/v/V tags, refuses downgrades, pins exact
-native/Swift/Go revisions, rolls back manifests on resolution failure and invalidates
-outdated native/sample-server products. Successfully resolved pins remain after a build
-failure; upstream notice changes still need review. Project cleanup preserves dependencies
-and protected input, rejects tracked/redirected generated targets and never follows
-external links. User-data reset is a separate explicit destructive action scoped to
-current-bundle Library/preferences/credential service, using SecItemDelete without
-reading secrets; it refuses a running app/helper, sudo and redirected paths.
+The updater pins exact native/Swift/Go revisions, refuses downgrades, rolls back
+manifests on resolution failure and invalidates stale native/sample-server products.
+Resolved pins remain after build failure. Cleanup preserves dependencies and private
+input, rejects tracked/redirected generated targets and never follows external links.
+User-data reset is separate and destructive: it uses SecItemDelete without reading
+secrets and refuses running app/helper processes, sudo and redirected paths.
+See [development](development.md) for commands and cache relocation.
 
-Packaging relocates the native closure and ships notices. Local certificate-signed builds disable
-hardened runtime and recreate the generated app before final signing. Distribution
-requires Developer ID/hardened runtime/notarization. Version.xcconfig is the single
-version source; DMGs use built metadata. Final bundle/loader/sandboxed-helper checks
-are required. See [development](development.md), [packaging](packaging.md) and
-[testing](testing.md) for procedures.
+Packaging relocates the native dependency closure and ships notices. Local builds
+retain a pinned certificate requirement with hardened runtime disabled; distribution
+requires Developer ID, hardened runtime and notarization. Version.xcconfig owns
+version/build metadata. Final bundle, loader, sandboxed-helper, mounted-DMG and
+SHA256 checks are required; see [packaging](packaging.md) and [testing](testing.md).
 
-Deferred: SCP/WebDAV, SFTP resume/Finder download promises, SSH
-config/agent/jump hosts/forwarding/certificates/hardware keys, RDP Gateway/RemoteApp/
-microphone/other devices/hardware video, nested folders/cloud sync/
-updater. The source license is undecided; synthetic passes do not establish production
-interoperability or distribution readiness.
+## Unsupported features
+
+SCP/WebDAV; SFTP resume/Finder download promises; SSH config/agent/jump hosts/
+forwarding/certificates/hardware keys; RDP Gateway/RemoteApp/microphone/other devices/
+hardware video; nested folders/cloud sync/updater. The app source license is
+undecided. [Validation](validation.md) tracks remaining interoperability/release work.

@@ -2,6 +2,14 @@
 
 Changes are recorded from version 1.7.0 onwards.
 
+## 1.10.0 — 12 October 2026
+
+- Add WireGuard to SSH connections, including terminal and SFTP access over the same authenticated SSH session.
+- Share one tunnel across SSH and RDP tabs using the same saved WireGuard profile. Disconnecting one tab retains the other sessions; failed tunnels never fall back to direct connections.
+- Preserve the original SSH host-key and RDP certificate identity, and show WireGuard selections for both protocols in the editor and sidebar.
+- Separate SSH terminal, SFTP transfer and tree workers into private implementation files; separate RDP folder-provider registration from its filesystem backend. Keep existing worker ownership and behavior.
+- Reuse protocol-independent tunnel startup and socket authentication. Production-peer interoperability and network-change recovery still require live validation.
+
 ## 1.9.2 — 12 October 2026
 
 - Keep Exit Full Screen readable over bright and dark remote desktops with an opaque native background that follows the Mac appearance.

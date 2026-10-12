@@ -35,7 +35,7 @@ import Foundation
         let first = WireGuardTransport()
         let second = WireGuardTransport()
         let endpoint1 = try first.start(
-            id: id, configuration: configuration, credential: credential, host: "10.111.0.1", port: 3389, onExit: {})
+            id: id, configuration: configuration, credential: credential, host: "10.111.0.1", port: 22, onExit: {})
         let endpoint2 = try second.start(
             id: id, configuration: configuration, credential: credential, host: "10.111.0.1", port: 3389, onExit: {})
         first.stop()
@@ -59,7 +59,9 @@ import Foundation
                 onExit: {})
             throw WireGuardError.transport
         } catch is CancellationError {}
-        print("PASS Swift tunnel lifecycle: shared leases, independent cleanup, changed-profile refusal, cancellation")
+        print(
+            "PASS Swift tunnel lifecycle: mixed SSH/RDP destination leases, independent cleanup, changed-profile refusal, cancellation"
+        )
 
         let sharedID = UUID()
         let transports = [WireGuardTransport(), WireGuardTransport(), WireGuardTransport()]

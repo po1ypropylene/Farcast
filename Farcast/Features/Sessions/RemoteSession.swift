@@ -1,7 +1,6 @@
 import AppKit
 import Combine
 import Foundation
-import SwiftData
 import SwiftTerm
 
 @MainActor final class RemoteSession: ObservableObject, Identifiable {
@@ -88,7 +87,7 @@ import SwiftTerm
                 attempt: generation)
             return
         }
-        guard profile.kind == .rdp, let tunnelID = profile.wireGuardID else {
+        guard let tunnelID = profile.wireGuardID else {
             startProtocol(credential: credential)
             return
         }
@@ -97,12 +96,8 @@ import SwiftTerm
         state = .connecting
         message = "Starting WireGuard…"
         do {
-            guard let context = workspace?.modelContext else { throw WireGuardError.unavailable }
-            var query = FetchDescriptor<SavedWireGuard>(predicate: #Predicate { $0.id == tunnelID })
-            query.fetchLimit = 1
-            guard let saved = try context.fetch(query).first else { throw WireGuardError.unavailable }
-            let configuration = try saved.configuration()
-            guard let keys = try CredentialStore.load(tunnelID) else { throw WireGuardError.missingKeys }
+            guard let workspace else { throw WireGuardError.unavailable }
+            let (configuration, keys) = try workspace.wireGuardSettings(for: tunnelID)
             let transport = WireGuardTransport()
             tunnel = transport
             let host = profile.host
@@ -111,6 +106,7 @@ import SwiftTerm
             let onExit: @Sendable () -> Void = {
                 Task { @MainActor in
                     guard let self = reference.value, self.generation == attempt, self.state.active else { return }
+                    self.ssh?.disconnect()
                     self.rdp?.disconnect()
                     self.update("failed", message: WireGuardError.transport.localizedDescription, attempt: attempt)
                     self.generation = UUID()
@@ -160,6 +156,8 @@ import SwiftTerm
             terminalAvailable = true
             credentialsRejected = false
             let client = FCSSHClient()
+            client.tunnelPort = tunnelPort
+            client.tunnelToken = tunnelToken
             client.setTerminalVisible(sshMode != .files)
             ssh = client
             files.attach(client)

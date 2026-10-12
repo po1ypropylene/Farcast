@@ -12,10 +12,12 @@ for ((i=0; i<100; i++)); do [[ -f "$fixture_root/proxy-port" ]] && break; sleep 
 sources=(Farcast/Native/SSH/SSHClient.m)
 [[ $# == 0 ]] || { [[ $# == 1 && -f "$1" ]] || exit 2; sources=("$1" "${sources[@]}"); }
 for source in "${sources[@]}"; do
+    adapter_sources=("${ssh_sources[@]}")
+    [[ "$source" == Farcast/Native/SSH/SSHClient.m ]] || adapter_sources=("$source")
     xcrun clang -fobjc-arc -Wno-deprecated-declarations -mmacosx-version-min=27.0 \
       -I Farcast/Native/SSH -I Vendor/Native/include -L Vendor/Native/lib \
       -Wl,-rpath,"$PWD/Vendor/Native/lib" -framework Foundation -lssh2 \
-      "$source" Tests/Integration/SSH/sftp_terminal_latency.m -o "$fixture_root/client"
+      "${adapter_sources[@]}" Tests/Integration/SSH/sftp_terminal_latency.m -o "$fixture_root/client"
     options=()
     [[ "$source" == Farcast/Native/SSH/SSHClient.m ]] || options=(report-only)
     "$fixture_root/client" "$(cat "$fixture_root/proxy-port")" "$fixture_root" "$fixture_root/fingerprint" synthetic ${options[@]+"${options[@]}"}

@@ -2,8 +2,8 @@
 
 ## Move an existing library to Farcast
 
-Farcast has a new app identity and starts with its own library. The previous
-library and credentials stay in place; do not run a data-reset script to migrate.
+Farcast starts with its own library. Importing a previous library leaves its
+original data and credentials in place; do not run a data-reset script to migrate.
 
 1. Quit the previous app. In Farcast, close all session tabs and use an empty
    library. Import refuses to overwrite existing profiles, folders or tunnels.
@@ -43,9 +43,9 @@ releases are unsupported.
 
 ### Keychain approval after updates
 
-Version 1.7.3 onwards uses a consistent certificate-backed identity for local updates.
-After installing this first certificate-signed build, macOS may ask once more for
-existing saved credentials. Enter your **Mac login/Keychain password** in the macOS
+Local updates retain a certificate-backed identity. When moving from an ad-hoc
+build, macOS may ask again for existing saved credentials. Enter your
+**Mac login/Keychain password** in the macOS
 dialog and choose **Always Allow** once per saved credential to retain the approval. Future builds with the
 same signing identity should reuse it. This is separate from your server password.
 The app preserves existing credentials and their protection. A signing-team/channel
@@ -77,7 +77,7 @@ asks for fresh credentials instead of silently reusing the saved value. Check th
 username/authentication option in Edit Connection if needed. Saving replacement
 credentials remains optional; reconnecting alone does not delete the stored value.
 Create folders from Add, and drag connection
-rows into folders. The first release uses one level of folders. Search matches
+rows into folders. Folders have one level. Search matches
 names, hosts, users, protocols, and notes.
 
 Session tabs can be reordered by dragging. Switching tabs does not reconnect or
@@ -88,13 +88,13 @@ Closing the last app window quits Farcast. Closing the window or choosing
 Quit disconnects SSH/SFTP and RDP sessions and stops all embedded WireGuard tunnels
 before the app exits.
 
-### WireGuard for private RDP servers
+### WireGuard for private servers
 
 Open **File → WireGuard Connections…** to import or create named WireGuard
-profiles. In an RDP connection’s Add/Edit screen, choose a profile under
-**Network → Connect via** and enter the private RDP server address. The tunnel
-starts automatically and closes when its last RDP session disconnects. Multiple
-RDP tabs can share a profile. This embedded userspace transport needs no separate
+profiles. In an SSH or RDP connection’s editor, choose a profile under
+**General → Network → Connect via** and enter the private server address. The tunnel
+starts automatically and closes when its last session disconnects. SSH and RDP
+tabs using the same saved profile share one tunnel. This embedded userspace transport needs no separate
 WireGuard app or macOS VPN setup and does not change other applications’ routes.
 Keys follow the app’s existing credential storage policy. See
 [WireGuard setup and limits](wireguard.md).
@@ -192,8 +192,7 @@ sufficient local disk space. Local file publication requires hard-link support.
 Resume and dragging server files directly into Finder remain unsupported.
 File operation stalls disconnect SSH after 30 seconds without transfer progress;
 the SSH connection remains usable after cancellation, including file-only sessions.
-Real-server SFTP interoperability
-remains unverified.
+See [known limits](validation.md) for remaining interoperability checks.
 
 ### RDP
 
@@ -244,7 +243,7 @@ remains unverified.
   multi-monitor topology updates are not implemented. Each monitor is limited to
   200–8192 pixels per side; the combined desktop is limited to 16384 pixels per side
   and 64 Mi pixels. Unusable layouts fail explicitly; try disabling Retina or all monitors.
-  Physical multi-display/Spaces and real Windows mixed-DPI interoperability still need verification.
+
 - Mouse, keyboard, scrolling, remote cursor, Unicode text input, and
   **Ctrl + Alt + Delete**.
 - Optional text, file and folder clipboard sharing while the session is selected. It defaults off.
@@ -296,7 +295,6 @@ remains unverified.
 | Show connection details | Command+Option+I |
 | Settings | Command+, |
 
-
 ## Privacy and storage
 
 - SwiftData stores folders and connection metadata in the application's local
@@ -308,14 +306,8 @@ remains unverified.
   not silently duplicate credentials.
 - UserDefaults stores appearance, restored tab IDs, and explicitly trusted server
   fingerprints. Profiles and trust preferences are local and do not sync.
-- Live session objects own their native clients and view surfaces independently
-  of SwiftUI view creation. Each native client's worker owns its library handles.
-- SSH output is delivered with backpressure on the main thread. RDP snapshots
-  use a latest-frame mailbox, so the UI cannot accumulate an unbounded frame queue.
-- Cancellation resolves outstanding authentication dialogs and interrupts the
-  transport. Diagnostics include state transitions, not credentials or terminal
-  contents. There is no telemetry, updater, cloud account, or background service.
-
+- Diagnostics record connection states, not credentials or terminal contents.
+  There is no telemetry, updater, cloud account or background service.
 
 See [local testing](local-testing.md) for the optional test-server import workflow.
 

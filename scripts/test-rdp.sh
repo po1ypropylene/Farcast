@@ -13,7 +13,7 @@ export FARCAST_FIXTURE_DISPLAY=1
 fixture_pid=$!
 fixture_pids+=("$!")
 sleep 0.5
-xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Farcast/Native/SSH -I Farcast/Native/RDP -I Vendor/Native/include -I Vendor/Native/include/freerdp3 -I Vendor/Native/include/winpr3 -L Vendor/Native/lib -Wl,-rpath,"$PWD/Vendor/Native/lib" -framework Foundation -framework Security -lfreerdp3 -lfreerdp-client3 -lwinpr3 -lcrypto Farcast/Native/RDP/RDPClient.m Farcast/Native/RDP/RDPClipboard.m Farcast/Native/RDP/RDPDrive.m Tests/Integration/RDP/rdp_integration.m -o "$fixture_root"/client
+xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Farcast/Native/SSH -I Farcast/Native/RDP -I Vendor/Native/include -I Vendor/Native/include/freerdp3 -I Vendor/Native/include/winpr3 -L Vendor/Native/lib -Wl,-rpath,"$PWD/Vendor/Native/lib" -framework Foundation -framework Security -lfreerdp3 -lfreerdp-client3 -lwinpr3 -lcrypto "${rdp_sources[@]}" Tests/Integration/RDP/rdp_integration.m -o "$fixture_root"/client
 xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -Wno-deprecated-declarations \
   -I Farcast/Native/RDP -I Vendor/Native/include/freerdp3 -I Vendor/Native/include/winpr3 \
   -L Vendor/Native/lib -Wl,-rpath,"$PWD/Vendor/Native/lib" -framework Foundation -lfreerdp3 -lwinpr3 \

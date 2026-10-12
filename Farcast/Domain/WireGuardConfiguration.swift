@@ -123,20 +123,21 @@ enum WireGuardError: LocalizedError {
             return "macOS could not launch the embedded WireGuard helper. Rebuild or reinstall the complete app."
         case .initialization:
             return
-                "The embedded WireGuard helper stopped during initialization, before an RDP connection was attempted."
+                "The embedded WireGuard helper stopped during initialization, before a server connection was attempted."
         case .endpointResolution:
             return
                 "The WireGuard endpoint hostname could not be resolved. Check the endpoint and this Mac’s network connection."
         case .invalidConfiguration:
             return
-                "WireGuard could not initialize this configuration. Check the interface addresses, keys, endpoint, MTU and AllowedIPs. No RDP connection was attempted."
+                "WireGuard could not initialize this configuration. Check the interface addresses, keys, endpoint, MTU and AllowedIPs. No server connection was attempted."
         case .startupTimeout:
             return
-                "WireGuard initialization timed out before an RDP connection was attempted. Check this Mac’s network connection and the endpoint."
-        case .listener: return "WireGuard could not create its private local listener. No RDP connection was attempted."
+                "WireGuard initialization timed out before a server connection was attempted. Check this Mac’s network connection and the endpoint."
+        case .listener:
+            return "WireGuard could not create its private local listener. No server connection was attempted."
         case .transport:
             return
-                "WireGuard could not reach the private RDP server. Check the endpoint, keys, AllowedIPs, DNS and server firewall. No direct connection was attempted."
+                "WireGuard could not reach the private server. Check the endpoint, keys, AllowedIPs, DNS and server firewall. No direct connection was attempted."
         }
     }
 }

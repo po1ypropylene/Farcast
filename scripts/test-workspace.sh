@@ -20,17 +20,7 @@ python_bin="${FARCAST_TEST_PYTHON:-.dependencies/test-venv/bin/python}"
 "$python_bin" Tests/Integration/SSH/ssh_fixture.py "$fixture_root" keyboard-no-shell > "$fixture_root/server.log" 2>&1 &
 fixture_pids+=("$!")
 for ((i=0; i<100; i++)); do [[ -f "$fixture_root/port" ]] && break; sleep 0.05; done
-for protocol in SSH RDP; do
-  xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Vendor/Native/include \
-    -I Vendor/Native/include/freerdp3 -I Vendor/Native/include/winpr3 \
-    -c "Farcast/Native/$protocol/${protocol}Client.m" -o "$fixture_root/$protocol.o"
-done
-xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Vendor/Native/include \
-  -I Vendor/Native/include/freerdp3 -I Vendor/Native/include/winpr3 \
-  -c Farcast/Native/RDP/RDPClipboard.m -o "$fixture_root/RDPClipboard.o"
-xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Vendor/Native/include \
-  -I Vendor/Native/include/freerdp3 -I Vendor/Native/include/winpr3 \
-  -c Farcast/Native/RDP/RDPDrive.m -o "$fixture_root/RDPDrive.o"
+compile_native_clients
 session_sources=()
 while IFS= read -r source; do session_sources+=("$source"); done < <(rg --files Farcast -g '*.swift' | rg -v '^Farcast/App/' | sort)
 xcrun swiftc -parse-as-library -module-name Farcast -target arm64-apple-macos27.0 \

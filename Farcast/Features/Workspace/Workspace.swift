@@ -54,6 +54,18 @@ import UniformTypeIdentifiers
         super.init()
     }
 
+    /// Resolve transport settings independently of the session protocol. The same
+    /// injected credential provider serves connection credentials and tunnel keys.
+    func wireGuardSettings(for id: UUID) throws -> (WireGuardConfiguration, ConnectionCredential) {
+        guard let modelContext else { throw WireGuardError.unavailable }
+        var query = FetchDescriptor<SavedWireGuard>(predicate: #Predicate { $0.id == id })
+        query.fetchLimit = 1
+        guard let saved = try modelContext.fetch(query).first else { throw WireGuardError.unavailable }
+        let configuration = try saved.configuration()
+        guard let keys = try loadCredential(id) else { throw WireGuardError.missingKeys }
+        return (configuration, keys)
+    }
+
     private func credential(for draft: ConnectionDraft, provided: ConnectionCredential? = nil) throws
         -> ConnectionCredential?
     {

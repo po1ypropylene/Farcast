@@ -85,9 +85,5 @@ Temporary staging is cleaned on exit; failed detach preserves the staging direct
 to avoid deleting a mounted volume. It emits a version/build-named DMG and SHA256
 under `.build/releases`, with no commit, tag, upload or publishing operation.
 
-These rules retain the reusable conclusions from earlier launch/resource-seal/helper
-incidents. Original crash reports and one-off investigation logs are not repository
-assets; inspect any new failure against its own executable and stack.
-
 Apple references: [sandbox inheritance](https://developer.apple.com/library/archive/documentation/Miscellaneous/Reference/EntitlementKeyReference/Chapters/EnablingAppSandbox.html)
 and [network permissions](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.network.server).

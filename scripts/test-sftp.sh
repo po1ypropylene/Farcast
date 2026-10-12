@@ -8,20 +8,20 @@ python_bin="${FARCAST_TEST_PYTHON:-.dependencies/test-venv/bin/python}"
 fixture_pid=$!
 fixture_pids+=("$!")
 for ((i=0; i<100; i++)); do [[ -f "$fixture_root"/port ]] && break; sleep 0.05; done
-xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Farcast/Native/SSH -I Vendor/Native/include -L Vendor/Native/lib -Wl,-rpath,"$PWD/Vendor/Native/lib" -framework Foundation -lssh2 Farcast/Native/SSH/SSHClient.m Tests/Integration/SSH/sftp_integration.m -o "$fixture_root"/client
+xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Farcast/Native/SSH -I Vendor/Native/include -L Vendor/Native/lib -Wl,-rpath,"$PWD/Vendor/Native/lib" -framework Foundation -lssh2 "${ssh_sources[@]}" Tests/Integration/SSH/sftp_integration.m -o "$fixture_root"/client
 fixture_port=$(cat "$fixture_root"/port)
 for mode in roundtrip key interactive empty missing local-collision remote-collision missing-file directory race cancel; do
     "$fixture_root"/client "$mode" "$fixture_port" "$fixture_root" "$fixture_root/fingerprint"
 done
 
-xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Farcast/Native/SSH -I Vendor/Native/include -L Vendor/Native/lib -Wl,-rpath,"$PWD/Vendor/Native/lib" -framework Foundation -lssh2 Farcast/Native/SSH/SSHClient.m Tests/Integration/SSH/sftp_operations.m -o "$fixture_root"/operations
+xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Farcast/Native/SSH -I Vendor/Native/include -L Vendor/Native/lib -Wl,-rpath,"$PWD/Vendor/Native/lib" -framework Foundation -lssh2 "${ssh_sources[@]}" Tests/Integration/SSH/sftp_operations.m -o "$fixture_root"/operations
 "$fixture_root"/operations "$fixture_port" "$fixture_root" "$fixture_root/fingerprint"
 
-xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Vendor/Native/include -c Farcast/Native/SSH/SSHClient.m -o "$fixture_root"/native.o
+compile_native_adapter "$fixture_root/native.o" "${ssh_sources[@]}"
 xcrun swiftc -parse-as-library -target arm64-apple-macos27.0 -import-objc-header Farcast/Native/SSH/SSHClient.h Farcast/Features/Sessions/SFTPController.swift Tests/Integration/SSH/sftp_local_operations.swift "$fixture_root"/native.o -L Vendor/Native/lib -lssh2 -Xlinker -rpath -Xlinker "$PWD/Vendor/Native/lib" -o "$fixture_root"/local-operations-client
 "$fixture_root"/local-operations-client "$fixture_root"
 
-xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Farcast/Native/SSH -I Vendor/Native/include -L Vendor/Native/lib -Wl,-rpath,"$PWD/Vendor/Native/lib" -framework Foundation -lssh2 Farcast/Native/SSH/SSHClient.m Tests/Integration/SSH/sftp_cancel.m -o "$fixture_root"/cancel-client
+xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Farcast/Native/SSH -I Vendor/Native/include -L Vendor/Native/lib -Wl,-rpath,"$PWD/Vendor/Native/lib" -framework Foundation -lssh2 "${ssh_sources[@]}" Tests/Integration/SSH/sftp_cancel.m -o "$fixture_root"/cancel-client
 for direction in upload download; do
     "$fixture_root"/cancel-client "$direction" "$fixture_port" "$fixture_root" "$fixture_root/fingerprint"
 done

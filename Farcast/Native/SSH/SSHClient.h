@@ -1,6 +1,10 @@
 #import <Foundation/Foundation.h>
 NS_ASSUME_NONNULL_BEGIN
 @interface FCSSHClient : NSObject
+// Set before connecting. Only TCP dialing changes; host-key trust stays scoped to
+// the original host/port. A configured tunnel never falls back to direct dialing.
+@property(nonatomic) NSInteger tunnelPort;
+@property(nonatomic, copy, nullable) NSString *tunnelToken;
 @property(nonatomic, copy) void (^onStatus)(NSString *state, NSString *message);
 @property(nonatomic, copy) void (^onData)(NSData *data);
 // Delivered on the SSH worker before connected, and when a shell ends but SFTP remains available.

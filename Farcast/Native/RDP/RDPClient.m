@@ -1,4 +1,5 @@
 #import "RDPClient.h"
+#import "../Transport/WireGuardSocket.h"
 #import "RDPClipboard.h"
 #import "RDPDrive.h"
 #import <Security/Security.h>
@@ -91,77 +92,19 @@ static int tunnelTCPConnect(rdpContext *context, rdpSettings *settings, const ch
     int fd = ctx->directTCPConnect(context, settings, "127.0.0.1", (int)client.tunnelPort, timeout);
     if (fd < 0)
         return -1;
-    BYTE token[32];
-    for (int i = 0; i < 32; i++) {
-        unsigned int byte = 0;
-        NSString *pair = [client.tunnelToken substringWithRange:NSMakeRange(i * 2, 2)];
-        if (![[NSScanner scannerWithString:pair] scanHexInt:&byte]) {
-            close(fd);
-            return -1;
-        }
-        token[i] = (BYTE)byte;
-    }
-    // The returned native socket can be nonblocking. Wait/send in bounded pieces.
-    size_t sent = 0;
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    double deadline = now.tv_sec + now.tv_nsec / 1e9 + 30;
-    while (sent < sizeof(token)) {
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        if (now.tv_sec + now.tv_nsec / 1e9 >= deadline || freerdp_shall_disconnect_context(context))
-            goto failed;
-        struct pollfd pfd = {fd, POLLOUT, 0};
-        if (poll(&pfd, 1, 100) <= 0)
-            continue;
-        ssize_t count = send(fd, token + sent, sizeof(token) - sent, 0);
-        if (count > 0)
-            sent += (size_t)count;
-        else if (count < 0 && (errno == EAGAIN || errno == EINTR))
-            continue;
-        else
-            goto failed;
-    }
-    for (;;) {
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        if (now.tv_sec + now.tv_nsec / 1e9 >= deadline || freerdp_shall_disconnect_context(context))
-            goto failed;
-        struct pollfd pfd = {fd, POLLIN, 0};
-        if (poll(&pfd, 1, 100) <= 0)
-            continue;
-        BYTE ready = 0;
-        ssize_t count = recv(fd, &ready, 1, 0);
-        if (count == 1 && ready == 1)
-            return fd;
-        if (count == 1) {
-            switch (ready) {
-            case 2:
-                client.tunnelFailure = @"Enter DNS servers in the WireGuard profile or use the private RDP IP address. "
-                                       @"No direct RDP connection was attempted.";
-                break;
-            case 3:
-                client.tunnelFailure =
-                    @"The configured WireGuard DNS servers could not resolve the RDP server. Check DNS or use the "
-                    @"private RDP IP address. No direct RDP connection was attempted.";
-                break;
-            case 4:
-                client.tunnelFailure =
-                    @"The RDP destination is outside the WireGuard profile’s AllowedIPs. Check the private server "
-                    @"address and tunnel routes. No direct RDP connection was attempted.";
-                break;
-            default:
-                client.tunnelFailure = @"WireGuard could not reach the private RDP server. Check the peer, keys, "
-                                       @"server routing and firewall. No direct RDP connection was attempted.";
-                break;
-            }
-        }
-        if (count < 0 && (errno == EAGAIN || errno == EINTR))
-            continue;
-        goto failed;
-    }
-failed:
+    NSString *failure = nil;
+    if (FCWireGuardAuthenticateSocket(
+            fd, client.tunnelToken,
+            ^BOOL {
+              return freerdp_shall_disconnect_context(context);
+            },
+            &failure))
+        return fd;
+    client.tunnelFailure = failure;
     close(fd);
     return -1;
 }
+
 static BOOL beginPaint(rdpContext *context) {
     if (context->gdi) {
         context->gdi->primary->hdc->hwnd->invalid->null = TRUE;
@@ -523,7 +466,7 @@ static void destroyContext(rdpContext *context) {
           weakSelf.onClipboardProgress(message);
     };
     rdpSettings *s = context->settings;
-    if (self.tunnelPort > 0) {
+    if (self.tunnelPort != 0 || self.tunnelToken != nil) {
         FCContext *ctx = (FCContext *)context;
         ctx->identityHost = host.UTF8String;
         ctx->identityPort = (int)port;

@@ -1,5 +1,25 @@
 # Development and maintenance
 
+## Build from source
+
+Install Xcode with the macOS SDK and Metal compiler, Git, CMake, Python 3 and Go 1.27+.
+The first dependency build needs internet access. Install an Apple Development
+certificate in Xcode → Settings → Accounts → Manage Certificates; subsequent builds
+must retain the [pinned signing identity](packaging.md).
+
+```sh
+brew install cmake  # If needed
+xcodebuild -downloadComponent MetalToolchain  # If Xcode reports it missing
+scripts/prepare-dependencies.sh
+scripts/build.sh
+open ".build/Xcode/Build/Products/Release/Farcast.app"
+```
+
+Alternatively, prepare dependencies, open `Farcast.xcodeproj` and Run. Allow the
+pinned SwiftTerm build plugin if Xcode requests approval.
+
+## Maintenance tools
+
 All three scripts preview their work by default. Python 3 is required; the updater
 also uses Git, Go and Xcode for the selected components. Run them from any directory.
 
@@ -96,7 +116,6 @@ Keep the ignored `.local-signing` directory across local rebuilds. It pins the
 certificate and app requirement so updates retain Keychain identity. See
 [packaging](packaging.md) for certificate setup, renewal and explicit ad-hoc scratch builds.
 
-
 ## Dependency and output layout
 
 | Path | Contents | Safe to remove routinely? |
@@ -110,7 +129,7 @@ certificate and app requirement so updates retain Keychain identity. See
 | `Vendor/Native` | Installed headers, libraries and WireGuard helper | Rebuild native dependencies required |
 | `.build` | Disposable app, compiler, icon, release and test outputs | Yes, while builds/tests are stopped |
 
-All generated paths above are Git-ignored. Native libraries remain in `Vendor/Native`; only their source/build caches moved out of `.build`. Command-line Xcode builds explicitly use `.dependencies/swift-packages`. Xcode UI builds use Xcode’s configured package cache; that default cache is outside this repository’s `.build`.
+All generated paths above are Git-ignored. Command-line Xcode builds explicitly use `.dependencies/swift-packages`. Xcode UI builds use Xcode’s configured package cache; that default cache is outside this repository’s `.build`.
 
 After relocating the checkout, discard `.build`, `.dependencies/build`, `.dependencies/rdp-fixture` and `Vendor/Native`, then rebuild. Native build trees/install prefixes retain absolute paths. Recreate the test venv at its new location; virtual environments are not relocatable. Preserve `.local-testing`. Source checkouts and package/module downloads can remain.
 

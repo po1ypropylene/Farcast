@@ -59,6 +59,36 @@ int main(void) {
             if (peer >= 0)
                 close(peer);
         }
+        // The shared primitive refuses malformed tokens/cancellation before
+        // sending bytes, and handles a closed helper socket without SIGPIPE.
+        int pair[2];
+        if (socketpair(AF_UNIX, SOCK_STREAM, 0, pair))
+            return 1;
+        NSString *failure = nil;
+        NSString *invalid = [@"" stringByPaddingToLength:64 withString:@"az" startingAtIndex:0];
+        pass = pass && !FCWireGuardAuthenticateSocket(
+                           pair[0], invalid,
+                           ^BOOL {
+                             return NO;
+                           },
+                           &failure);
+        pass = pass && failure.length > 0;
+        pass = pass && !FCWireGuardAuthenticateSocket(
+                           pair[0], client.tunnelToken,
+                           ^BOOL {
+                             return YES;
+                           },
+                           &failure);
+        struct pollfd pending = {pair[1], POLLIN, 0};
+        pass = pass && poll(&pending, 1, 0) == 0;
+        close(pair[1]);
+        pass = pass && !FCWireGuardAuthenticateSocket(
+                           pair[0], client.tunnelToken,
+                           ^BOOL {
+                             return NO;
+                           },
+                           &failure);
+        close(pair[0]);
         freerdp_client_context_free(context);
         printf("%s RDP tunnel hook: real TLS/NLA identity, authenticated socket, redirection refused\n",
                pass ? "PASS" : "FAIL");

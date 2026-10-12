@@ -138,22 +138,20 @@ struct ConnectionEditor: View {
                 }
                 credentialFields
             }
-            if draft.kind == .rdp {
-                section("Network") {
-                    row("Connect via") {
-                        Picker("Connect via", selection: tunnelSelection) {
-                            Text("Direct").tag("direct")
-                            ForEach(tunnels) { Text($0.name).tag($0.id.uuidString) }
-                            if let id = draft.wireGuardID, !tunnels.contains(where: { $0.id == id }) {
-                                Text("Unavailable profile").tag(id.uuidString)
-                            }
-                            Divider()
-                            Text("Manage WireGuard Connections…").tag("manage")
-                        }.labelsHidden().accessibilityLabel("Connect via")
-                            .help(
-                                "Only this RDP session uses the selected tunnel. The address must be reachable inside it."
-                            )
-                    }
+            section("Network") {
+                row("Connect via") {
+                    Picker("Connect via", selection: tunnelSelection) {
+                        Text("Direct").tag("direct")
+                        ForEach(tunnels) { Text($0.name).tag($0.id.uuidString) }
+                        if let id = draft.wireGuardID, !tunnels.contains(where: { $0.id == id }) {
+                            Text("Unavailable profile").tag(id.uuidString)
+                        }
+                        Divider()
+                        Text("Manage WireGuard Connections…").tag("manage")
+                    }.labelsHidden().accessibilityLabel("Connect via")
+                        .help(
+                            "Sessions using this WireGuard profile share its tunnel. The address must be reachable inside it."
+                        )
                 }
             }
         }
@@ -608,11 +606,10 @@ struct ConnectionEditor: View {
             error = "Choose a private key first."
             return
         }
-        if draft.kind == .rdp, let id = draft.wireGuardID, !tunnels.contains(where: { $0.id == id }) {
+        if let id = draft.wireGuardID, !tunnels.contains(where: { $0.id == id }) {
             error = WireGuardError.unavailable.localizedDescription
             return
         }
-        if draft.kind == .ssh { draft.wireGuardID = nil }
         let hasCredential =
             draft.authentication == .privateKey ? credential.privateKey != nil : !credential.password.isEmpty
         do {

@@ -10,7 +10,7 @@ xcrun clang -fobjc-arc -arch arm64 -mmacosx-version-min=27.0 \
   -I Vendor/Native/include/freerdp3 -I Vendor/Native/include/winpr3 \
   -L Vendor/Native/lib -Wl,-rpath,"$PWD/Vendor/Native/lib" \
   -framework Foundation -framework AppKit -framework Security -lssh2 -lfreerdp3 -lfreerdp-client3 -lwinpr3 -lcrypto \
-  Farcast/Native/SSH/SSHClient.m Farcast/Native/RDP/RDPClient.m Farcast/Native/RDP/RDPClipboard.m Farcast/Native/RDP/RDPDrive.m \
+  "${ssh_sources[@]}" "${rdp_sources[@]}" \
   Tests/Integration/Live/live_servers.m -o "${FARCAST_PROBE_CLIENT:-$fixture_root/client}"
 probe_options=()
 [[ "${FARCAST_TEST_CONFIGURED:-0}" != 1 ]] || probe_options+=(--configured)

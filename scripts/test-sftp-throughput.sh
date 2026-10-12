@@ -17,16 +17,25 @@ for ((i=0;i<100;i++)); do [[ -f "$fixture_root"/proxy-port ]] && break; sleep 0.
 python3 - "$fixture_root" <<'PY'
 from pathlib import Path
 import sys
-code=Path('Farcast/Native/SSH/SSHClient.m').read_text()
+code=Path('Farcast/Native/SSH/SSHClient+SFTP.m').read_text()
 old = 'upload ? 4 * 1024 * 1024 : 1024 * 1024'
 assert code.count(old) == 1, 'Upload window changed; update the controlled baseline.'
 code=code.replace(old, 'upload ? 32768 : 1024 * 1024')
 (Path(sys.argv[1])/'baseline.m').write_text(code)
 PY
 for mode in baseline pipelined; do
-    source="$fixture_root"/baseline.m
-    [[ "$mode" == baseline ]] || source=Farcast/Native/SSH/SSHClient.m
-    xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Farcast/Native/SSH -I Vendor/Native/include -L Vendor/Native/lib -Wl,-rpath,"$PWD/Vendor/Native/lib" -framework Foundation -lssh2 "$source" Tests/Integration/SSH/sftp_throughput.m -o "$fixture_root/$mode"
+    adapter_sources=("${ssh_sources[@]}")
+    if [[ "$mode" == baseline ]]; then
+        adapter_sources=()
+        for source in "${ssh_sources[@]}"; do
+            if [[ "$source" == Farcast/Native/SSH/SSHClient+SFTP.m ]]; then
+                adapter_sources+=("$fixture_root/baseline.m")
+            else
+                adapter_sources+=("$source")
+            fi
+        done
+    fi
+    xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Farcast/Native/SSH -I Vendor/Native/include -L Vendor/Native/lib -Wl,-rpath,"$PWD/Vendor/Native/lib" -framework Foundation -lssh2 "${adapter_sources[@]}" Tests/Integration/SSH/sftp_throughput.m -o "$fixture_root/$mode"
     "$fixture_root/$mode" "$(cat "$fixture_root"/proxy-port)" "$fixture_root" "$fixture_root/fingerprint" > "$fixture_root/$mode-speed"
 done
 python3 - "$fixture_root" <<'PY'

@@ -290,7 +290,7 @@ struct WorkspaceView: View {
             }.draggable(connection.id.uuidString)
     }
     private func destinationDescription(_ connection: SavedConnection) -> String {
-        guard connection.kind == .rdp, let tunnelID = connection.wireGuardID else { return connection.host }
+        guard let tunnelID = connection.wireGuardID else { return connection.host }
         let name = tunnels.first(where: { $0.id == tunnelID })?.name ?? "Unavailable WireGuard connection"
         return "\(connection.host) via \(name)"
     }

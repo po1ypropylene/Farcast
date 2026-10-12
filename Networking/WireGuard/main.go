@@ -316,7 +316,7 @@ func run() error {
 	if err := open(r); err != nil {
 		return err
 	}
-	// A profile has one cryptographic device shared by its active RDP sessions.
+	// A profile has one cryptographic device shared by its active sessions.
 	// This avoids competing WireGuard endpoints when a key is used in several tabs.
 	for {
 		var line []byte

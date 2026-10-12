@@ -6,12 +6,7 @@ server="$PWD/.dependencies/rdp-fixture/build/server/Sample/sfreerdp-server"
 [[ -x "$server" ]] || scripts/prepare-rdp-fixture.sh
 Vendor/Native/bin/openssl req -config /dev/null -x509 -newkey rsa:2048 -nodes -keyout "$fixture_root/key.pem" -out "$fixture_root/cert.pem" -days 1 -subj /CN=localhost > "$fixture_root/cert.log" 2>&1
 products="$PWD/.build/Xcode/Build/Products/Release"
-for protocol in SSH RDP; do
-  xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Vendor/Native/include -I Vendor/Native/include/freerdp3 -I Vendor/Native/include/winpr3 -c "Farcast/Native/$protocol/${protocol}Client.m" -o "$fixture_root/$protocol.o"
-done
-for unit in RDPClipboard RDPDrive; do
-  xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Vendor/Native/include -I Vendor/Native/include/freerdp3 -I Vendor/Native/include/winpr3 -c "Farcast/Native/RDP/$unit.m" -o "$fixture_root/$unit.o"
-done
+compile_native_clients
 sources=()
 while IFS= read -r source; do sources+=("$source"); done < <(rg --files Farcast -g '*.swift' | rg -v '^Farcast/App/' | sort)
 xcrun swiftc -parse-as-library -module-name Farcast -target arm64-apple-macos27.0 -I "$products" -import-objc-header Farcast/Native-Bridge.h \

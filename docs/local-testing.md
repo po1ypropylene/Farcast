@@ -4,7 +4,7 @@
 
 `.local-testing/servers.json (relative to the repository root)`
 
-This file has already been created. The directory is owner-only (700); the file is owner read/write (600). The entire directory is excluded by `.gitignore`. Keep keys and certificates there too. The file is **plain text on your Mac**, not encrypted; do not put it in a shared/synced directory or paste it into chat. App credentials use encrypted macOS Keychain when available; the development fallback uses owner-only, unencrypted files under ~/Library/Application Support/Farcast/Credentials.
+Run `scripts/setup-local-testing.sh` to create the blank file without overwriting existing values. The directory must be owner-only (700); the file must be owner read/write (600). The entire directory is excluded by `.gitignore`. Keep keys and certificates there too. The file is **plain text on your Mac**, not encrypted; do not put it in a shared/synced directory or paste it into chat. App credentials use encrypted macOS Keychain when available; the development fallback uses owner-only, unencrypted files under ~/Library/Application Support/Farcast/Credentials.
 
 Open the file in your own editor. Fill in host, port, username and password, and set `enabled` to `true` for each server you want tested. For RDP, fill `domain` if required. Keep UUID `id` values stable and unique; when adding another server, generate a fresh UUID. Protocol values are exactly `SSH` or `RDP`. Disabled entries are ignored and can remain blank. The tracked `Tests/Fixtures/servers.example.json` has no real information; do not put secrets in that example.
 
@@ -19,8 +19,6 @@ If the file is missing, `scripts/setup-local-testing.sh` recreates it from the b
 Choose **File → Import Test Servers…**, or **Add → Import Test Servers…**, and select the local JSON file. Review the enabled entries, then Import. The app creates saved profiles under **Test Servers** in the left sidebar. Password storage on this Mac is optional and defaults off. Without it, the app asks for credentials when connecting.
 
 Import does not start sessions. Existing UUIDs are skipped to preserve your edits; use Edit Connection to update them or remove the old profile before importing it again. Passwords/fingerprints from the document do not enter SwiftData or trust preferences. If credential storage fails after metadata import, the profiles remain visible and the app reports that credentials must be entered separately.
-
-Earlier synthetic UI tests used **Quick Connect**, which deliberately does not save profiles. The sidebar lists saved connections, not all open sessions. Temporary sessions appear as tabs; an empty sidebar in those tests was expected behavior.
 
 ## Run redacted probes
 
@@ -50,13 +48,9 @@ Synthetic tests remain separate under `.build`. They use loopback-only SSH/sampl
 
 The protected-file probe itself is covered by `scripts/test-live-fixtures.sh`: synthetic SSH/RDP success, selected SFTP/file-only access, supplied-pin matching, missing/non-SSH selections, mismatched SSH fingerprints and malformed ID rejection. It never reads the real credentials file.
 
-For an explicitly authorized test run of populated entries whose enabled flags are
-still false, use `FARCAST_TEST_CONFIGURED=1 scripts/test-live-servers.sh`.
-This selects entries with populated host/username fields in memory only; the JSON
-is unchanged. All validation and SSH/untrusted-RDP pin requirements still apply.
-Blank disabled entries remain skipped. A missing SSH pin is a failure, and a
-connected RDP session without visible pixels is also a failure. The latter test
-can time out on an intentionally completely black desktop.
+`FARCAST_TEST_CONFIGURED=1` selects populated disabled entries in memory without
+changing JSON; blank entries remain skipped. Use it only with explicit authorization.
+The RDP pixel check can time out on an intentionally completely black desktop.
 
 For an explicitly authorized RDP-only full-screen probe on the current primary display:
 

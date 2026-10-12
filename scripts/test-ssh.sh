@@ -8,7 +8,7 @@ python_bin="${FARCAST_TEST_PYTHON:-.dependencies/test-venv/bin/python}"
 fixture_pid=$!
 fixture_pids+=("$!")
 for ((i=0; i<100; i++)); do [[ -f "$fixture_root"/port ]] && break; sleep 0.05; done
-xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Farcast/Native/SSH -I Farcast/Native/RDP -I Vendor/Native/include -L Vendor/Native/lib -Wl,-rpath,"$PWD/Vendor/Native/lib" -framework Foundation -lssh2 Farcast/Native/SSH/SSHClient.m Tests/Integration/SSH/ssh_integration.m -o "$fixture_root"/client
+xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Farcast/Native/SSH -I Farcast/Native/RDP -I Vendor/Native/include -L Vendor/Native/lib -Wl,-rpath,"$PWD/Vendor/Native/lib" -framework Foundation -lssh2 "${ssh_sources[@]}" Tests/Integration/SSH/ssh_integration.m -o "$fixture_root"/client
 fixture_port=$(cat "$fixture_root"/port)
 for mode in password key ed25519 interactive bad-password reject cancel; do
   key_file="$fixture_root"/user-key.pem

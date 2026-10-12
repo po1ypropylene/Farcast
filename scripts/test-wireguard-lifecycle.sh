@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."
 scripts/prepare-wireguard.sh
 source scripts/test-support.sh wireguard-lifecycle
 mkdir -p "$fixture_root/Lifecycle.app/Contents/MacOS"
-xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Vendor/Native/include -I Vendor/Native/include/freerdp3 -I Vendor/Native/include/winpr3 -L Vendor/Native/lib -Wl,-rpath,"$PWD/Vendor/Native/lib" -framework Foundation -framework Security -lfreerdp3 -lfreerdp-client3 -lwinpr3 -lcrypto Tests/Integration/WireGuard/native_identity.m Farcast/Native/RDP/RDPClipboard.m Farcast/Native/RDP/RDPDrive.m -o "$fixture_root/native-identity"
+xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Vendor/Native/include -I Vendor/Native/include/freerdp3 -I Vendor/Native/include/winpr3 -L Vendor/Native/lib -Wl,-rpath,"$PWD/Vendor/Native/lib" -framework Foundation -framework Security -lfreerdp3 -lfreerdp-client3 -lwinpr3 -lcrypto Tests/Integration/WireGuard/native_identity.m "${rdp_support_sources[@]}" -o "$fixture_root/native-identity"
 "$fixture_root/native-identity"
 xcrun swiftc -parse-as-library -target arm64-apple-macos27.0 Farcast/Domain/WireGuardConfiguration.swift Farcast/Shared/Security/CredentialStore.swift Farcast/Shared/Security/LocalCredentialStore.swift Farcast/Features/WireGuard/WireGuardTransport.swift Tests/Integration/WireGuard/lifecycle.swift -o "$fixture_root/Lifecycle.app/Contents/MacOS/Lifecycle"
 cp Vendor/Native/bin/FarcastWireGuard "$fixture_root/Lifecycle.app/Contents/MacOS/"
