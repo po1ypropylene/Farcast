@@ -5,6 +5,8 @@
 A native Mac workspace for SSH terminals, SFTP file transfers and RDP desktops.
 Keep saved connections and active sessions together in a tabbed SwiftUI interface.
 
+Farcast is free and open source, and will stay that way forever.
+
 - **SSH & SFTP:** password, private-key or interactive sign-in; terminal and files share one connection.
 - **Remote Desktop:** RDP with full-screen/multiple-monitor and Retina options, optional text/file clipboard, selected local folder drives and remote sound.
 - **Private servers:** optional embedded WireGuard connections for RDP.
@@ -26,13 +28,13 @@ This is an early preview. Local builds use Apple Development signing and are unn
 
 ![Local and remote SFTP file panels](docs/images/Farcast-SFTP.png)
 
-**Remote desktop**
+**Remote desktop display settings**
 
-![RDP desktop session](docs/images/Farcast-RDP.png)
+<img src="docs/images/Farcast-RDP.png" alt="Remote desktop resolution and Retina settings" width="540">
 
 **Connection editor**
 
-![Connection settings and WireGuard selection](docs/images/Farcast-EditConnection.png)
+<img src="docs/images/Farcast-EditConnection.png" alt="Tabbed connection editor and sign-in settings" width="540">
 
 ## Get started
 
@@ -73,4 +75,3 @@ and disposable outputs in `.build`. You can clear `.build` between builds.
 [Validation & known limits](docs/validation.md) · [Agent guide](AGENTS.md)
 
 Dependency versions and licenses are in [ThirdParty](ThirdParty/README.md).
-The license for Farcast's own source is still undecided.
