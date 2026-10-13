@@ -49,6 +49,20 @@ shared private state and worker methods; it is excluded from the public bridge.
 The split creates no extra sessions, authentication, queues or native-handle owners.
 RDP folder provider/bookmark/device registration lives in `RDPDriveManager.m`;
 root-confined filesystem requests and handles stay in `RDPDrive.m`.
+Drive registration explicitly decodes FreeRDP's UTF-8 name/path when matching
+the session registry; the full wire label is terminated UTF-8 and the short
+device name is separate bounded ASCII.
+Directory records use MS-RDPEFS wire layouts rather than native struct alignment:
+the BothDirectory form has 93 bytes before its UTF-16 filename, with no reserved
+byte between ShortNameLength and ShortName. Initial searches with no matches
+return STATUS_NO_SUCH_FILE; exhausted continuations return STATUS_NO_MORE_FILES
+and ignore the request's unused path/length. Root listing and file operations
+share the existing RDP channel over both direct and WireGuard sockets.
+One shared relative-path validator handles opens, renames and directory searches.
+Directory opens and renames accept one trailing separator and store the canonical
+path; interior empty components remain invalid. Open requests preserve directory
+intent separately, so a trailing separator cannot open a regular file. Handle
+identity/sharing checks and subsequent searches use the same canonical path.
 Integration harnesses reuse one native source list and object-compilation helper.
 
 ## Session ownership and cancellation
@@ -249,14 +263,20 @@ Clipboard transfer is separate from folder redirection; source data must remain
 quiescent and transfers use copy semantics. Last-write timestamps accompany file
 descriptors and are restored after staging (directories last).
 
-Remote files stream in 256 KiB requests to private temporary trees (700/600), with
-an 8 GiB / 20,000-entry limit per batch and a 30-second no-progress timeout.
+Remote files stream in 256 KiB requests with at most eight ranges in flight to
+private temporary trees (700/600), with an 8 GiB / 20,000-entry limit per batch
+and a 30-second deadline for each outstanding response. Stream IDs retain each
+range's offset and length; reordered responses use positional writes and short
+responses request only their missing suffix. Progress reports received bytes.
 Descriptor paths, collisions and file/directory conflicts are validated before
 creation; links, absolute/traversal paths and partial batches are rejected. Finder
-gets standard file URLs only after the entire batch completes. The main-actor
+gets delayed file items after descriptors are validated, and standard file URLs
+only after the entire batch completes. The main-actor
 pasteboard bridge preserves a newer local copy and suppresses remote-file echoes.
-AppKit file-URL data providers retain completed batches independently of the
-session. They fulfill from existing local paths without network waits. Selection
+AppKit file-URL data providers retain batches independently of the session.
+Fulfillment waits on a native condition for at most five minutes; the RDP worker
+signals completion/cancellation directly, independently of main-actor callbacks.
+The channel loop and disk work continue while a paste consumer waits. Selection
 changes/disconnect cancel partial downloads; completed clipboard files survive
 disconnect while the app and pasteboard provider remain alive. After ownership
 ends, cleanup waits 60 seconds for consumers already copying. App exit can leave
@@ -332,7 +352,10 @@ Disconnect cancels work and does not execute pending delete-on-close operations.
 
 Supported requests cover create/open/close, 64-bit-offset reads/writes, directory
 pagination, basic/name/standard/all metadata, timestamps/attributes, rename,
-truncate, delete-on-close and volume information. Directory notifications, byte-range
+truncate, delete-on-close and volume information. Empty query-directory replies
+include the compatibility padding byte required by Windows at enumeration end;
+the shared empty-response encoder also handles errors and cancellation.
+Directory notifications, byte-range
 locking, security-descriptor updates and arbitrary device controls return unsupported;
 this is folder access, not a complete Windows filesystem emulation. Up to 16 named
 exports, 1,024 handles/device, 20,000 listing entries and 1 MiB I/O requests bound

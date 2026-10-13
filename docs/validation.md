@@ -14,6 +14,7 @@ stated scope; disabled live entries report SKIP.
 | SSH/SFTP | Authentication/trust, fresh sign-in retry, file-only fallback, byte equality, overwrite/move safety, cancellation, terminal scheduling and throughput | Loopback peers and controlled proxies |
 | VNC | RFB versions/security, DES challenge, TLS trust/refusal, raw/CopyRect/Hextile/Zlib/resize, Unicode key pairs, pointer, typing cancellation and malformed input | Owned synthetic peers; production interoperability is unverified |
 | RDP channels | TLS/NLA, frames, clipboard text/files, folder drives, Display Control PDUs, initial monitor attributes and pointer input | Synthetic peers; channel submission does not prove Windows acceptance |
+| RDP folder browsing | Packed directory formats, compatibility padding at enumeration end, Unicode pagination, trailing separators and nested files; direct/WireGuard fixtures | Signed app on one authorized Windows server with direct transport: complete visible root count and repeated browsing through two subfolder levels. Real writes and other server policies remain unverified |
 | RDP presentation | Cropped Metal uploads, inverse input mapping, letterbox/stale-frame rejection, full-screen startup/exit/re-entry and teardown | Marked frames and owned off-screen windows |
 | Workspace | Tab ordering/reconnect, detached surface ownership, focus/prompt routing, terminal menus and AppKit shutdown | Synthetic sessions, private pasteboards and preferences |
 | WireGuard | Encrypted loopback traffic, concurrent SSH/SFTP/RDP/VNC on one helper, independent disconnect/reconnect, DNS/route and host-key refusal, shared-helper failure/cleanup and schema migration | Generated keys and owned peers |
@@ -33,6 +34,12 @@ stated scope; disabled live entries report SKIP.
 - **RDP input and files:** physical scan codes use the US layout. Folder redirection
   omits directory notifications, byte-range locking and ACL editing. Clipboard
   batches are temporary, copy-only and limited to 8 GiB / 20,000 entries.
+  Delayed file-URL fulfillment waits at most five minutes; only complete batches
+  become usable URLs. Eight-range pipelining is covered by synthetic 50 MB
+  reordered/short/duplicate-response checks, not a production speed measurement.
+  Drive names use terminated UTF-8 for interoperability. ASCII drive names and
+  nested browsing have live Windows coverage; Unicode labels and real writes
+  still need verification.
 - **VNC:** classic password/no-auth has no desktop encryption or server identity;
   use WireGuard on untrusted networks. VeNCrypt requires supported X509 modes.
   ARD/proprietary security, anonymous TLS, file/audio/cursor channels and client

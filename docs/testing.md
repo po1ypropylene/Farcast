@@ -26,8 +26,8 @@ scripts/prepare-rdp-fixture.sh
 | `scripts/test-sftp-throughput.sh` | Byte-verified upload-window comparison under controlled latency |
 | `scripts/test-sftp-terminal-latency.sh` | Terminal echo latency during shared-transport transfers and mode changes |
 | `scripts/test-rdp.sh`, then `scripts/test-rdp-nla.sh` | TLS/NLA, frames, clipboard/drive channels, monitor/DPI negotiation and pointer input |
-| `scripts/test-rdp-files.sh` | Clipboard codecs, paths/quotas, sparse ranges, cancellation and private-pasteboard publication |
-| `scripts/test-rdp-drives.sh` | Owned-root filesystem requests, read-only denial, metadata, sharing, rename/delete and traversal refusal |
+| `scripts/test-rdp-files.sh` | Clipboard codecs, paths/quotas, sparse ranges, 50 MB pipelined byte equality, short/reordered/duplicate replies, pending fulfillment/cancellation and private-pasteboard publication |
+| `scripts/test-rdp-drives.sh` | Owned-root filesystem requests, strict decoding of all four directory wire formats, Unicode pagination, empty/continuation searches, read-only denial, metadata, sharing, rename/delete and traversal refusal |
 | `scripts/test-rdp-audio.sh`, `scripts/test-rdp-keyboard.sh` | Mac output initialization with silence; synthetic keyboard/input transforms |
 | `scripts/test-rdp-resize.sh` | Actual Display Control PDUs, graphics reactivation, pixels and post-resize pointer input |
 | `scripts/test-rdp-display-session.sh` | Production full-screen startup, exit/re-entry, missing confirmation and worker cleanup |
@@ -80,7 +80,21 @@ remove the test Keychain; they never query saved user credentials.
 - Clipboard checks include nested/Unicode/binary/empty files, locks, large ranges,
   timestamps, malformed paths, quotas, newer-copy preservation and completed URLs
   surviving disconnect. Drive peers check writable round trips and denied writes
-  followed by successful read-only access with unchanged local bytes.
+  followed by successful read-only access with unchanged local bytes, after opening
+  and enumerating the root. The fixture requests BothDirectory information and
+  independently checks its 93-byte fixed wire length before decoding Unicode
+  names. The fixture-only FreeRDP server decoder is extended for that format;
+  production dependency sources/libraries remain unchanged. WireGuard RDP checks
+  include clipboard files and root listing plus writable/read-only drive access.
+  Drive peers then browse two subfolder levels, including a Unicode directory,
+  and read/write a file in the deepest directory. Their directory opens include
+  a trailing separator while search paths remain canonical. Native checks cover
+  nested file metadata/create/rename/delete, empty directories, trailing separator
+  aliases and retained traversal/symlink/read-only protections.
+  Keep the upstream server's strict empty-directory padding check. Empty searches,
+  enumeration end, invalid requests and disconnected directories must include
+  the zero length and compatibility byte; file-read errors retain a four-byte
+  zero length. A permissive decoder can hide Explorer failures after enumeration.
 - Display peers decode initial monitor blocks/DPI and pointer events. TLS/NLA peers
   omit Monitor Layout confirmation; submission alone does not prove Windows acceptance.
   Resize peers delay DVC startup until activation and check storms, restrictions,

@@ -81,8 +81,9 @@ private final class RDPClipboardFileProvider: NSObject, NSPasteboardItemDataProv
     func pasteboard(
         _ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType
     ) {
-        // Materialization is already complete. AppKit fulfillment never waits for
-        // network work or dispatches back to the main actor.
+        // Fulfillment may run while Finder is pasting. Completion is signalled
+        // directly by the RDP worker, with no dependency on a main-actor callback.
+        guard batch.waitUntilReady(timeout: 300) else { return }
         item.setString(url.absoluteString, forType: type)
     }
 }

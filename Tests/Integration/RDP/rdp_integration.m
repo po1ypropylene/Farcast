@@ -76,14 +76,18 @@ int main(int argc, char **argv) {
                         error:NULL];
             client.onClipboardBatch = ^(FCRDPClipboardFileBatch *batch) {
               receivedBatch = batch;
-              NSArray<NSURL *> *files = batch.files;
-              filesPassed =
-                  files.count == 1 &&
-                  [[NSData dataWithContentsOfURL:[files.firstObject URLByAppendingPathComponent:@"Nested/繁體😀.bin"]]
-                      isEqual:fileBytes] &&
-                  [NSFileManager.defaultManager
-                      fileExistsAtPath:[files.firstObject URLByAppendingPathComponent:@"Empty"].path];
-              [weakClient disconnect];
+              // The notification now advertises pending items. Fulfill from a
+              // consumer queue so the protocol worker continues receiving PDUs.
+              dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+                NSArray<NSURL *> *files = batch.files;
+                filesPassed =
+                    [batch waitUntilReadyWithTimeout:20] && files.count == 1 &&
+                    [[NSData dataWithContentsOfURL:[files.firstObject URLByAppendingPathComponent:@"Nested/繁體😀.bin"]]
+                        isEqual:fileBytes] &&
+                    [NSFileManager.defaultManager
+                        fileExistsAtPath:[files.firstObject URLByAppendingPathComponent:@"Empty"].path];
+                [weakClient disconnect];
+              });
             };
         }
         NSArray<NSString *> *samples = @[ @"Synthetic clipboard 繁體中文 😀\r\nSecond line", @"Updated fixture", @"" ];
@@ -105,12 +109,32 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "FAIL synthetic drive initialization (%ld)\n", (long)writeError.code);
                 return 1;
             }
+            initialized = [[@"Unicode directory fixture" dataUsingEncoding:NSUTF8StringEncoding]
+                writeToURL:[exportURL URLByAppendingPathComponent:@"繁體😀.bin"]
+                   options:NSDataWritingAtomic
+                     error:&writeError];
+            if (!initialized)
+                return 1;
+            for (NSString *path in @[ @"Nested", @"Nested/繁體😀" ]) {
+                NSURL *directory = [exportURL URLByAppendingPathComponent:path];
+                if (![NSFileManager.defaultManager createDirectoryAtURL:directory
+                                            withIntermediateDirectories:YES
+                                                             attributes:nil
+                                                                  error:NULL] ||
+                    ![[@"initial fixture" dataUsingEncoding:NSUTF8StringEncoding]
+                        writeToURL:[directory URLByAppendingPathComponent:@"probe.bin"]
+                        atomically:YES] ||
+                    ![[@"Unicode directory fixture" dataUsingEncoding:NSUTF8StringEncoding]
+                        writeToURL:[directory URLByAppendingPathComponent:@"繁體😀.bin"]
+                        atomically:YES])
+                    return 1;
+            }
             NSData *bookmark = [exportURL bookmarkDataWithOptions:NSURLBookmarkCreationWithSecurityScope
                                    includingResourceValuesForKeys:nil
                                                     relativeToURL:nil
                                                             error:NULL];
             client.redirectedFolders = @[ @{
-                @"name" : [mode isEqualToString:@"drive-ro"] ? @"ReadOnly" : @"Writable",
+                @"name" : [mode isEqualToString:@"drive-ro"] ? @"ReadOnly" : @"Shared 繁體😀",
                 @"bookmark" : bookmark,
                 @"readOnly" : @([mode isEqualToString:@"drive-ro"])
             } ];
@@ -212,9 +236,12 @@ int main(int argc, char **argv) {
         }
         if (driveTest) {
             NSString *expected = [mode isEqualToString:@"drive-ro"] ? @"initial fixture" : @"written fixture";
-            BOOL unchanged = [[NSData dataWithContentsOfURL:[exportURL URLByAppendingPathComponent:@"probe.bin"]]
-                isEqual:[expected dataUsingEncoding:NSUTF8StringEncoding]];
-            pass = pass && drivePassed && unchanged;
+            BOOL unchanged =
+                [[NSData dataWithContentsOfURL:[exportURL URLByAppendingPathComponent:@"Nested/繁體😀/probe.bin"]]
+                    isEqual:[expected dataUsingEncoding:NSUTF8StringEncoding]];
+            BOOL rootUnchanged = [[NSData dataWithContentsOfURL:[exportURL URLByAppendingPathComponent:@"probe.bin"]]
+                isEqual:[@"initial fixture" dataUsingEncoding:NSUTF8StringEncoding]];
+            pass = pass && drivePassed && unchanged && rootUnchanged;
         }
         printf("%s RDP %s (trust=%d connected=%d frame=%d)\n", pass ? "PASS" : "FAIL", mode.UTF8String, trusted,
                connected, frame);

@@ -227,7 +227,7 @@ func TestRDPThroughWireGuard(t *testing.T) {
 	if client == "" || target == "" {
 		t.Skip("RDP fixture not requested")
 	}
-	for _, mode := range []string{"accept", "reject", "cancel", "clipboard"} {
+	for _, mode := range []string{"accept", "reject", "cancel", "clipboard", "files", "drive", "drive-ro"} {
 		t.Run(mode, func(t *testing.T) {
 			r, server := fixture(t)
 			listener, err := server.ListenTCPAddrPort(netip.MustParseAddrPort("10.111.0.1:3389"))

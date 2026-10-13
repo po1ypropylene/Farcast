@@ -2,6 +2,25 @@
 
 Changes are recorded from version 1.7.0 onwards.
 
+## 2.0.3 — 13 October 2026
+
+- Build 2: include the compatibility padding byte in empty RDP directory replies, including enumeration end. This fixes incomplete Explorer listings and subsequent invalid-address errors. Retain version 2.0.3 as requested.
+- Accept directory paths ending in a separator, retain directory intent and use a canonical path for directory handles, sharing checks and later requests. Regular files cannot be opened as directories; traversal, repeated separators and symlinks remain rejected.
+- Extend redirected-folder checks below the root through two subfolder levels, including Unicode names, file reads/writes, metadata, create/rename/delete and read-only denial. Direct RDP and encrypted WireGuard fixtures exercise nested browsing and file access. Build 2 verifies complete visible listings and repeated nested browsing on an authorized real Windows machine with direct transport; real writes remain unverified.
+
+## 2.0.2 — 13 October 2026
+
+- Remove a forbidden padding byte from RDP folder directory-listing replies. Preserve the exact filename offsets required by Windows Explorer's directory information format.
+- Correct empty-search/end-of-directory status codes and ignore unused path fields during continuation requests.
+- Cover root browsing, Unicode names, file reads/writes and read-only denial through direct and encrypted WireGuard synthetic sessions. Real Windows acceptance of the reported folder-access error still requires a retry.
+
+## 2.0.1 — 13 October 2026
+
+- Correct redirected-folder drive-name encoding to match Windows App and FreeRDP, and decode UTF-8 names/paths explicitly during device registration. Preserve the selected-folder access policy. Reconnect to announce the corrected drives.
+- Publish Windows clipboard file items to Finder while their contents are being received. Fulfill only complete local files; wake waiting paste operations on cancellation or disconnect.
+- Pipeline up to eight bounded file-range requests, support reordered and short replies, and show received-byte progress for large clipboard files. Serve larger peer requests with bounded short responses.
+- Real Windows/Finder transfers and redirected-drive acceptance still require live validation; synthetic 50 MB byte-equality checks do not establish production throughput.
+
 ## 2.0.0 — 13 October 2026
 
 - Add saved and Quick Connect VNC desktops with password/no-password and certificate-based VeNCrypt TLS authentication, native Metal presentation, fit/scrolling and single-display full screen.

@@ -8,6 +8,8 @@ fixture_server="${FARCAST_RDP_FIXTURE:-.dependencies/rdp-fixture/build/server/Sa
 Vendor/Native/bin/openssl req -config /dev/null -x509 -newkey rsa:2048 -nodes -keyout "$fixture_root/key.pem" -out "$fixture_root/cert.pem" -days 1 -subj /CN=localhost > "$fixture_root/cert.log" 2>&1
 fixture_server="$(cd "$(dirname "$fixture_server")" && pwd)/$(basename "$fixture_server")"
 export FARCAST_RDP_CONFIG="$fixture_root/config"
+export FARCAST_FIXTURE_DRIVE_BOTH=1
+export FARCAST_FIXTURE_DRIVE_DIRECTORY_SUFFIX=1
 fixture_port=33989
 ( cd "$(dirname "$fixture_server")"; exec "$fixture_server" --port="$fixture_port" --cert="$fixture_root/cert.pem" --key="$fixture_root/key.pem" ) > "$fixture_root/server.log" 2>&1 &
 fixture_pid=$!

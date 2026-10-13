@@ -46,10 +46,13 @@ static UINT deviceFree(DEVICE *device) {
 }
 static UINT driveEntry(DEVICE_SERVICE_ENTRY_POINTS *ep) {
     RDPDR_DRIVE *drive = (void *)ep->device;
+    NSString *deviceName = ep->device->Name ? [NSString stringWithUTF8String:ep->device->Name] : nil;
+    NSString *path = drive->Path ? [NSString stringWithUTF8String:drive->Path] : nil;
+    if (!deviceName || !path)
+        return ERROR_INVALID_DATA;
     NSDictionary *config;
     @synchronized(registry()) {
-        config = registry()[
-            [NSString stringWithFormat:@"%p|%s|%s", ep->rdpcontext->settings, ep->device->Name, drive->Path]];
+        config = registry()[[NSString stringWithFormat:@"%p|%@|%@", ep->rdpcontext->settings, deviceName, path]];
     }
     if (!config)
         return ERROR_ACCESS_DENIED;
@@ -64,8 +67,10 @@ static UINT driveEntry(DEVICE_SERVICE_ENTRY_POINTS *ep) {
     d->device.type = RDPDR_DTYP_FILESYSTEM;
     d->device.IRPRequest = deviceRequest;
     d->device.Free = deviceFree;
+    // Windows App and FreeRDP encode the full drive name as terminated UTF-8.
+    // UTF-16 introduces embedded zero bytes that Windows can treat as a short name.
     NSData *name = [[config[@"name"] stringByAppendingString:[NSString stringWithCharacters:(unichar[]){0} length:1]]
-        dataUsingEncoding:NSUTF16LittleEndianStringEncoding];
+        dataUsingEncoding:NSUTF8StringEncoding];
     d->device.data = Stream_New(NULL, name.length);
     if (!d->device.data || !d->name) {
         Stream_Free(d->device.data, TRUE);

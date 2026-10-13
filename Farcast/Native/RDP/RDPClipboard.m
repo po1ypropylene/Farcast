@@ -9,6 +9,7 @@
 // MS-RDPECLIP file lists use relative UTF-16 paths and separate range requests.
 static const UINT32 fileFormat = 0xC001, effectFormat = 0xC002;
 static const NSUInteger maxEntries = 20000, chunkSize = 256 * 1024;
+static const NSUInteger rangeWindow = 8;
 static const uint64_t maxCacheBytes = 8ULL * 1024 * 1024 * 1024;
 
 static BOOL safeComponent(NSString *name) {
@@ -95,17 +96,43 @@ static BOOL makeDirectory(int root, NSString *path) {
 @end
 
 @interface FCRDPClipboardFileBatch ()
-- (instancetype)initWithRoot:(NSURL *)root files:(NSArray<NSURL *> *)files;
+- (instancetype)initWithRoot:(NSURL *)root files:(NSArray<NSURL *> *)files pending:(BOOL)pending;
+- (void)finish:(BOOL)success;
 @end
 @implementation FCRDPClipboardFileBatch {
     NSURL *_root;
+    NSCondition *_condition;
+    BOOL _finished, _success;
 }
 - (instancetype)initWithRoot:(NSURL *)root files:(NSArray<NSURL *> *)files {
+    return [self initWithRoot:root files:files pending:NO];
+}
+- (instancetype)initWithRoot:(NSURL *)root files:(NSArray<NSURL *> *)files pending:(BOOL)pending {
     if ((self = [super init])) {
         _root = root;
         _files = [files copy];
+        _condition = [NSCondition new];
+        _finished = _success = !pending;
     }
     return self;
+}
+- (void)finish:(BOOL)success {
+    [_condition lock];
+    if (!_finished) {
+        _finished = YES;
+        _success = success;
+        [_condition broadcast];
+    }
+    [_condition unlock];
+}
+- (BOOL)waitUntilReadyWithTimeout:(NSTimeInterval)timeout {
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:MAX(0, timeout)];
+    [_condition lock];
+    while (!_finished && [_condition waitUntilDate:deadline]) {
+    }
+    BOOL success = _finished && _success;
+    [_condition unlock];
+    return success;
 }
 - (void)dealloc {
     NSURL *root = _root;
@@ -114,6 +141,14 @@ static BOOL makeDirectory(int root, NSString *path) {
                      [[NSFileManager defaultManager] removeItemAtURL:root error:NULL];
                    });
 }
+@end
+
+@interface FCClipboardRange : NSObject
+@property uint64_t offset;
+@property UINT32 length;
+@property NSTimeInterval sent;
+@end
+@implementation FCClipboardRange
 @end
 
 @interface FCRDPClipboard () {
@@ -126,7 +161,6 @@ static BOOL makeDirectory(int root, NSString *path) {
     NSMutableDictionary<NSNumber *, NSArray<FCClipboardEntry *> *> *_locks;
     NSUInteger _generation, _requestGeneration;
     UINT32 _nextFormat, _pendingFormat, _remoteLock, _nextID, _expectedStream, _expectedLength;
-    BOOL _expectSize;
     NSArray<FCClipboardEntry *> *_remote;
     NSUInteger _index, _cacheEntries, _stageEntries;
     uint64_t _position, _cacheBytes, _stageBytes;
@@ -134,6 +168,10 @@ static BOOL makeDirectory(int root, NSString *path) {
     int _stageFD, _fileFD;
     NSMutableArray<NSURL *> *_completed;
     NSTimeInterval _lastProgress;
+    NSTimeInterval _lastNotice;
+    NSMutableDictionary<NSNumber *, FCClipboardRange *> *_ranges;
+    uint64_t _requestedPosition;
+    FCRDPClipboardFileBatch *_batch;
 }
 - (UINT)advertise;
 - (UINT)capabilities:(const CLIPRDR_CAPABILITIES *)caps;
@@ -179,6 +217,7 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
         _stageFD = _fileFD = -1;
         _locks = [NSMutableDictionary new];
         _completed = [NSMutableArray new];
+        _ranges = [NSMutableDictionary new];
     }
     return self;
 }
@@ -203,6 +242,9 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
     _generation++;
     _nextFormat = 0;
     _expectedStream = 0;
+    [_ranges removeAllObjects];
+    [_batch finish:NO];
+    _batch = nil;
     if (_remoteLock && _channel) {
         CLIPRDR_UNLOCK_CLIPBOARD_DATA unlock = {0};
         unlock.clipDataId = _remoteLock;
@@ -437,6 +479,8 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
     _nextFormat = 0;
     _requestGeneration = _generation;
     _lastProgress = NSDate.timeIntervalSinceReferenceDate;
+    if (_pendingFormat != CF_UNICODETEXT)
+        [self progress:@"Waiting for Windows clipboard file details…"];
     if (_pendingFormat != CF_UNICODETEXT && (_serverFlags & CB_CAN_LOCK_CLIPDATA)) {
         _remoteLock = ++_nextID ?: ++_nextID;
         CLIPRDR_LOCK_CLIPBOARD_DATA lock = {0};
@@ -584,6 +628,22 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
     _remote = entries;
     _index = 0;
     _position = 0;
+    _lastNotice = 0;
+    if (self.onBatch) {
+        NSMutableArray *urls = [NSMutableArray new];
+        NSMutableSet *names = [NSMutableSet new];
+        for (FCClipboardEntry *entry in entries) {
+            NSString *top = [entry.name componentsSeparatedByString:@"/"].firstObject;
+            if (![names containsObject:top]) {
+                [names addObject:top];
+                [urls addObject:[_stage URLByAppendingPathComponent:top]];
+            }
+        }
+        _batch = [[FCRDPClipboardFileBatch alloc] initWithRoot:_stage files:urls pending:YES];
+        // Advertise native items now; never expose their partial paths to Finder.
+        // The provider waits on the worker-owned completion condition.
+        self.onBatch(_batch);
+    }
     return YES;
 }
 - (void)failedTransfer {
@@ -626,22 +686,43 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
     request.streamId = ++_nextID ?: ++_nextID;
     request.listIndex = (UINT32)_index;
     request.dwFlags = size ? FILECONTENTS_SIZE : FILECONTENTS_RANGE;
-    request.nPositionHigh = (UINT32)(_position >> 32);
-    request.nPositionLow = (UINT32)_position;
-    request.cbRequested = size ? 8 : (UINT32)MIN(chunkSize, _remote[_index].size - _position);
+    uint64_t offset = size ? 0 : _requestedPosition;
+    request.nPositionHigh = (UINT32)(offset >> 32);
+    request.nPositionLow = (UINT32)offset;
+    request.cbRequested = size ? 8 : (UINT32)MIN(chunkSize, _remote[_index].size - offset);
     request.haveClipDataId = _remoteLock != 0;
     request.clipDataId = _remoteLock;
-    _expectedStream = request.streamId;
-    _expectedLength = request.cbRequested;
-    _expectSize = size;
+    if (size) {
+        _expectedStream = request.streamId;
+        _expectedLength = request.cbRequested;
+        [self progress:[NSString stringWithFormat:@"Waiting for Windows clipboard file size (%lu of %lu)…",
+                                                  (unsigned long)_index + 1, (unsigned long)_remote.count]];
+    } else {
+        FCClipboardRange *range = [FCClipboardRange new];
+        range.offset = offset;
+        range.length = request.cbRequested;
+        range.sent = NSDate.timeIntervalSinceReferenceDate;
+        _ranges[@(request.streamId)] = range;
+        _requestedPosition += request.cbRequested;
+    }
     _lastProgress = NSDate.timeIntervalSinceReferenceDate;
     return _channel->ClientFileContentsRequest(_channel, &request);
+}
+- (UINT)fillRanges {
+    while (_ranges.count < rangeWindow && _requestedPosition < _remote[_index].size) {
+        UINT rc = [self sendFileRequest:NO];
+        if (rc)
+            return rc;
+    }
+    return CHANNEL_RC_OK;
 }
 - (UINT)nextFile {
     while (_index < _remote.count && _remote[_index].directory)
         _index++;
     if (_index < _remote.count) {
         _position = 0;
+        _requestedPosition = 0;
+        [_ranges removeAllObjects];
         return [self sendFileRequest:YES];
     }
     NSMutableArray *urls = [NSMutableArray new];
@@ -655,9 +736,8 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
     }
     NSURL *stage = _stage;
     _stage = nil;
-    FCRDPClipboardFileBatch *batch = nil;
-    if (self.onBatch) {
-        batch = [[FCRDPClipboardFileBatch alloc] initWithRoot:stage files:urls];
+    FCRDPClipboardFileBatch *batch = _batch;
+    if (batch) {
         _cacheBytes -= _stageBytes;
     } else {
         [_completed addObject:stage];
@@ -676,25 +756,30 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
             close(fd);
         }
     }
+    [batch finish:YES];
     [self cancelRemote];
     [self progress:@"Clipboard files are ready to paste in Finder."];
-    if (batch)
-        self.onBatch(batch);
-    else if (self.onFiles)
+    if (!batch && self.onFiles)
         self.onFiles(urls);
     return CHANNEL_RC_OK;
 }
 - (UINT)fileResponse:(const CLIPRDR_FILE_CONTENTS_RESPONSE *)response {
-    if (!_remote || response->streamId != _expectedStream)
+    FCClipboardRange *range = _ranges[@(response->streamId)];
+    BOOL sizeResponse = _expectedStream && response->streamId == _expectedStream;
+    if (!_remote || (!range && !sizeResponse))
         return CHANNEL_RC_OK;
-    _expectedStream = 0;
+    if (sizeResponse)
+        _expectedStream = 0;
+    else
+        [_ranges removeObjectForKey:@(response->streamId)];
     if (!(response->common.msgFlags & CB_RESPONSE_OK) || !response->requestedData ||
-        response->cbRequested > _expectedLength || response->cbRequested == 0) {
+        response->cbRequested > (sizeResponse ? _expectedLength : range.length) || response->cbRequested == 0) {
         [self failedTransfer];
         return CHANNEL_RC_OK;
     }
     FCClipboardEntry *entry = _remote[_index];
-    if (_expectSize) {
+    _lastProgress = NSDate.timeIntervalSinceReferenceDate;
+    if (sizeResponse) {
         if (response->cbRequested != 8) {
             [self failedTransfer];
             return CHANNEL_RC_OK;
@@ -718,7 +803,7 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
         const BYTE *bytes = response->requestedData;
         NSUInteger left = response->cbRequested;
         while (left) {
-            ssize_t written = write(_fileFD, bytes, left);
+            ssize_t written = pwrite(_fileFD, bytes, left, (off_t)(range.offset + response->cbRequested - left));
             if (written < 0 && errno == EINTR)
                 continue;
             if (written <= 0) {
@@ -729,9 +814,35 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
             bytes += written;
         }
         _position += response->cbRequested;
+        if (response->cbRequested < range.length) {
+            // A short read is legal. Request only its missing suffix, preserving
+            // stream correlation and the disjoint offsets already in flight.
+            CLIPRDR_FILE_CONTENTS_REQUEST request = {0};
+            request.streamId = ++_nextID ?: ++_nextID;
+            request.listIndex = (UINT32)_index;
+            request.dwFlags = FILECONTENTS_RANGE;
+            range.offset += response->cbRequested;
+            range.length -= response->cbRequested;
+            range.sent = _lastProgress;
+            request.nPositionHigh = (UINT32)(range.offset >> 32);
+            request.nPositionLow = (UINT32)range.offset;
+            request.cbRequested = range.length;
+            request.haveClipDataId = _remoteLock != 0;
+            request.clipDataId = _remoteLock;
+            _ranges[@(request.streamId)] = range;
+            UINT rc = _channel->ClientFileContentsRequest(_channel, &request);
+            if (rc)
+                return rc;
+        }
     }
-    if (_position < entry.size)
-        return [self sendFileRequest:NO];
+    if (_lastProgress - _lastNotice >= 0.5 || _position == entry.size) {
+        _lastNotice = _lastProgress;
+        [self progress:[NSString stringWithFormat:@"Receiving clipboard file %lu of %lu: %.1f of %.1f MB…",
+                                                  (unsigned long)_index + 1, (unsigned long)_remote.count,
+                                                  _position / 1000000.0, entry.size / 1000000.0]];
+    }
+    if (_position < entry.size || _ranges.count)
+        return [self fillRanges];
     BOOL saved = fsync(_fileFD) == 0;
     close(_fileFD);
     _fileFD = -1;
@@ -756,7 +867,7 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
     response.common.msgFlags = CB_RESPONSE_FAIL;
     NSArray *entries = request->haveClipDataId ? _locks[@(request->clipDataId)] : _local;
     NSMutableData *data = nil;
-    if (_active && request->listIndex < entries.count && request->cbRequested <= chunkSize &&
+    if (_active && request->listIndex < entries.count &&
         (!request->nPositionHigh || (_serverFlags & CB_HUGE_FILE_SUPPORT_ENABLED)) &&
         (request->dwFlags != FILECONTENTS_SIZE || (!request->nPositionHigh && !request->nPositionLow))) {
         FCClipboardEntry *entry = entries[request->listIndex];
@@ -774,7 +885,7 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
         } else if (matches && request->dwFlags == FILECONTENTS_RANGE) {
             uint64_t position = ((uint64_t)request->nPositionHigh << 32) | request->nPositionLow;
             if (position <= entry.size) {
-                NSUInteger length = (NSUInteger)MIN(request->cbRequested, entry.size - position);
+                NSUInteger length = (NSUInteger)MIN(chunkSize, MIN(request->cbRequested, entry.size - position));
                 data = [NSMutableData dataWithLength:length];
                 NSUInteger readBytes = 0;
                 while (readBytes < length) {
@@ -805,8 +916,12 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
     return _channel->ClientFileContentsResponse(_channel, &response);
 }
 - (void)tick {
-    if (((_pendingFormat && _requestGeneration == _generation) || _expectedStream) &&
-        NSDate.timeIntervalSinceReferenceDate - _lastProgress > 30) {
+    BOOL stalledRange = NO;
+    for (FCClipboardRange *range in _ranges.allValues)
+        if (NSDate.timeIntervalSinceReferenceDate - range.sent > 30)
+            stalledRange = YES;
+    if (stalledRange || (((_pendingFormat && _requestGeneration == _generation) || _expectedStream) &&
+                         NSDate.timeIntervalSinceReferenceDate - _lastProgress > 30)) {
         // Keep a timed-out format response outstanding: the wire has no request ID.
         // It must be drained before another format request can safely be issued.
         [self failedTransfer];

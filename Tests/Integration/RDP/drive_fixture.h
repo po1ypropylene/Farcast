@@ -3,6 +3,8 @@
 typedef struct {
     UINT32 device, file;
     BOOL readOnly;
+    BOOL listedProbe, listedUnicode;
+    UINT32 browseDepth;
     int phase;
     testPeerContext *peer;
 } FCDriveFixture;
@@ -30,6 +32,33 @@ static void fc_drive_closed(RdpdrServerContext *c, void *data, UINT32 status) {
     if (!status)
         fc_drive_finish(c);
 }
+static void fc_drive_listed(RdpdrServerContext *c, void *data, UINT32 status, FILE_DIRECTORY_INFORMATION *entry) {
+    FCDriveFixture *state = c->data;
+    if (status == STATUS_SUCCESS && entry) {
+#if defined(__MINGW32__) || defined(WITH_WCHAR_FILE_DIRECTORY_INFORMATION)
+        char *name = ConvertWCharToUtf8Alloc(entry->FileName, NULL);
+#else
+        const char *name = entry->FileName;
+#endif
+        if (name) {
+            state->listedProbe |= strcmp(name, "probe.bin") == 0;
+            state->listedUnicode |= strcmp(name, "繁體😀.bin") == 0;
+        }
+#if defined(__MINGW32__) || defined(WITH_WCHAR_FILE_DIRECTORY_INFORMATION)
+        free(name);
+#endif
+    } else if (status == STATUS_NO_MORE_FILES && state->listedProbe && state->listedUnicode) {
+        state->listedProbe = state->listedUnicode = FALSE;
+        state->browseDepth++;
+        if (state->browseDepth <= 2) {
+            c->DriveQueryDirectory(c, state, state->device, state->browseDepth == 1 ? "\\Nested" : "\\Nested\\繁體😀");
+        } else {
+            // Exercise file access only after browsing two subfolder levels.
+            c->DriveOpenFile(c, state, state->device, "\\Nested\\繁體😀\\probe.bin", GENERIC_WRITE | GENERIC_READ,
+                             FILE_OPEN);
+        }
+    }
+}
 static void fc_drive_read(RdpdrServerContext *c, void *data, UINT32 status, const char *bytes, UINT32 length) {
     FCDriveFixture *state = c->data;
     const char *expected = state->readOnly ? "initial fixture" : "written fixture";
@@ -47,7 +76,7 @@ static void fc_drive_opened(RdpdrServerContext *c, void *data, UINT32 status, UI
         if (status != STATUS_ACCESS_DENIED)
             return;
         state->phase = 1;
-        c->DriveOpenFile(c, state, state->device, "\\probe.bin", GENERIC_READ, FILE_OPEN);
+        c->DriveOpenFile(c, state, state->device, "\\Nested\\繁體😀\\probe.bin", GENERIC_READ, FILE_OPEN);
         return;
     }
     if (status)
@@ -61,10 +90,20 @@ static void fc_drive_opened(RdpdrServerContext *c, void *data, UINT32 status, UI
 static UINT fc_drive_created(RdpdrServerContext *c, const RdpdrDevice *device) {
     FCDriveFixture *state = c->data;
     state->device = device->DeviceId;
-    const BYTE readonlyName[] = {'R', 0, 'e', 0, 'a', 0, 'd', 0, 'O', 0, 'n', 0, 'l', 0, 'y', 0};
-    state->readOnly = device->DeviceDataLength >= sizeof(readonlyName) &&
+    const BYTE readonlyName[] = "ReadOnly";
+    // Decode the actual wire name, including its terminator. An embedded UTF-16
+    // zero must fail here instead of being accepted by the synthetic peer.
+    if (!device->DeviceDataLength || device->DeviceData[device->DeviceDataLength - 1] != 0 ||
+        strlen((const char *)device->DeviceData) + 1 != device->DeviceDataLength)
+        return ERROR_INVALID_DATA;
+    state->readOnly = device->DeviceDataLength == sizeof(readonlyName) &&
                       !memcmp(device->DeviceData, readonlyName, sizeof(readonlyName));
-    return c->DriveOpenFile(c, state, state->device, "\\probe.bin", GENERIC_WRITE | GENERIC_READ, FILE_OPEN);
+    const BYTE unicodeName[] = "Shared 繁體😀";
+    if (!state->readOnly && (device->DeviceDataLength != sizeof(unicodeName) ||
+                             memcmp(device->DeviceData, unicodeName, sizeof(unicodeName))))
+        return ERROR_INVALID_DATA;
+    // The helper appends its own separator and pattern to this root path.
+    return c->DriveQueryDirectory(c, state, state->device, "");
 }
 static BOOL fc_fixture_drive_start(testPeerContext *peer) {
     if (!WTSVirtualChannelManagerIsChannelJoined(peer->vcm, "rdpdr"))
@@ -81,6 +120,7 @@ static BOOL fc_fixture_drive_start(testPeerContext *peer) {
     state->peer = peer;
     c->data = state;
     c->OnDriveCreate = fc_drive_created;
+    c->OnDriveQueryDirectoryComplete = fc_drive_listed;
     c->OnDriveOpenFileComplete = fc_drive_opened;
     c->OnDriveReadFileComplete = fc_drive_read;
     c->OnDriveWriteFileComplete = fc_drive_written;

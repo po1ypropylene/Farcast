@@ -9,6 +9,8 @@ fixture_port=33987
 fixture_server="$(cd "$(dirname "$fixture_server")" && pwd)/$(basename "$fixture_server")"
 export FARCAST_RDP_CONFIG="$fixture_root/config"
 export FARCAST_FIXTURE_DISPLAY=1
+export FARCAST_FIXTURE_DRIVE_BOTH=1
+export FARCAST_FIXTURE_DRIVE_DIRECTORY_SUFFIX=1
 ( cd "$(dirname "$fixture_server")"; exec "$fixture_server" --port="$fixture_port" --cert="$fixture_root/cert.pem" --key="$fixture_root/key.pem" ) > "$fixture_root"/server.log 2>&1 &
 fixture_pid=$!
 fixture_pids+=("$!")

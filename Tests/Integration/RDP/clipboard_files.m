@@ -8,6 +8,7 @@
 static NSData *formatData, *fileData;
 static UINT16 formatFlags, fileFlags;
 static CLIPRDR_FILE_CONTENTS_REQUEST pending;
+static NSMutableArray<NSValue *> *pendingRequests;
 static UINT32 requestedFormat, advertised;
 static NSUInteger checks;
 static void check(BOOL value, const char *name) {
@@ -34,6 +35,7 @@ static UINT sendResponse(CliprdrClientContext *c, const CLIPRDR_FORMAT_DATA_RESP
 }
 static UINT sendFileRequest(CliprdrClientContext *c, const CLIPRDR_FILE_CONTENTS_REQUEST *v) {
     pending = *v;
+    [pendingRequests addObject:[NSValue valueWithBytes:v objCType:@encode(CLIPRDR_FILE_CONTENTS_REQUEST)]];
     return 0;
 }
 static UINT sendFileResponse(CliprdrClientContext *c, const CLIPRDR_FILE_CONTENTS_RESPONSE *v) {
@@ -79,6 +81,7 @@ int main(int argc, char **argv) {
             return 2;
         NSURL *root = [NSURL fileURLWithPath:@(argv[1]) isDirectory:YES];
         NSFileManager *fm = NSFileManager.defaultManager;
+        pendingRequests = [NSMutableArray new];
         NSURL *tree = [root URLByAppendingPathComponent:@"Folder"];
         [fm createDirectoryAtURL:[tree URLByAppendingPathComponent:@"Nested"]
             withIntermediateDirectories:YES
@@ -159,7 +162,8 @@ int main(int argc, char **argv) {
         file.haveClipDataId = FALSE;
         file.cbRequested = 300000;
         channel.ServerFileContentsRequest(&channel, &file);
-        check(fileFlags == CB_RESPONSE_FAIL, "oversized requests refused");
+        check(fileFlags == CB_RESPONSE_OK && fileData.length == 256 * 1024,
+              "large peer requests receive a bounded short response");
         file.cbRequested = 32;
         file.listIndex = count;
         channel.ServerFileContentsRequest(&channel, &file);
@@ -172,10 +176,14 @@ int main(int argc, char **argv) {
         [bridge setFiles:@[ tree ]];
         remoteFormat(&channel);
         check(requestedFormat == 0xC321, "remote registered format ID mapped by name");
+        [pendingRequests removeAllObjects];
         remoteDescriptors(&channel, descriptors);
         NSUInteger ranges = 0;
         while (!received && ranges < 20) {
-            CLIPRDR_FILE_CONTENTS_REQUEST next = pending;
+            check(pendingRequests.count > 0, "download has pending work");
+            CLIPRDR_FILE_CONTENTS_REQUEST next;
+            [pendingRequests.firstObject getValue:&next];
+            [pendingRequests removeObjectAtIndex:0];
             NSData *bytes;
             if (next.dwFlags == FILECONTENTS_SIZE) {
                 uint64_t size = CFSwapInt64HostToLittle(entries[next.listIndex].nFileSizeLow);
@@ -228,6 +236,79 @@ int main(int argc, char **argv) {
         remoteFormat(&channel);
         remoteDescriptors(&channel, descriptor(@"large", FILE_ATTRIBUTE_NORMAL, 9ULL << 30));
         check([message hasPrefix:@"Clipboard file transfer failed"], "remote temporary quota enforced");
+        // A real-size batch is advertised before completion. Reorder responses,
+        // send a short block and replay a duplicate to exercise stream identity.
+        received = nil;
+        __block FCRDPClipboardFileBatch *batch;
+        bridge.onBatch = ^(FCRDPClipboardFileBatch *value) {
+          batch = value;
+        };
+        const NSUInteger largeSize = 50 * 1024 * 1024 + 123;
+        NSMutableData *large = [NSMutableData dataWithLength:largeSize];
+        for (NSUInteger i = 0; i < largeSize; i++)
+            ((BYTE *)large.mutableBytes)[i] = (BYTE)(i * 17 + i / 65536);
+        remoteFormat(&channel);
+        [pendingRequests removeAllObjects];
+        remoteDescriptors(&channel, descriptor(@"50MB.bin", FILE_ATTRIBUTE_NORMAL, largeSize));
+        check(batch.files.count == 1 && ![batch waitUntilReadyWithTimeout:0],
+              "pending file items advertised before the 50 MB download");
+        __block BOOL waiterReady = NO;
+        dispatch_semaphore_t waiterDone = dispatch_semaphore_create(0);
+        FCRDPClipboardFileBatch *waitingBatch = batch;
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+          waiterReady = [waitingBatch waitUntilReadyWithTimeout:10];
+          dispatch_semaphore_signal(waiterDone);
+        });
+        NSUInteger maxPending = 0;
+        BOOL shortRead = NO;
+        while (pendingRequests.count) {
+            maxPending = MAX(maxPending, pendingRequests.count);
+            check(pendingRequests.count <= 8, "range pipeline remains bounded");
+            CLIPRDR_FILE_CONTENTS_REQUEST next;
+            [pendingRequests.lastObject getValue:&next];
+            [pendingRequests removeLastObject];
+            NSData *bytes;
+            if (next.dwFlags == FILECONTENTS_SIZE) {
+                uint64_t size = CFSwapInt64HostToLittle(largeSize);
+                bytes = [NSData dataWithBytes:&size length:8];
+            } else {
+                NSUInteger length = next.cbRequested;
+                if (!shortRead && length > 1) {
+                    length /= 2;
+                    shortRead = YES;
+                }
+                bytes = [large subdataWithRange:NSMakeRange(next.nPositionLow, length)];
+            }
+            CLIPRDR_FILE_CONTENTS_RESPONSE response = {0};
+            response.common.msgFlags = CB_RESPONSE_OK;
+            response.streamId = next.streamId;
+            response.cbRequested = (UINT32)bytes.length;
+            response.requestedData = bytes.bytes;
+            check(channel.ServerFileContentsResponse(&channel, &response) == 0, "50 MB response accepted");
+            if (next.dwFlags == FILECONTENTS_RANGE)
+                channel.ServerFileContentsResponse(&channel, &response);
+        }
+        check(maxPending == 8 && shortRead && [batch waitUntilReadyWithTimeout:0],
+              "out-of-order pipeline and short range complete");
+        check(dispatch_semaphore_wait(waiterDone, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) == 0 && waiterReady,
+              "paste fulfillment wakes without a main-thread callback");
+        NSURL *largeDownload = batch.files.firstObject;
+        check([[NSData dataWithContentsOfURL:largeDownload] isEqual:large], "50 MB bytes preserved");
+        remoteFormat(&channel);
+        [pendingRequests removeAllObjects];
+        remoteDescriptors(&channel, descriptor(@"interrupted.bin", FILE_ATTRIBUTE_NORMAL, 100));
+        FCRDPClipboardFileBatch *interrupted = batch;
+        check(![interrupted waitUntilReadyWithTimeout:0], "new generation starts pending");
+        [bridge setText:@"cancel pending paste"];
+        check(![interrupted waitUntilReadyWithTimeout:1] && ![fm fileExistsAtPath:interrupted.files.firstObject.path],
+              "cancellation wakes fulfillment and removes partial files");
+        [bridge detach];
+        check([fm fileExistsAtPath:largeDownload.path], "provider batch survives disconnect");
+        [fm removeItemAtURL:largeDownload.URLByDeletingLastPathComponent error:NULL];
+        bridge.onBatch = nil;
+        [bridge attach:&channel];
+        channel.ServerCapabilities(&channel, &caps);
+        channel.MonitorReady(&channel, NULL);
         remoteFormat(&channel);
         [bridge setText:@"local replacement"];
         remoteDescriptors(&channel, descriptor(@"stale", FILE_ATTRIBUTE_NORMAL, 1));

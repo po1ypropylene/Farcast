@@ -56,6 +56,54 @@ a=s.index('static UINT rdpdr_server_drive_write_file_callback(')
 b=s.index('static UINT rdpdr_server_drive_write_file(',a)
 part=s[a:b]
 part=part.replace('\tif (!Stream_CheckAndLogRequiredLengthWLog(priv->log, s, length))\n\t\treturn ERROR_INVALID_DATA;\n','')
+s=s[:a]+part+s[b:]
+# Request the FileBothDirectoryInformation form used for Explorer browsing.
+# Its wire record omits the native reserved byte: 93 fixed bytes before FileName.
+needle='Stream_Write_UINT32(s, FileDirectoryInformation); /* FsInformationClass (4 bytes) */'
+assert s.count(needle)==1
+s=s.replace(needle, 'Stream_Write_UINT32(s, getenv("FARCAST_FIXTURE_DRIVE_BOTH") ? FileBothDirectoryInformation : FileDirectoryInformation); /* FsInformationClass */')
+needle='const UINT32 fileNameLength = Stream_Get_UINT32(s); /* FileNameLength (4 bytes) */'
+assert s.count(needle)==1
+s=s.replace(needle, needle + '''
+    if (getenv("FARCAST_FIXTURE_DRIVE_BOTH"))
+    {
+        if (!Stream_CheckAndLogRequiredLengthWLog(log, s, 29)) return ERROR_INVALID_DATA;
+        Stream_Seek(s, 29); /* EaSize, ShortNameLength and ShortName; no Reserved byte. */
+    }
+''')
+a=s.index('static UINT rdpdr_server_drive_query_directory_callback2(')
+b=s.index('static UINT rdpdr_server_drive_query_directory_callback1(',a)
+part=s[a:b]
+needle='FILE_DIRECTORY_INFORMATION fdi = WINPR_C_ARRAY_INIT;'
+assert needle in part
+part=part.replace(needle, '''
+    if (length > 0 && getenv("FARCAST_FIXTURE_DRIVE_BOTH"))
+    {
+        if (length < 93 || !Stream_CheckAndLogRequiredLengthWLog(priv->log, s, length))
+            return ERROR_INVALID_DATA;
+        const BYTE* bytes = Stream_ConstPointer(s);
+        const UINT32 namesize = (UINT32)bytes[60] | ((UINT32)bytes[61] << 8) |
+                               ((UINT32)bytes[62] << 16) | ((UINT32)bytes[63] << 24);
+        if (namesize != length - 93 || namesize % 2) return ERROR_INVALID_DATA;
+    }
+''' + needle)
+# Retain upstream's minimum empty-response size. Although MS-RDPEFS calls
+# padding optional, Windows also requires it at enumeration end.
+s=s[:a]+part+s[b:]
+# Probe directory opens ending in a separator, while retaining the canonical
+# search path for the following query. Production FreeRDP remains unchanged.
+a=s.index('static UINT rdpdr_server_drive_query_directory(RdpdrServerContext* context,')
+b=s.index('/*************************************************',a)
+part=s[a:b]
+needle='''return rdpdr_server_send_device_create_request(
+	    context, irp->DeviceId, irp->CompletionId, irp->PathName, FILE_READ_DATA | SYNCHRONIZE,'''
+assert needle in part
+part=part.replace(needle, r'''char openPath[sizeof(irp->PathName)] = {0};
+    strncpy(openPath, irp->PathName, sizeof(openPath) - 1);
+    if (openPath[0] && getenv("FARCAST_FIXTURE_DRIVE_DIRECTORY_SUFFIX"))
+        winpr_str_append("\\", openPath, ARRAYSIZE(openPath), nullptr);
+    return rdpdr_server_send_device_create_request(
+	    context, irp->DeviceId, irp->CompletionId, openPath, FILE_READ_DATA | SYNCHRONIZE,''')
 s=s[:a]+part+s[b:]; p.write_text(s)
 PYFIX
 cmake -S "$fixture_source" -B .dependencies/rdp-fixture/build -DCMAKE_BUILD_TYPE=Release \

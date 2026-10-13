@@ -22,6 +22,14 @@ typedef struct {
     size_t left;
     BOOL valid;
 } Reader;
+static void emptyResponse(IRP *irp) {
+    BOOL padding = irp->MajorFunction == IRP_MJ_CREATE || irp->MajorFunction == IRP_MJ_CLOSE ||
+                   irp->MajorFunction == IRP_MJ_WRITE ||
+                   (irp->MajorFunction == IRP_MJ_DIRECTORY_CONTROL && irp->MinorFunction == IRP_MN_QUERY_DIRECTORY);
+    // Windows requires the optional query-directory padding byte for an empty
+    // reply, including enumeration end. Without it, later browsing can fail.
+    Stream_Zero(irp->output, padding ? 5 : 4);
+}
 static uint64_t take(Reader *r, size_t count) {
     if (r->left < count) {
         r->valid = NO;
@@ -58,13 +66,18 @@ static NSString *string(Reader *r, uint32_t length) {
         r->valid = NO;
     return value;
 }
-static NSString *relativePath(NSString *wire) {
+static BOOL directorySuffix(NSString *wire) { return [wire hasSuffix:@"\\"] || [wire hasSuffix:@"/"]; }
+static NSString *relativePath(NSString *wire, BOOL allowDirectorySuffix) {
     if (!wire || [wire hasPrefix:@"/"] || [wire hasPrefix:@"\\\\"] || [wire containsString:@":"] ||
         [wire rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound)
         return nil;
     NSString *path = [wire stringByReplacingOccurrencesOfString:@"\\" withString:@"/"];
     if ([path hasPrefix:@"/"])
         path = [path substringFromIndex:1];
+    // A final separator denotes a directory, rather than an empty child name.
+    // Keep interior empty components invalid and retain directory intent at open.
+    if (allowDirectorySuffix && [path hasSuffix:@"/"])
+        path = [path substringToIndex:path.length - 1];
     if (!path.length)
         return @"";
     NSArray *parts = [path componentsSeparatedByString:@"/"];
@@ -216,7 +229,9 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
     (void)take(r, 4);
     uint32_t sharing = (uint32_t)take(r, 4), disposition = (uint32_t)take(r, 4), options = (uint32_t)take(r, 4);
     uint32_t length = (uint32_t)take(r, 4);
-    NSString *path = relativePath(string(r, length));
+    NSString *wire = string(r, length);
+    BOOL requestedDirectory = (options & FILE_DIRECTORY_FILE) || directorySuffix(wire);
+    NSString *path = relativePath(wire, requestedDirectory);
     if (!r->valid || !path || disposition > FILE_OVERWRITE_IF || _handles.count >= 1024)
         return STATUS_INVALID_PARAMETER;
     if (access & MAXIMUM_ALLOWED)
@@ -226,7 +241,7 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
         return STATUS_ACCESS_DENIED;
     if ((options & FILE_DELETE_ON_CLOSE) && !(access & (DELETE | GENERIC_ALL)))
         return STATUS_ACCESS_DENIED;
-    BOOL directory = (options & FILE_DIRECTORY_FILE) != 0;
+    BOOL directory = requestedDirectory;
     struct stat existing;
     BOOL exists = NO;
     int checkFD = beneath(_root, path, O_RDONLY, 0);
@@ -260,7 +275,7 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
         directory = S_ISDIR(existing.st_mode);
     if ((options & FILE_NON_DIRECTORY_FILE) && directory)
         return STATUS_FILE_IS_A_DIRECTORY;
-    if ((options & FILE_DIRECTORY_FILE) && exists && !directory)
+    if (requestedDirectory && exists && !directory)
         return STATUS_NOT_A_DIRECTORY;
     if (!path.length && (mutation || !directory))
         return STATUS_ACCESS_DENIED;
@@ -415,7 +430,7 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
         if (take(r, 1) != 0)
             return STATUS_NOT_SUPPORTED;
         uint32_t length = (uint32_t)take(r, 4);
-        NSString *target = relativePath(string(r, length));
+        NSString *target = relativePath(string(r, length), h.directory);
         if (!r->valid || !target.length)
             return STATUS_INVALID_PARAMETER;
         for (FCDriveHandle *other in _handles.allValues)
@@ -516,14 +531,18 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
     BOOL initial = take(r, 1) != 0;
     uint32_t length = (uint32_t)take(r, 4);
     skip(r, 23);
-    NSString *wire = string(r, length);
+    // Continuations carry no new search path; MS-RDPEFS requires ignoring the
+    // Path field and its declared length when InitialQuery is zero.
+    NSString *wire = initial ? string(r, length) : nil;
     if (!r->valid || !h.directory)
         return STATUS_INVALID_PARAMETER;
     if (kind != FileDirectoryInformation && kind != FileFullDirectoryInformation &&
         kind != FileBothDirectoryInformation && kind != FileNamesInformation)
         return STATUS_NOT_SUPPORTED;
-    if (initial || !h.listing) {
-        NSString *path = relativePath(wire);
+    if (!initial && !h.listing)
+        return STATUS_INVALID_PARAMETER;
+    if (initial) {
+        NSString *path = relativePath(wire, NO);
         if (!path)
             return STATUS_ACCESS_DENIED;
         NSString *parent = path.stringByDeletingLastPathComponent;
@@ -588,13 +607,14 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
             Stream_Write_UINT32(out, 0);
         if (kind == FileBothDirectoryInformation) {
             Stream_Write_UINT8(out, 0);
-            Stream_Write_UINT8(out, 0);
+            // The native FILE_BOTH_DIR_INFORMATION reserved byte is absent on
+            // the RDP wire. FileName begins at byte 93, not byte 94.
             Stream_Zero(out, 24);
         }
         Stream_Write(out, encoded.bytes, encoded.length);
         return STATUS_SUCCESS;
     }
-    return STATUS_NO_MORE_FILES;
+    return initial ? STATUS_NO_SUCH_FILE : STATUS_NO_MORE_FILES;
 }
 - (NTSTATUS)volume:(uint32_t)kind output:(wStream *)out {
     struct statfs fs;
@@ -645,11 +665,13 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
         irp->IoStatus = STATUS_INVALID_PARAMETER;
         if (_closed || irp->cancelled) {
             irp->IoStatus = STATUS_CANCELLED;
+            emptyResponse(irp);
             irp->Complete(irp);
             return;
         }
         if (!Stream_EnsureRemainingCapacity(out, 1024 * 1024 + 4096)) {
             irp->IoStatus = STATUS_INSUFFICIENT_RESOURCES;
+            emptyResponse(irp);
             irp->Complete(irp);
             return;
         }
@@ -753,11 +775,7 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
             }
         if (irp->IoStatus != STATUS_SUCCESS) {
             Stream_SetPosition(out, start);
-            if (irp->MajorFunction == IRP_MJ_CREATE || irp->MajorFunction == IRP_MJ_CLOSE ||
-                irp->MajorFunction == IRP_MJ_WRITE)
-                Stream_Zero(out, 5);
-            else
-                Stream_Write_UINT32(out, 0);
+            emptyResponse(irp);
         } else if (irp->MajorFunction == IRP_MJ_QUERY_INFORMATION ||
                    irp->MajorFunction == IRP_MJ_QUERY_VOLUME_INFORMATION ||
                    irp->MajorFunction == IRP_MJ_DIRECTORY_CONTROL) {

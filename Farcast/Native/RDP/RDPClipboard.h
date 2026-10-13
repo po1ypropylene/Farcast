@@ -3,6 +3,9 @@
 @interface FCRDPClipboardFileBatch : NSObject
 - (instancetype)initWithRoot:(NSURL *)root files:(NSArray<NSURL *> *)files;
 @property(nonatomic, readonly) NSArray<NSURL *> *files;
+// A pasteboard consumer can wait without involving the main actor. The RDP
+// worker completes or cancels this condition independently of UI callbacks.
+- (BOOL)waitUntilReadyWithTimeout:(NSTimeInterval)timeout NS_SWIFT_NAME(waitUntilReady(timeout:));
 @end
 
 // All methods and callbacks run on the owning RDP worker, never the main thread.
