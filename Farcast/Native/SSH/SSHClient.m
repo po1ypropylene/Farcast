@@ -41,11 +41,18 @@ static void keyboardPrompt(const char *name, int nameLen, const char *instructio
 + (void)whenAllDisconnected:(void (^)(void))completion {
     dispatch_group_notify(workers(), dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), completion);
 }
++ (BOOL)verifyForwardingListener {
+    return [self forwardingListenerProbe];
+}
 - (instancetype)init {
     if ((self = [super init])) {
         _lock = [NSLock new];
         _outgoing = [NSMutableData new];
         _fileRequests = [NSMutableArray new];
+        _forwardCommands = [NSMutableArray new];
+        _forwardResolutions = [NSMutableDictionary new];
+        _forwardingRules = @[];
+        _forwardWakeRead = _forwardWakeWrite = -1;
         _socket = -1;
         _columns = 100;
         _rows = 30;
@@ -193,6 +200,17 @@ static void keyboardPrompt(const char *name, int nameLen, const char *instructio
      authentication:(NSString *)authentication {
     // One worker owns all libssh2 handles. Public methods only enqueue input or
     // interrupt the socket.
+    int wake[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, wake) == 0) {
+        _forwardWakeRead = wake[0];
+        _forwardWakeWrite = wake[1];
+        for (int i = 0; i < 2; i++) {
+            int one = 1;
+            fcntl(wake[i], F_SETFL, O_NONBLOCK);
+            fcntl(wake[i], F_SETFD, FD_CLOEXEC);
+            setsockopt(wake[i], SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
+        }
+    }
     dispatch_group_enter(workers());
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
       @autoreleasepool {
@@ -378,26 +396,37 @@ static void keyboardPrompt(const char *name, int nameLen, const char *instructio
     }
     _workerSession = session;
     _workerChannel = channel;
+    [self initializeForwarding];
     if (!channel && ![self openSFTPUntil:monotonicTime() + 30]) {
-        failure = @"The server provides neither an interactive terminal nor SFTP file transfer.";
-        goto cleanup;
+        if (!_forwardRules.count) {
+            failure = @"The server provides neither an interactive terminal nor SFTP file transfer.";
+            goto cleanup;
+        }
     }
-    libssh2_keepalive_config(session, 1, 30);
+    // Global request replies have no IDs. libssh2's keepalive sender does not
+    // consume its reply, so it would be mistaken for a forward-listen reply.
+    libssh2_keepalive_config(session, 0, 30);
     [self terminalAvailable:channel != NULL];
-    [self status:@"connected" message:channel ? @"SSH connected" : @"SSH connected — file transfer only"];
+    [self status:@"connected"
+         message:channel             ? @"SSH connected"
+                 : _filesUnavailable ? @"SSH connected — tunnels only"
+                                     : @"SSH connected — file transfer only"];
     while (!atomic_load(&_stopped)) {
         @autoreleasepool {
             // Forced SFTP accounts may accept the shell request and immediately close it.
             // A finished shell also need not terminate an independently usable subsystem.
             if (channel && libssh2_channel_eof(channel)) {
-                if (![self closeTerminal:&channel session:session] || ![self openSFTPUntil:monotonicTime() + 30]) {
+                if (![self closeTerminal:&channel session:session] ||
+                    (![self openSFTPUntil:monotonicTime() + 30] && !_forwardRules.count)) {
                     failure = @"The terminal ended and SFTP file transfer is unavailable.";
                     break;
                 }
                 [self terminalAvailable:NO];
-                [self status:@"connected" message:@"SSH connected — file transfer only"];
+                [self status:@"connected"
+                     message:_filesUnavailable ? @"SSH connected — tunnels only"
+                                               : @"SSH connected — file transfer only"];
             }
-            if (channel ? ![self pumpTerminal:channel] : ![self pumpIdleSFTP]) {
+            if (![self serviceInteractive] || (!channel && _sftp && ![self pumpIdleSFTP])) {
                 failure = @"The SSH connection was interrupted.";
                 break;
             }
@@ -428,13 +457,11 @@ static void keyboardPrompt(const char *name, int nameLen, const char *instructio
                 failure = @"The SSH connection was interrupted.";
                 break;
             }
-            {
-                struct pollfd p = {_socket, POLLIN, 0};
-                poll(&p, 1, 20);
-            }
+            [self waitForServiceEvents:POLLIN timeout:20];
         }
     }
 cleanup:
+    [self cleanupForwarding];
     _interactivePassword = nil;
     _workerChannel = NULL;
     _workerSession = NULL;
@@ -465,15 +492,32 @@ cleanup:
     _socket = -1;
     [_outgoing setLength:0];
     [_fileRequests removeAllObjects];
+    if (_forwardWakeRead >= 0)
+        close(_forwardWakeRead);
+    if (_forwardWakeWrite >= 0)
+        close(_forwardWakeWrite);
+    _forwardWakeRead = _forwardWakeWrite = -1;
     [_lock unlock];
-    if (failure && !atomic_load(&_stopped))
-        [self status:@"failed" message:failure];
+    if (_forwardFailure || (failure && !atomic_load(&_stopped)))
+        [self status:@"failed" message:_forwardFailure ?: failure];
     else
         [self status:@"disconnected" message:@"SSH disconnected"];
 }
 
 - (void)listDirectory:(NSString *)path requestID:(NSString *)requestID {
     [self enqueueFileRequest:@{@"id" : requestID, @"path" : path, @"kind" : @"list"}];
+}
+- (BOOL)updateForwarding:(NSDictionary *)configuration start:(BOOL)start {
+    return [self queueForwardingConfiguration:configuration start:start];
+}
+- (BOOL)removeForwarding:(NSString *)identifier {
+    return [self queueForwardingRemoval:identifier];
+}
+- (void)startForwarding:(NSString *)identifier {
+    [self enqueueForwardCommand:identifier start:YES];
+}
+- (void)stopForwarding:(NSString *)identifier {
+    [self enqueueForwardCommand:identifier start:NO];
 }
 - (void)transferLocalPath:(NSString *)localPath
                remotePath:(NSString *)remotePath

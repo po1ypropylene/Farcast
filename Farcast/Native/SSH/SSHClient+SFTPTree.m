@@ -62,6 +62,10 @@
     // READDIR already carries metadata. Reuse complete snapshots for preflight,
     // with LSTAT fallback for servers omitting fields. Transfer-time source
     // identity/metadata rechecks and move-deletion checks remain independent.
+    if (![self serviceInteractive]) {
+        [self disconnect];
+        return NO;
+    }
     NSDictionary *attrs = knownAttributes ?: (remote ? [self remoteAttributes:path] : [self localAttributes:path]);
     if (attrs[@"error"] || (![attrs[@"directory"] boolValue] && ![attrs[@"regular"] boolValue]))
         return NO;
@@ -136,7 +140,7 @@
             if (rc)
                 return @"Could not remove a local source item. Some items may remain.";
         }
-        if (![self pumpTerminal:_workerChannel]) {
+        if (![self serviceInteractive]) {
             [self disconnect];
             return @"Connection interrupted.";
         }

@@ -8,6 +8,14 @@ struct SFTPView: View {
     @State private var localSelection = Set<String>()
     @State private var remoteSelection = Set<String>()
     @State private var path = ""
+    @State private var localFilter = ""
+    @State private var remoteFilter = ""
+    private var visibleLocalFiles: [TransferFile] {
+        SFTPController.filteredFiles(controller.localFiles, matching: localFilter)
+    }
+    private var visibleRemoteFiles: [TransferFile] {
+        SFTPController.filteredFiles(controller.remoteFiles, matching: remoteFilter)
+    }
     @State private var nameRequest: FileNameRequest?
     @State private var deleteRequest: FileDeleteRequest?
     @State private var moveDestination: Bool?
@@ -95,6 +103,8 @@ struct SFTPView: View {
         .onChange(of: controller.localURL) { _, _ in localSelection = [] }
         .onChange(of: controller.localFiles) { _, files in localSelection.formIntersection(files.map(\.id)) }
         .onChange(of: controller.remoteFiles) { _, files in remoteSelection.formIntersection(files.map(\.id)) }
+        .onChange(of: localFilter) { _, _ in localSelection.formIntersection(visibleLocalFiles.map(\.id)) }
+        .onChange(of: remoteFilter) { _, _ in remoteSelection.formIntersection(visibleRemoteFiles.map(\.id)) }
         .sheet(item: $nameRequest) { request in
             FileNameSheet(request: request) { name in
                 if let file = request.file {
@@ -187,7 +197,8 @@ struct SFTPView: View {
                 .disabled(controller.busy || controller.localURL == nil).help("Refresh local files")
             }.font(.callout).padding(.horizontal, 10).padding(.bottom, 8)
             Divider()
-            fileList(controller.localFiles, selection: $localSelection, local: true)
+            filterField($localFilter, title: "Filter local files")
+            fileList(visibleLocalFiles, selection: $localSelection, local: true)
                 .overlay {
                     if controller.needsLocalAccess {
                         ContentUnavailableView(
@@ -198,15 +209,17 @@ struct SFTPView: View {
             Divider()
             HStack {
                 Button("Upload →") {
-                    controller.transfer(selected(controller.localFiles, ids: localSelection), upload: true)
-                }.disabled(!canTransfer(controller.localFiles, selection: localSelection))
+                    controller.transfer(selected(visibleLocalFiles, ids: localSelection), upload: true)
+                }.disabled(!canTransfer(visibleLocalFiles, selection: localSelection))
                 Button("Paste") { paste(local: true) }.disabled(!controller.canPaste(local: true))
                 Spacer()
                 IconActionButton(title: "Full Disk Access settings", symbol: "lock.shield") {
                     openDiskAccessSettings()
                 }
                 Text(
-                    localSelection.isEmpty ? "\(controller.localFiles.count) items" : "\(localSelection.count) selected"
+                    localSelection.isEmpty
+                        ? itemCount(visible: visibleLocalFiles.count, total: controller.localFiles.count)
+                        : "\(localSelection.count) selected"
                 ).foregroundStyle(.secondary)
             }.font(.callout).padding(10)
         }
@@ -216,19 +229,24 @@ struct SFTPView: View {
             HStack {
                 Label("Server", systemImage: "externaldrive.connected.to.line.below").font(.headline)
                 Spacer()
-                Text("SFTP over SSH").font(.callout).foregroundStyle(.secondary)
-            }.frame(minHeight: 24).padding(10)
+                IconActionButton(title: "Back to previous server folder", symbol: "chevron.left") {
+                    controller.remoteBack()
+                }.disabled(!connected || !controller.canGoRemoteBack)
+                IconActionButton(title: "Forward to next server folder", symbol: "chevron.right") {
+                    controller.remoteForward()
+                }.disabled(!connected || !controller.canGoRemoteForward)
+            }.frame(minHeight: 24).padding(10).help("SFTP over the existing SSH connection")
             HStack {
                 IconActionButton(title: "Parent server folder", symbol: "arrow.up") {
                     controller.remoteParent()
                 }
                 .disabled(!connected || controller.busy || controller.remotePath == "/").help("Parent server folder")
                 TextField("Server folder", text: $path).frame(minHeight: 24).onSubmit {
-                    controller.refreshRemote(path: path)
+                    controller.navigateRemote(path: path)
                 }
                 .disabled(!connected || controller.busy)
                 IconActionButton(title: "Open server folder", symbol: "arrow.right") {
-                    controller.refreshRemote(path: path)
+                    controller.navigateRemote(path: path)
                 }
                 .disabled(!connected || controller.busy).help("Open server folder")
                 IconActionButton(title: "Refresh server files", symbol: "arrow.clockwise") {
@@ -237,18 +255,37 @@ struct SFTPView: View {
                 .disabled(!connected || controller.busy).help("Refresh server files")
             }.font(.callout).padding(.horizontal, 10).padding(.bottom, 8)
             Divider()
-            fileList(controller.remoteFiles, selection: $remoteSelection, local: false)
+            filterField($remoteFilter, title: "Filter server files")
+            fileList(visibleRemoteFiles, selection: $remoteSelection, local: false)
             Divider()
             HStack {
                 Button("← Download") {
-                    controller.transfer(selected(controller.remoteFiles, ids: remoteSelection), upload: false)
-                }.disabled(!canTransfer(controller.remoteFiles, selection: remoteSelection))
+                    controller.transfer(selected(visibleRemoteFiles, ids: remoteSelection), upload: false)
+                }.disabled(!canTransfer(visibleRemoteFiles, selection: remoteSelection))
                 Button("Paste") { paste(local: false) }.disabled(!controller.canPaste(local: false))
                 Spacer()
-                Text(remoteSelection.isEmpty ? "Double-click to open" : "\(remoteSelection.count) selected")
-                    .foregroundStyle(.secondary)
+                Text(
+                    remoteSelection.isEmpty
+                        ? itemCount(visible: visibleRemoteFiles.count, total: controller.remoteFiles.count)
+                        : "\(remoteSelection.count) selected"
+                )
+                .foregroundStyle(.secondary)
             }.font(.callout).padding(10)
         }
+    }
+    private func itemCount(visible: Int, total: Int) -> String {
+        visible == total ? "\(total) items" : "\(visible) of \(total) items"
+    }
+    private func filterField(_ query: Binding<String>, title: String) -> some View {
+        HStack {
+            Image(systemName: "line.3.horizontal.decrease").foregroundStyle(.secondary)
+            TextField(title, text: query).textFieldStyle(.roundedBorder).accessibilityLabel(title)
+            if !query.wrappedValue.isEmpty {
+                IconActionButton(title: "Clear \(title.lowercased())", symbol: "xmark.circle.fill") {
+                    query.wrappedValue = ""
+                }
+            }
+        }.padding(.horizontal, 10).padding(.vertical, 6)
     }
     private func openDiskAccessSettings() {
         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") else {

@@ -1,8 +1,10 @@
 import AppKit
+import SwiftData
 import SwiftUI
 
 /// One presentation owner for the existing transport and native surface.
 struct DetachedSessionView: View {
+    @Environment(\.modelContext) private var context
     @ObservedObject var workspace: Workspace
     let slot: UUID
     @AppStorage("appearance") private var appearance = "System"
@@ -11,30 +13,7 @@ struct DetachedSessionView: View {
         Group {
             if let session = workspace.session(in: slot) {
                 VStack(spacing: 0) {
-                    HStack {
-                        Text(session.profile.name).font(.headline).lineLimit(1)
-                        Spacer()
-                        IconActionButton(title: "Return to Workspace", symbol: "rectangle.portrait.and.arrow.forward") {
-                            workspace.returnToWorkspace(slot: slot)
-                        }
-                        IconActionButton(title: "Reconnect this session", symbol: "arrow.clockwise") {
-                            workspace.reconnect(session)
-                        }
-                        IconActionButton(title: "Disconnect this session", symbol: "stop.circle") {
-                            session.disconnect()
-                        }.disabled(!session.state.active)
-                        if session.profile.kind != .ssh {
-                            SessionFullScreenButton(session: session)
-                        } else {
-                            IconActionButton(title: "Toggle full screen", symbol: "arrow.up.left.and.arrow.down.right")
-                            {
-                                NSApp.keyWindow?.toggleFullScreen(nil)
-                            }
-                        }
-                        IconActionButton(title: "Show connection details", symbol: "sidebar.right") {
-                            workspace.toggleInspector(slot: slot)
-                        }
-                    }.padding(.horizontal, 12).padding(.vertical, 4).background(.bar)
+                    DetachedSessionToolbar(session: session, workspace: workspace, slot: slot)
                     Divider()
                     HStack(spacing: 0) {
                         SessionPane(session: session, workspace: workspace).id(session.id)
@@ -46,8 +25,17 @@ struct DetachedSessionView: View {
                 }
             }
         }
+        .modifier(SessionActionConfirmation(workspace: workspace, slot: slot))
+        .environment(\.modelContext, workspace.modelContext ?? context)
         .buttonStyle(.bordered).controlSize(.regular)
         .preferredColorScheme(appearance == "Dark" ? .dark : appearance == "Light" ? .light : nil)
+        .sheet(
+            item: Binding(
+                get: { workspace.focusedDetachedSlot == slot ? workspace.editor : nil },
+                set: { if workspace.focusedDetachedSlot == slot { workspace.editor = $0 } })
+        ) { request in
+            ConnectionEditor(workspace: workspace, request: request)
+        }
         .sheet(
             item: Binding(
                 get: { workspace.prompts.first { $0.sessionID == workspace.detachedSessions[slot] } },
@@ -73,5 +61,36 @@ struct DetachedSessionView: View {
         } message: {
             Text(workspace.error ?? "")
         }
+    }
+}
+
+private struct DetachedSessionToolbar: View {
+    @ObservedObject var session: RemoteSession
+    @ObservedObject var workspace: Workspace
+    let slot: UUID
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(session.profile.name).font(.headline).lineLimit(1)
+            Spacer()
+            IconActionButton(title: "Reconnect (⇧⌘R)", symbol: "arrow.clockwise") {
+                workspace.requestReconnect(session)
+            }
+            Divider().frame(height: 16).padding(.horizontal, 4)
+            if session.profile.kind != .ssh {
+                SessionFullScreenButton(session: session)
+            } else {
+                IconActionButton(title: "Full Screen (⌃⌘F)", symbol: "arrow.up.left.and.arrow.down.right") {
+                    NSApp.keyWindow?.toggleFullScreen(nil)
+                }
+            }
+            IconActionButton(title: "Connection Details (⌥⌘I)", symbol: "sidebar.right") {
+                workspace.toggleInspector(slot: slot)
+            }
+            IconActionButton(title: "Return to Workspace (⇧⌘O)", symbol: "rectangle.portrait.and.arrow.forward") {
+                workspace.returnToWorkspace(slot: slot)
+            }
+            Divider().frame(height: 16).padding(.horizontal, 4)
+            SessionDisconnectButton(session: session, workspace: workspace, compact: true)
+        }.padding(.horizontal, 12).padding(.vertical, 4).background(.bar)
     }
 }

@@ -1,5 +1,6 @@
 import AppKit
 import CryptoKit
+import Darwin
 import Foundation
 import SwiftData
 
@@ -74,6 +75,10 @@ import SwiftData
             draft.clipboard = false
             draft.audioPlayback = false
             draft.dynamicResolution = false
+            if kind == .ssh {
+                let port = Int(try! String(contentsOf: root.appendingPathComponent("forward-port"), encoding: .utf8))!
+                draft.forwardingRules = [SSHForwardingRule(destinationPort: port)]
+            }
             if trust && kind != .vnc {
                 workspace.trust.remember(kind == .ssh ? sshPin : rdpPin, for: draft.endpointKey)
             }
@@ -90,6 +95,52 @@ import SwiftData
             try await waitUntil("SFTP did not remain usable through the shared tunnel") {
                 session.state == .connected && !session.files.busy && !session.files.remoteFiles.isEmpty
             }
+        }
+        func checkForwarding(_ session: RemoteSession) async throws {
+            let rule = session.profile.forwardingRules[0]
+            try await waitUntil("SSH forwarding did not start over WireGuard") {
+                session.forwarding.statuses[rule.id]?.state == "listening"
+            }
+            let port = session.forwarding.statuses[rule.id]!.port
+            let valid = await Task.detached {
+                let fd = socket(AF_INET, SOCK_STREAM, 0)
+                guard fd >= 0 else { return false }
+                defer { close(fd) }
+                var timeout = timeval(tv_sec: 10, tv_usec: 0)
+                setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+                setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+                var address = sockaddr_in()
+                address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+                address.sin_family = sa_family_t(AF_INET)
+                address.sin_addr.s_addr = inet_addr("127.0.0.1")
+                address.sin_port = UInt16(port).bigEndian
+                let connected = withUnsafePointer(to: &address) { pointer in
+                    pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                        connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0
+                    }
+                }
+                guard connected else { return false }
+                let data = Data((0..<65536).map { UInt8(truncatingIfNeeded: $0) })
+                var sent = 0
+                while sent < data.count {
+                    let count = data.withUnsafeBytes {
+                        send(fd, $0.baseAddress!.advanced(by: sent), data.count - sent, 0)
+                    }
+                    if count <= 0 { return false }
+                    sent += count
+                }
+                shutdown(fd, SHUT_WR)
+                var result = Data()
+                var buffer = [UInt8](repeating: 0, count: 32768)
+                while true {
+                    let count = recv(fd, &buffer, buffer.count, 0)
+                    if count < 0 { return false }
+                    if count == 0 { break }
+                    result.append(contentsOf: buffer.prefix(count))
+                }
+                return result == data + Data("TAIL".utf8)
+            }.value
+            precondition(valid, "Forwarded bytes/half-close tail did not cross the encrypted SSH transport")
         }
 
         let missing = make(.ssh, tunnelID: UUID())
@@ -115,6 +166,9 @@ import SwiftData
         }
         try await listFiles(first)
         try await listFiles(second)
+        try await checkForwarding(first)
+        try await checkForwarding(second)
+        print("PASS SSH TCP forwarding byte equality and half-close use the shared WireGuard SSH transport")
         precondition(first.terminalAvailable && second.terminalAvailable)
         first.terminal?.sendBytes?(Data("encrypted-terminal-check\n".utf8))
         try await waitUntil("SSH terminal input/output did not cross the encrypted tunnel") {
@@ -184,8 +238,19 @@ import SwiftData
         precondition((helpers().count) == 1)
         workspace.reconnect(second)
         let reconnected = workspace.sessions.first { $0.profile.id == second.profile.id && $0 !== second }!
+        // Report only the allowlisted synthetic session state if startup fails.
+        try await waitUntil("SSH reconnect did not finish startup") {
+            reconnected.state == .connected || reconnected.state == .failed || !workspace.prompts.isEmpty
+        }
+        if reconnected.state != .connected {
+            FileHandle.standardError.write(
+                Data(
+                    "Synthetic SSH reconnect state: \(reconnected.state.rawValue); prompt count: \(workspace.prompts.count); message: \(reconnected.message)\n"
+                        .utf8))
+        }
         try await waitUntil("SSH reconnect did not reacquire the tunnel") { reconnected.state == .connected }
         try await listFiles(reconnected)
+        try await checkForwarding(reconnected)
         let replacementDesktop = make(.rdp)
         try await waitUntil("RDP did not join the reconnected SSH tunnel") { replacementDesktop.state == .connected }
         precondition(helpers().count == 1)
@@ -198,6 +263,7 @@ import SwiftData
             reconnected.state == .failed && replacementDesktop.state == .failed && replacementVNC.state == .failed
         }
         precondition(!reconnected.message.isEmpty && !replacementDesktop.message.isEmpty)
+        precondition(reconnected.forwarding.statuses.values.allSatisfy { $0.state == "stopped" })
         precondition(workspace.prompts.isEmpty)
         let restartedSSH = make(.ssh)
         let restartedRDP = make(.rdp)

@@ -34,20 +34,19 @@ struct SessionTab: View {
             IconActionButton(
                 title: "Close \(session.profile.name)", symbol: "xmark",
                 action: {
-                    workspace.close(session)
+                    workspace.requestClose(session)
                 }, size: 22
             )
             .padding(.trailing, 4)
         }
-        .glassEffect(
-            selected ? .regular.tint(.accentColor.opacity(0.25)).interactive() : .clear.interactive(),
-            in: Capsule()
-        )
+        .overlay(alignment: .bottom) {
+            if selected { Rectangle().fill(.tint).frame(height: 2) }
+        }
         .accessibilityElement(children: .contain)
         .contextMenu {
-            Button("Reconnect") { workspace.reconnect(session) }
-            Button("Disconnect") { session.disconnect() }.disabled(!session.state.active)
-            Button("Close") { workspace.close(session) }
+            Button("Reconnect") { workspace.requestReconnect(session) }
+            Button("Disconnect") { workspace.requestDisconnect(session) }.disabled(!session.state.active)
+            Button("Close") { workspace.requestClose(session) }
         }
     }
 }

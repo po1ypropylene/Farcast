@@ -65,7 +65,9 @@ require approval; report recurring prompts rather than deleting your saved crede
    appear separately. Explicit Keyboard-interactive displays every server prompt.
    Keys and their passphrases can be saved on this Mac. There is no SSH-agent requirement.
 4. Save the connection, or choose **Save & Connect**. Quick Connect uses credentials
-   for the session only and does not create a saved profile.
+   for the session only and does not create a saved profile. Its **Quick address**
+   field accepts user@host:port, ssh://, rdp:// and vnc:// addresses; choose **Use**
+   or press Return to fill the ordinary fields. Enter passwords only in Password.
 5. Compare an unknown SSH host-key or untrusted RDP certificate fingerprint with
    your administrator's fingerprint before accepting it. Changed remembered
    identities trigger a separate warning. In the **Security** tab, **Forget trusted identity**
@@ -120,13 +122,68 @@ Keys follow the app’s existing credential storage policy. See
 - SFTP opens on demand over the same authenticated SSH connection. No local shell
   process or SSH agent is started. Normal remote shell commands may also read/write
   files on the server.
-- `~/.ssh/config`, ProxyCommand, jump hosts, forwarding, SSH certificates, and
+- `~/.ssh/config`, ProxyCommand, jump hosts, SSH certificates, and
   hardware-backed private keys are outside this release's supported configuration.
+
+### SSH tunnels
+
+Use **Add Tunnel…** in a connected SSH session’s **Tunnels** view to add a live
+tunnel. **Save to this connection** is the default for saved connections;
+**This session only** leaves the saved defaults unchanged and ends at reconnect.
+Use the card’s **…** menu to Edit, Duplicate or Remove. Edits replace that tunnel’s
+listener and connections without reconnecting SSH. Choose **Start now** to start
+it immediately, and **Start on connect** for the saved default.
+
+The connection editor’s **Tunnels** tab edits saved defaults for the next
+connection. **Edit saved tunnels…** links there from the live view; saved cards
+show status when that rule is also live. Validation starts after editing and
+leaving a field or attempting Save. Errors appear once under the fields, with a
+short footer summary. Empty fields initially show placeholders.
+
+| Type | Listener | Destination |
+| --- | --- | --- |
+| Local forward | This Mac, 127.0.0.1 or ::1 | A fixed service reached from the SSH server |
+| SOCKS5 proxy | This Mac, 127.0.0.1 or ::1 | CONNECT destinations requested by applications; names resolve on the SSH server |
+| Remote forward | An explicit address on the SSH server | A fixed service reached from this Mac |
+
+For example, a local rule listening on 127.0.0.1:15432 with destination
+db.internal:5432 lets a Mac database client connect to 127.0.0.1:15432. A remote
+rule listening on the server's 127.0.0.1:8080 with destination 127.0.0.1:3000
+exposes a Mac service to programs on that server. Server policy may reject rules
+or restrict remote binding. Selecting a non-loopback remote address may expose
+the listener to other machines when the server permits it.
+
+Leave the listen port empty for **Auto**, or enter a fixed port. The Tunnels view
+shows the actual port, state, active connection count and actionable failures.
+Use the copy button for host:port; SOCKS5 also offers a socks5:// URL. Fixed-port
+collisions fail instead of choosing another port. Up to 16 rules share the same
+SSH login, with up to 64 active forwarding connections across the session.
+
+Configure proxy-consuming applications explicitly to use the SOCKS listener.
+It supports SOCKS5 CONNECT with IPv4, IPv6 or a domain name and no proxy password;
+other local programs can also access it. BIND, UDP, HTTP CONNECT and automatic
+system-proxy configuration are unsupported. SSH protects the Mac-to-server hop;
+use the destination application's encryption where required beyond that server.
+
+Terminal, SFTP and tunnels share authentication and the selected WireGuard
+transport. Forwarding remains serviced during file transfers and overwrite
+prompts, and active rules use the smaller interactive file-transfer budget.
+**Stop** closes that rule's listener and current connections. Other rules and
+terminal/files remain usable. **Cancel** in Files affects only file work.
+Disconnect, reconnect and Close Session ask for confirmation when tunnels or file
+work are active. Disconnecting or closing closes all listeners; reconnect restarts
+enabled rules and may assign new automatic ports. A detached session keeps its
+tunnels until the session itself disconnects.
+
+Accounts that allow forwarding but deny both shell and SFTP open in **Tunnels**;
+unavailable terminal/file modes are disabled. Forwarding permission is checked
+when the server receives each listener or destination request, so a successful
+login alone does not mean every rule will work.
 
 ### SFTP file transfer
 
 Connect with an existing SSH profile, then choose **Files** in its session tab.
-**Split** keeps the terminal above the local and server file panels; **Terminal**
+**Split View** keeps the terminal above the local and server file panels; **Terminal**
 returns to the full terminal. Switching views preserves the same signed-in session.
 Terminal and Split prioritise keyboard responsiveness during transfers. Files
 uses the larger transfer pipeline for maximum throughput, which can help on
@@ -134,7 +191,7 @@ high-latency links. Switching back to Split may briefly wait for queued file dat
 to drain before the terminal becomes responsive.
 The server must allow its SFTP subsystem for file transfer. If it refuses an
 interactive terminal or ends the shell, the app checks SFTP and switches to
-**Files** when available. **Terminal**, **Split** and terminal tools are disabled
+**Files** when available. **Terminal**, **Split View** and terminal tools are disabled
 for that connection. Reconnecting checks the server's capabilities again.
 
 - The left panel starts at your actual Home folder. macOS asks for folder access
@@ -142,7 +199,14 @@ for that connection. Reconnecting checks the server's capabilities again.
   Browse its subfolders or click the **Local Mac** heading to choose another local
   folder with the standard macOS folder picker. No credentials are added.
 - The right panel starts in the server's SFTP home folder. Double-click folders,
-  use the parent arrow, type a server path, or refresh either panel.
+  use the parent arrow, type a server path, or use **Back/Forward** to revisit
+  successfully opened folders. Recent server listings may be cached for up to
+  30 seconds; the status bar identifies cached results. **Refresh** always reads
+  the server again. Remote changes made in this tab invalidate cached listings;
+  reconnecting clears both the cache and navigation history.
+- Filter either panel by filename. Matching ignores case and accents and does
+  not query the server or search inside subfolders. Hidden items are deselected;
+  **Select All**, transfers and context actions apply only to visible items.
 - Select files and folders with Command-click or Shift-click, then choose
   **Upload →** or **← Download**. Folders include their nested contents and empty
   folders. Selected items run sequentially; the batch stops at the first error.

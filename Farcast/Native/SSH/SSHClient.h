@@ -9,6 +9,16 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, copy) void (^onData)(NSData *data);
 // Delivered on the SSH worker before connected, and when a shell ends but SFTP remains available.
 @property(nonatomic, copy, nullable) void (^onTerminalAvailability)(BOOL available);
+@property(nonatomic, copy, nullable) void (^onFileAvailability)(BOOL available);
+// Set before connect; rules are metadata only. All listeners/channels live on the SSH worker.
+@property(nonatomic, copy) NSArray<NSDictionary *> *forwardingRules;
+@property(nonatomic, copy, nullable) void (^onForwarding)
+    (NSString *ruleID, NSString *state, NSInteger port, NSInteger connections, NSString *message);
+- (void)startForwarding:(NSString *)ruleID;
+- (void)stopForwarding:(NSString *)ruleID;
+// Queued, bounded runtime changes. Replacement waits for the old listener/flows to drain.
+- (BOOL)updateForwarding:(NSDictionary *)configuration start:(BOOL)start;
+- (BOOL)removeForwarding:(NSString *)ruleID;
 // Delivered on the SSH worker before failed when the server rejects credentials.
 @property(nonatomic, copy, nullable) void (^onAuthenticationRejected)(void);
 @property(nonatomic, copy) BOOL (^onTrust)(NSString *fingerprint, NSString *details);
@@ -46,5 +56,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)disconnect;
 // Asynchronous worker drain for app termination; never blocks the main thread.
 + (void)whenAllDisconnected:(void (^)(void))completion;
+// Pre-UI packaging check: production listener code, owned loopback sockets only.
++ (BOOL)verifyForwardingListener;
 @end
 NS_ASSUME_NONNULL_END

@@ -16,6 +16,12 @@ import SwiftUI
         if ProcessInfo.processInfo.arguments.contains("--verify-wireguard-helper") {
             exit(WireGuardBundleProbe.run() ? EXIT_SUCCESS : EXIT_FAILURE)
         }
+        if ProcessInfo.processInfo.arguments.contains("--verify-ssh-listener") {
+            let success = FCSSHClient.verifyForwardingListener()
+            print(
+                success ? "Farcast sandboxed SSH listener check passed" : "Farcast sandboxed SSH listener check failed")
+            exit(success ? EXIT_SUCCESS : EXIT_FAILURE)
+        }
         do {
             container = try ModelContainer(for: SavedConnection.self, ConnectionFolder.self, SavedWireGuard.self)
             startupError = nil
@@ -64,24 +70,11 @@ import SwiftUI
                     }
                 }
                 CommandMenu("Session") {
-                    Button("Reconnect") { if let session = workspace.activeSession { workspace.reconnect(session) } }
-                        .keyboardShortcut("r", modifiers: [.command, .shift]).disabled(workspace.activeSession == nil)
-                    Button("Disconnect") { workspace.activeSession?.disconnect() }.disabled(
-                        workspace.activeSession?.state.active != true)
-                    Button("Close Session") { if let session = workspace.activeSession { workspace.close(session) } }
-                        .keyboardShortcut("w").disabled(workspace.activeSession == nil)
-                    Divider()
-                    Button("Send Ctrl+Alt+Delete") { workspace.activeSession?.controlAltDelete() }.disabled(
-                        workspace.activeSession?.profile.kind == .ssh
-                            || workspace.activeSession?.state != .connected)
-                    Button("Paste Text from Clipboard") { workspace.activeSession?.pasteTextFromClipboard() }
-                        .disabled(
-                            workspace.activeSession?.profile.kind != .vnc
-                                || workspace.activeSession?.state != .connected)
-                    Button("Cancel Typing") { workspace.activeSession?.cancelVNCTyping() }
-                        .disabled(workspace.activeSession?.vncTyping != true)
-                    Button("Connection Details") { workspace.toggleInspector() }.keyboardShortcut(
-                        "i", modifiers: [.command, .option])
+                    if let session = workspace.activeSession {
+                        SessionMenuItems(session: session, workspace: workspace)
+                    } else {
+                        Text("No active session")
+                    }
                 }
             }
         Settings { AppSettings() }
@@ -95,5 +88,73 @@ private struct FindInTerminalCommandButton: View {
             guard session.terminalAvailable else { return }
             session.terminal?.find()
         }.keyboardShortcut("f").disabled(session.terminal == nil || !session.terminalAvailable)
+    }
+}
+
+// Session publishing updates menu availability even when the selected tab stays the same.
+private struct SessionMenuItems: View {
+    @ObservedObject var session: RemoteSession
+    @ObservedObject var workspace: Workspace
+    var body: some View {
+        Group {
+            Button("Reconnect") {
+                workspace.requestReconnect(session)
+            }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+            Button("Disconnect") {
+                workspace.requestDisconnect(session)
+            }.keyboardShortcut("d", modifiers: [.command, .shift]).disabled(
+                session.state.active != true)
+            Button("Close Session") {
+                workspace.requestClose(session)
+            }
+            .keyboardShortcut("w")
+            Divider()
+            ForEach(SSHWorkspaceMode.allCases) { mode in
+                Button(mode == .split ? "Split View" : mode.rawValue) {
+                    session.sshMode = mode
+                }
+                .keyboardShortcut(
+                    mode == .terminal ? "1" : mode == .files ? "2" : mode == .split ? "3" : "4",
+                    modifiers: [.command, .option]
+                )
+                .disabled(
+                    session.profile.kind != .ssh || !session.supports(mode)
+                )
+            }
+            Button("Increase Terminal Zoom") { session.zoomTerminal(1) }.keyboardShortcut(
+                "+", modifiers: [.command]
+            )
+            .disabled(session.terminal == nil || !session.terminalAvailable)
+            Button("Decrease Terminal Zoom") { session.zoomTerminal(-1) }.keyboardShortcut(
+                "-", modifiers: [.command]
+            )
+            .disabled(session.terminal == nil || !session.terminalAvailable)
+            Button("Reset Terminal Zoom") { session.resetTerminalZoom() }.keyboardShortcut(
+                "0", modifiers: [.command]
+            )
+            .disabled(session.terminal == nil || !session.terminalAvailable)
+            Divider()
+            Button("Send Ctrl+Alt+Delete") { session.controlAltDelete() }.disabled(
+                session.profile.kind == .ssh
+                    || session.state != .connected)
+            Button("Paste Text from Clipboard") { session.pasteTextFromClipboard() }
+                .disabled(
+                    session.profile.kind != .vnc
+                        || session.state != .connected)
+            Button("Cancel Typing") { session.cancelVNCTyping() }
+                .disabled(session.vncTyping != true)
+            Divider()
+            Button("Full Screen") { workspace.toggleSessionFullScreen() }
+                .keyboardShortcut("f", modifiers: [.command, .control]).disabled(
+                    session.profile.kind != .ssh && session.state != .connected)
+            Button(workspace.focusedDetachedSlot == nil ? "Pop Out Session" : "Return to Workspace") {
+                workspace.popOutActiveSession()
+            }
+            .keyboardShortcut("o", modifiers: [.command, .shift])
+            Button("Connection Details") { workspace.toggleInspector() }.keyboardShortcut(
+                "i", modifiers: [.command, .option])
+
+        }
     }
 }

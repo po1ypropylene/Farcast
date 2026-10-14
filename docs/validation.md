@@ -11,12 +11,13 @@ stated scope; disabled live entries report SKIP.
 | --- | --- | --- |
 | Core and persistence | Draft validation, credential encoding/permissions, endpoint trust, imports, prompt cancellation, display geometry and resize coordination | Isolated stores and synthetic input |
 | Migration | Old-module and pre-feature SwiftData stores, ID/metadata preservation, credential opt-in, reopening and unchanged source bytes | Disposable libraries; user-container grants need live testing |
-| SSH/SFTP | Authentication/trust, fresh sign-in retry, file-only fallback, byte equality, overwrite/move safety, cancellation, terminal scheduling and throughput | Loopback peers and controlled proxies |
+| SSH/SFTP | Authentication/trust, fresh sign-in retry, file-only fallback, byte equality, overwrite/move safety, cancellation, terminal scheduling and throughput; navigation history, cache hits/expiry/eviction/invalidation, stale replies and filename filtering | Loopback peers, controlled proxies and explicit synthetic listing replies |
+| SSH forwarding | Local/remote/SOCKS byte equality, live add/edit/remove including initially empty sessions, concurrency, IPv6, server-only DNS, malformed/fragmented messages, backpressure and EOF, policy denial, ports, stop/restart, forwarding-only sessions, file conflicts/cancellation, WireGuard sharing/reconnect/failure and signed sandboxed listeners | Owned loopback/encrypted peers and native off-screen controls; production policy and throughput unverified |
 | VNC | RFB versions/security, DES challenge, TLS trust/refusal, raw/CopyRect/Hextile/Zlib/resize, Unicode key pairs, pointer, typing cancellation and malformed input | Owned synthetic peers; production interoperability is unverified |
 | RDP channels | TLS/NLA, frames, clipboard text/files, folder drives, Display Control PDUs, initial monitor attributes and pointer input | Synthetic peers; channel submission does not prove Windows acceptance |
 | RDP folder browsing | Packed directory formats, compatibility padding at enumeration end, Unicode pagination, trailing separators and nested files; direct/WireGuard fixtures | Signed app on one authorized Windows server with direct transport: complete visible root count and repeated browsing through two subfolder levels. Real writes and other server policies remain unverified |
 | RDP presentation | Cropped Metal uploads, inverse input mapping, letterbox/stale-frame rejection, full-screen startup/exit/re-entry and teardown | Marked frames and owned off-screen windows |
-| Workspace | Tab ordering/reconnect, detached surface ownership, focus/prompt routing, terminal menus and AppKit shutdown | Synthetic sessions, private pasteboards and preferences |
+| Workspace | Tab ordering/reconnect, detached surface ownership, focus/prompt routing, terminal menus, deferred connection/tunnel validation in light/dark hosts and AppKit shutdown | Synthetic sessions, private pasteboards and preferences |
 | WireGuard | Encrypted loopback traffic, concurrent SSH/SFTP/RDP/VNC on one helper, independent disconnect/reconnect, DNS/route and host-key refusal, shared-helper failure/cleanup and schema migration | Generated keys and owned peers |
 | Packaging/signing | Platform, library closure, signatures, loader, sandboxed helper, certificate continuity, mounted bundle and SHA256 | Local development artifact; distribution is separate |
 | Maintenance | Cleanup boundaries, dependency rollback, signing policy, harness teardown and repository hygiene | Disposable files and mocked destructive operations |
@@ -50,8 +51,18 @@ stated scope; disabled live entries report SKIP.
   Cancellation/failure can leave partial destinations or completed tree leaves.
   Local publication requires hard-link support. Resume and Finder download
   promises are unsupported; remote Open creates a snapshot without automatic upload.
+  Cached folder views can lag external changes by up to 30 seconds; Refresh
+  bypasses the cache. Cached metadata never substitutes for operation preflight.
 - **WireGuard:** endpoint DNS refreshes on manual reconnect, not periodically.
   Missing profiles, tunnel failures and uncovered destinations fail closed.
+- **SSH forwarding:** loopback-only local listeners, SOCKS5 CONNECT without proxy
+  authentication, at most 16 rules/64 flows. BIND/UDP, HTTP proxy, Unix-socket
+  forwarding and system-proxy setup are unsupported. Server policy determines
+  remote binding/cancellation and destination access. Forwarded destinations are
+  reached from the SSH server, beyond the WireGuard lease's destination check;
+  encryption beyond that server depends on the destination protocol. Active rules
+  reduce the SFTP pipeline budget. Production policies, long sessions and complete
+  keyboard/VoiceOver workflows remain unverified.
 - **Release:** local signing uses a pinned Apple Development certificate with
   hardened runtime disabled. Developer ID distribution, notarization, clean-Mac
   installation and vulnerability/legal review remain pending. Farcast's source

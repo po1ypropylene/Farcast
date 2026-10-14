@@ -2,6 +2,28 @@
 
 Changes are recorded from version 1.7.0 onwards.
 
+## 2.3.0 — 15 October 2026
+
+- Add, edit, duplicate, start, stop and remove SSH tunnels in a live session without reconnecting. Save to the connection or keep a tunnel for this session only. Show actual listener addresses with copy controls, status and actionable failures.
+- Align saved/live tunnel forms, show Auto for empty listen ports, add plain-language paths and contextual security hints, and constrain live cards and empty states to one content container.
+- Defer new-connection hostname errors until the address is skipped or Save is attempted. Defer new tunnel errors until edited fields lose focus or Save is attempted; show inline errors once with an issue-count footer.
+- Unify underline navigation, group toolbar commands, add sidebar session state/uptime and terminal zoom/reset, and confirm session interruption when file work or tunnels are active. Remove redundant sidebar labels and tagline.
+- Accept user@host:port and SSH/RDP/VNC URLs in Quick Connect. Preserve every connection setting on duplication, including WireGuard and raw optional metadata; copies require their own credentials.
+- Live tunnel behavior is covered by owned SSH peers. Production server policy, full VoiceOver workflows and measured light/dark contrast still require live verification.
+
+## 2.2.0 — 14 October 2026
+
+- Add saved local TCP, SOCKS5 CONNECT and remote TCP tunnel rules, with automatic or fixed listener ports, Start on connect, and live Start/Stop controls, state, bound ports and connection counts.
+- Share the authenticated SSH session and optional WireGuard transport with terminal/SFTP. Keep forwarding active during file work and overwrite prompts; support accounts that allow forwarding but deny shell and SFTP. Preserve existing profiles with optional tunnel metadata.
+- Bound connections and queues, handle partial writes and each EOF direction independently, and close listeners on stop, disconnect, reconnect and quit. Avoid keepalive reply conflicts with remote-listener requests.
+- Local listeners are loopback-only and SOCKS5 has no proxy authentication. BIND, UDP, HTTP CONNECT and automatic system-proxy changes are unsupported. Remote listener access depends on server policy; SSH-server-to-destination encryption is the destination application's responsibility. Production forwarding policy and long-running performance remain unverified.
+
+## 2.1.0 — 14 October 2026
+
+- Add Back/Forward navigation to server file browsing and independent local/server filename filters. Selection, Select All, transfers and context actions operate on visible items.
+- Reuse recent server folder listings for up to 30 seconds to avoid repeated network reads. Bound the session-only cache, bypass it on Refresh, and invalidate it before remote changes and on reconnect/disconnect. Cached listings are identified in the status bar; other clients' changes require Refresh or cache expiry.
+- Preserve the shared SSH login, terminal-aware transfer pipeline and native preflight/overwrite checks. Synthetic browsing and transfer coverage does not establish production-server speed or full accessibility coverage.
+
 ## 2.0.3 — 13 October 2026
 
 - Build 2: include the compatibility padding byte in empty RDP directory replies, including enumeration end. This fixes incomplete Explorer listings and subsequent invalid-address errors. Retain version 2.0.3 as requested.

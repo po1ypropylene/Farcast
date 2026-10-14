@@ -6,7 +6,8 @@ struct SessionFullScreenButton: View {
 
     var body: some View {
         IconActionButton(
-            title: session.fullScreenPresented ? "Exit Remote Desktop Full Screen" : "Enter Remote Desktop Full Screen",
+            title: session.fullScreenPresented
+                ? "Exit Remote Desktop Full Screen (⌃⌘F)" : "Enter Remote Desktop Full Screen (⌃⌘F)",
             symbol: session.fullScreenPresented
                 ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right"
         ) {

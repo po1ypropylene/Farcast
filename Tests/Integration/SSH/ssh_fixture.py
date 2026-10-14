@@ -24,6 +24,9 @@ class Server(paramiko.ServerInterface):
     def __init__(self):
         self.shell = threading.Event()
         self.channel = None
+        self.destinations = {}
+        self.forward_listeners = {}
+        self.transport = None
     def get_allowed_auths(self, username):
         if mode.startswith('keyboard-'): return 'keyboard-interactive'
         if mode == 'key-only': return 'publickey'
@@ -51,9 +54,49 @@ class Server(paramiko.ServerInterface):
             expected = ['fixture-password']
         return paramiko.AUTH_SUCCESSFUL if responses == expected else paramiko.AUTH_FAILED
     def check_channel_request(self, kind, channel):
+        if mode == 'forward-only': return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
         if mode == 'channel-denied' and channel == 0:
             return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
         return paramiko.OPEN_SUCCEEDED if kind == 'session' else paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
+    def check_channel_direct_tcpip_request(self, channel, origin, destination):
+        if mode not in ('forwarding', 'forward-only', 'forward-eof', 'forward-delay', 'forward-timeout'):
+            return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
+        host, port = destination
+        if host not in ('127.0.0.1', '::1', 'only-on-server.invalid'):
+            return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
+        self.destinations[channel] = ('127.0.0.1' if host == 'only-on-server.invalid' else host, port)
+        if mode == 'forward-delay': threading.Event().wait(0.25)
+        if mode == 'forward-timeout': threading.Event().wait(26)
+        return paramiko.OPEN_SUCCEEDED
+    def check_port_forward_request(self, address, port):
+        if mode not in ('forwarding', 'forward-only', 'forward-eof', 'forward-delay') or address not in ('127.0.0.1', '::1'):
+            return False
+        listener = socket.socket(socket.AF_INET6 if address == '::1' else socket.AF_INET)
+        try:
+            listener.bind((address, port)); listener.listen(16); listener.settimeout(0.2)
+        except OSError:
+            listener.close(); return False
+        actual = listener.getsockname()[1]
+        stopped = threading.Event()
+        self.forward_listeners[(address, actual)] = (listener, stopped)
+        def accept_forwarded():
+            while not stopped.is_set() and self.transport.is_active():
+                try:
+                    peer, origin = listener.accept()
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+                try:
+                    channel = self.transport.open_forwarded_tcpip_channel(origin[:2], (address, actual))
+                    threading.Thread(target=bridge, args=(channel, peer), daemon=True).start()
+                except Exception:
+                    peer.close()
+        threading.Thread(target=accept_forwarded, daemon=True).start()
+        return actual
+    def cancel_port_forward_request(self, address, port):
+        found = self.forward_listeners.pop((address, port), None)
+        if found: found[1].set(); found[0].close()
     def check_channel_pty_request(self, channel, term, width, height, *args):
         return mode not in ('no-pty', 'no-services') and term == b'xterm-256color'
     def check_channel_shell_request(self, channel):
@@ -66,7 +109,7 @@ class Server(paramiko.ServerInterface):
 
 def serve_shell(transport, channel):
     try:
-        if mode == 'shell-eof':
+        if mode in ('shell-eof', 'forward-eof'):
             channel.send_exit_status(0)
             channel.shutdown_write()
             channel.close()
@@ -86,9 +129,35 @@ def serve_shell(transport, channel):
     except Exception:
         pass
 
+def bridge(channel, peer):
+    # Both directions independently preserve EOF and buffered tail bytes.
+    def pump(source, destination):
+        try:
+            while True:
+                data = source.recv(32768)
+                if not data: break
+                destination.sendall(data)
+            if hasattr(destination, 'shutdown_write'): destination.shutdown_write()
+            else: destination.shutdown(socket.SHUT_WR)
+        except Exception:
+            pass
+    first = threading.Thread(target=pump, args=(channel, peer), daemon=True)
+    second = threading.Thread(target=pump, args=(peer, channel), daemon=True)
+    first.start(); second.start(); first.join(); second.join()
+    peer.close(); channel.close()
+
+def serve_direct(channel, destination):
+    try:
+        peer = socket.create_connection(destination, timeout=5)
+        peer.settimeout(None)
+        bridge(channel, peer)
+    except Exception:
+        channel.close()
+
 def serve(sock):
     transport = paramiko.Transport(sock); transport.add_server_key(host_key); server = Server()
-    if mode not in ('no-sftp', 'no-services'):
+    server.transport = transport
+    if mode not in ('no-sftp', 'no-services', 'forward-only'):
         transport.set_subsystem_handler('sftp', FixtureSFTPServer, Files, root=root)
     try:
         transport.start_server(server=server)
@@ -97,15 +166,37 @@ def serve(sock):
         # Keep the authenticated transport alive for subsystem-only clients.
         while transport.is_active():
             channel = transport.accept(0.05)
-            if channel is not None: channels.append(channel)
+            if channel is not None:
+                channels.append(channel)
+                if channel.get_id() in server.destinations:
+                    threading.Thread(target=serve_direct, args=(channel, server.destinations[channel.get_id()]), daemon=True).start()
             if server.shell.is_set() and not shell_started:
                 shell_started = True
                 threading.Thread(target=serve_shell, args=(transport, server.channel), daemon=True).start()
     except Exception:
         pass
     finally:
+        for listener, stopped in list(server.forward_listeners.values()):
+            stopped.set(); listener.close()
         transport.close()
 listener = socket.socket(); listener.bind(('127.0.0.1', 0)); listener.listen(10)
+if mode == 'forwarding':
+    forward_peer = socket.socket(); forward_peer.bind(('127.0.0.1', 0)); forward_peer.listen(16)
+    (root / 'forward-port').write_text(str(forward_peer.getsockname()[1]))
+    def echo_forward_peer(peer):
+        try:
+            while True:
+                data = peer.recv(32768)
+                if not data: break
+                peer.sendall(data)
+            peer.sendall(b'TAIL'); peer.shutdown(socket.SHUT_WR)
+        except OSError: pass
+        finally: peer.close()
+    def accept_forward_peer():
+        while True:
+            peer, _ = forward_peer.accept()
+            threading.Thread(target=echo_forward_peer, args=(peer,), daemon=True).start()
+    threading.Thread(target=accept_forward_peer, daemon=True).start()
 (root / 'port').write_text(str(listener.getsockname()[1]))
 print('Synthetic SSH fixture ready', flush=True)
 while True:

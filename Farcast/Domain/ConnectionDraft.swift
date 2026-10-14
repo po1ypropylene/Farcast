@@ -26,6 +26,8 @@ struct ConnectionDraft: Identifiable {
     var redirectedFoldersUnavailable = false
     var wireGuardID: UUID?
     var audioPlayback = true
+    var forwardingRules: [SSHForwardingRule] = []
+    var forwardingRulesUnavailable = false
     init() {}
     init(_ saved: SavedConnection) {
         id = saved.id
@@ -56,6 +58,14 @@ struct ConnectionDraft: Identifiable {
         }
         wireGuardID = saved.wireGuardID
         audioPlayback = saved.audioPlayback
+        if let data = saved.sshForwardingRules {
+            do {
+                guard data.count <= 64 * 1024 else { throw CocoaError(.coderReadCorrupt) }
+                forwardingRules = try JSONDecoder().decode([SSHForwardingRule].self, from: data)
+            } catch {
+                forwardingRulesUnavailable = true
+            }
+        }
     }
     var validationMessage: String? {
         let cleanHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -84,6 +94,18 @@ struct ConnectionDraft: Identifiable {
                 if !names.insert(folder.name.precomposedStringWithCanonicalMapping.lowercased()).inserted {
                     return "Give each redirected folder a different drive name."
                 }
+            }
+        }
+        if kind == .ssh {
+            if forwardingRulesUnavailable {
+                return "Saved tunnel settings could not be read. Reset them and add the rules again."
+            }
+            if forwardingRules.count > 16 { return "Add at most 16 tunnel rules per connection." }
+            if Set(forwardingRules.map(\.id)).count != forwardingRules.count {
+                return "Tunnel rule identities must be unique."
+            }
+            for rule in forwardingRules {
+                if let message = rule.validationMessage { return message }
             }
         }
         return nil

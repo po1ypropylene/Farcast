@@ -7,16 +7,24 @@ import SwiftTerm
     let id = UUID()
     let profile: ConnectionDraft
     let persistent: Bool
+    @Published private(set) var connectedAt: Date?
+    @Published private(set) var terminalZoom = 100
     @Published var state = SessionState.waiting {
-        didSet { terminal?.view.inputEnabled = state == .connected && terminalAvailable }
+        didSet {
+            terminal?.view.inputEnabled = state == .connected && terminalAvailable
+            if state == .connected && oldValue != .connected { connectedAt = Date() }
+            if state != .connected { connectedAt = nil }
+        }
     }
     @Published var message = "Waiting for credentials"
     @Published var remoteTitle = ""
     @Published var logs: [SessionLog] = []
     @Published var sshMode = SSHWorkspaceMode.terminal {
-        didSet { ssh?.setTerminalVisible(sshMode != .files) }
+        didSet { ssh?.setTerminalVisible(sshMode == .terminal || sshMode == .split) }
     }
     @Published private(set) var terminalAvailable = true
+    @Published private(set) var filesAvailable = true
+    let forwarding: SSHForwardingController
     @Published private(set) var credentialsRejected = false
     let files: SFTPController
     let terminal: TerminalController?
@@ -73,6 +81,7 @@ import SwiftTerm
         self.workspace = workspace
         self.persistent = persistent
         self.files = files ?? SFTPController()
+        self.forwarding = SSHForwardingController(rules: profile.forwardingRules)
         if profile.kind == .ssh {
             terminal = TerminalController(profile: profile)
             desktop = nil
@@ -87,6 +96,10 @@ import SwiftTerm
     }
     func start(credential: ConnectionCredential) {
         guard workspace?.isShuttingDown != true else { return }
+        if profile.kind == .ssh, let error = profile.validationMessage {
+            update("failed", message: error, attempt: generation)
+            return
+        }
         if profile.kind == .rdp && profile.redirectedFoldersUnavailable {
             update(
                 "failed",
@@ -162,12 +175,30 @@ import SwiftTerm
         message = "Connecting…"
         if let terminal {
             terminalAvailable = true
+            filesAvailable = true
             credentialsRejected = false
             let client = FCSSHClient()
             client.tunnelPort = tunnelPort
             client.tunnelToken = tunnelToken
-            client.setTerminalVisible(sshMode != .files)
+            client.forwardingRules = profile.forwardingRules.map(\.nativeConfiguration)
+            client.setTerminalVisible(sshMode == .terminal || sshMode == .split)
             ssh = client
+            forwarding.attach(client)
+            client.onForwarding = { [weak self] id, status, port, count, message in
+                DispatchQueue.main.async {
+                    guard let self, self.generation == attempt else { return }
+                    self.forwarding.receive(id: id, state: status, port: port, connections: count, message: message)
+                }
+            }
+            client.onFileAvailability = { [weak self] available in
+                DispatchQueue.main.async {
+                    guard let self, self.generation == attempt else { return }
+                    self.filesAvailable = available
+                    if !available && (self.sshMode == .files || self.sshMode == .split) {
+                        self.sshMode = self.terminalAvailable ? .terminal : .tunnels
+                    }
+                }
+            }
             files.attach(client)
             let fileController = files
             client.onFiles = { [weak self, fileController] id, result, error in
@@ -199,7 +230,7 @@ import SwiftTerm
                     guard let self, self.generation == attempt else { return }
                     self.terminalAvailable = available
                     self.terminal?.view.inputEnabled = self.state == .connected && available
-                    if !available { self.sshMode = .files }
+                    if !available { self.sshMode = self.filesAvailable ? .files : .tunnels }
                 }
             }
             client.onData = { [weak self] data in
@@ -639,7 +670,7 @@ import SwiftTerm
         logs.append(SessionLog(message: message))
         if logs.count > 200 { logs.removeFirst(logs.count - 200) }
         if state == .connected {
-            if profile.kind == .ssh && sshMode != .terminal { files.showFiles() }
+            if profile.kind == .ssh && filesAvailable && (sshMode == .files || sshMode == .split) { files.showFiles() }
             desktop?.inputEnabled = true
             presentStartupDesktopIfReady()
             if profile.kind == .vnc && profile.launchFullScreen { enterFullScreen() }
@@ -665,6 +696,7 @@ import SwiftTerm
             vncTyping = false
             retireFullScreen()
             files.disconnected()
+            forwarding.disconnected()
             tunnelTask?.cancel()
             tunnel?.stop()
             tunnel = nil
@@ -709,6 +741,7 @@ import SwiftTerm
         desktop?.releaseInput()
         desktop?.inputEnabled = false
         files.disconnected()
+        forwarding.disconnected()
         ssh?.disconnect()
         rdp?.disconnect()
         vnc?.disconnect()
@@ -777,7 +810,7 @@ import SwiftTerm
     }
 
     func focus() {
-        guard profile.kind != .ssh || (terminalAvailable && sshMode != .files) else { return }
+        guard profile.kind != .ssh || (terminalAvailable && (sshMode == .terminal || sshMode == .split)) else { return }
         if fullScreenPresented, let presentation = fullScreen,
             let index = presentation.windows.firstIndex(where: { $0.isKeyWindow })
         {
@@ -791,4 +824,32 @@ import SwiftTerm
 @MainActor private final class WeakRemoteSession {
     weak var value: RemoteSession?
     init(_ value: RemoteSession) { self.value = value }
+}
+
+extension RemoteSession {
+    func supports(_ mode: SSHWorkspaceMode) -> Bool {
+        switch mode {
+        case .terminal: return terminalAvailable
+        case .files: return filesAvailable
+        case .split: return terminalAvailable && filesAvailable
+        case .tunnels: return true
+        }
+    }
+    var interruptionReason: String? {
+        if files.busy && forwarding.hasActiveTunnels {
+            return "This stops file work and closes all tunnel connections."
+        }
+        if files.busy { return "This stops the current file work." }
+        if forwarding.hasActiveTunnels { return "This stops active tunnels and closes their connections." }
+        return nil
+    }
+    func zoomTerminal(_ delta: Double) {
+        terminal?.zoom(delta)
+        terminalZoom = Int(
+            ((terminal.map { Double($0.view.font.pointSize) } ?? profile.fontSize) / profile.fontSize * 100).rounded())
+    }
+    func resetTerminalZoom() {
+        if let terminal { terminal.zoom(profile.fontSize - terminal.view.font.pointSize) }
+        terminalZoom = 100
+    }
 }

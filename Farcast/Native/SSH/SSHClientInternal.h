@@ -29,8 +29,35 @@
     LIBSSH2_SESSION *_workerSession;
     LIBSSH2_CHANNEL *_workerChannel;
     LIBSSH2_SFTP *_sftp;
+    NSMutableArray<NSDictionary *> *_forwardCommands;
+    NSMutableArray *_forwardRules;
+    NSMutableArray *_forwardFlows;
+    NSMutableDictionary *_forwardResolutions;
+    id _forwardOpening;
+    id _forwardListening;
+    BOOL _channelOpenBusy;
+    BOOL _servicingForwarding;
+    int _forwardWaitDirections;
+    BOOL _filesUnavailable;
+    NSUInteger _forwardCursor;
+    int _forwardWakeRead, _forwardWakeWrite;
+    NSString *_forwardFailure;
 }
 - (NSString *)authenticationResponse:(NSString *)prompt echo:(BOOL)echo;
+@end
+
+@interface FCSSHClient (ForwardingWorker)
+- (void)initializeForwarding;
+- (BOOL)pumpForwarding;
+- (BOOL)serviceInteractive;
+- (BOOL)forwardingActive;
+- (void)cleanupForwarding;
+- (BOOL)drainForwardOpenUntil:(double)deadline;
+- (void)enqueueForwardCommand:(NSString *)identifier start:(BOOL)start;
+- (BOOL)queueForwardingConfiguration:(NSDictionary *)configuration start:(BOOL)start;
+- (BOOL)queueForwardingRemoval:(NSString *)identifier;
+- (void)waitForServiceEvents:(short)events timeout:(int)milliseconds;
++ (BOOL)forwardingListenerProbe;
 @end
 
 static inline double monotonicTime(void) {

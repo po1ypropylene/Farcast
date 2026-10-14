@@ -20,7 +20,7 @@ struct SessionInspector: View {
                 Text("Activity").font(.headline)
                 ForEach(session.logs) { log in
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(log.time, style: .time).font(.callout).foregroundStyle(.tertiary)
+                        Text(log.time, style: .time).font(.callout).foregroundStyle(.secondary)
                         Text(log.message).font(.callout).textSelection(.enabled)
                     }
                 }

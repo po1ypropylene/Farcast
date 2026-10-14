@@ -26,6 +26,7 @@ import SwiftData
     var rdpFolderExports: Data? = nil
     var wireGuardID: UUID? = nil
     var audioPlayback: Bool = true
+    var sshForwardingRules: Data? = nil
     var lastConnected: Date?
     var created: Date
     init(draft: ConnectionDraft) {
@@ -53,7 +54,24 @@ import SwiftData
         rdpFolderExports = try? JSONEncoder().encode(draft.redirectedFolders)
         wireGuardID = draft.wireGuardID
         audioPlayback = draft.audioPlayback
+        sshForwardingRules = try? JSONEncoder().encode(draft.forwardingRules)
         created = Date()
+    }
+    func duplicate() -> SavedConnection {
+        var draft = ConnectionDraft(self)
+        draft.id = UUID()
+        draft.name += " Copy"
+        let copy = SavedConnection(draft: draft)
+        // Retain optional/raw metadata exactly, including settings from newer versions.
+        copy.protocolName = protocolName
+        copy.authentication = authentication
+        copy.rdpDisplayMode = rdpDisplayMode
+        copy.rdpLaunchFullScreen = rdpLaunchFullScreen
+        copy.rdpUseAllMonitors = rdpUseAllMonitors
+        copy.rdpRetinaDisplay = rdpRetinaDisplay
+        copy.rdpFolderExports = rdpFolderExports
+        copy.sshForwardingRules = sshForwardingRules
+        return copy
     }
     var kind: RemoteProtocol { RemoteProtocol(rawValue: protocolName) ?? .ssh }
     func update(from draft: ConnectionDraft) {
@@ -80,5 +98,6 @@ import SwiftData
         rdpFolderExports = try? JSONEncoder().encode(draft.redirectedFolders)
         wireGuardID = draft.wireGuardID
         audioPlayback = draft.audioPlayback
+        sshForwardingRules = try? JSONEncoder().encode(draft.forwardingRules)
     }
 }

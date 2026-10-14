@@ -8,6 +8,7 @@ enum SSHWorkspaceMode: String, CaseIterable, Identifiable {
     case terminal = "Terminal"
     case files = "Files"
     case split = "Split"
+    case tunnels = "Tunnels"
     var id: String { rawValue }
 }
 
@@ -59,6 +60,45 @@ private struct FileBuffer {
     let cut: Bool
 }
 
+/// Listing snapshots are display hints only; native operations always recheck the server.
+private struct RemoteFolderCache {
+    private struct Entry {
+        let files: [TransferFile]
+        let fetched: TimeInterval
+        let cost: Int
+    }
+    private var entries: [String: Entry] = [:]
+    private var recent: [String] = []
+    private var cost = 0
+    private let capacity = 4 * 1024 * 1024
+
+    mutating func remove(_ path: String) {
+        if let entry = entries.removeValue(forKey: path) { cost -= entry.cost }
+        recent.removeAll { $0 == path }
+    }
+    mutating func files(at path: String, now: TimeInterval) -> [TransferFile]? {
+        guard let entry = entries[path] else { return nil }
+        guard now - entry.fetched < 30 else {
+            remove(path)
+            return nil
+        }
+        recent.removeAll { $0 == path }
+        recent.append(path)
+        return entry.files
+    }
+    mutating func store(_ files: [TransferFile], at path: String, now: TimeInterval) {
+        remove(path)
+        let size = path.utf8.count + files.reduce(0) { $0 + $1.name.utf8.count + 64 }
+        guard size <= capacity else { return }
+        while cost + size > capacity || recent.count >= 16 {
+            remove(recent[0])
+        }
+        entries[path] = Entry(files: files, fetched: now, cost: size)
+        recent.append(path)
+        cost += size
+    }
+}
+
 /// One controller per SSH session. Local folders and buffered sources retain their security scopes.
 @MainActor final class SFTPController: ObservableObject {
     @Published var remotePath = "."
@@ -89,6 +129,12 @@ private struct FileBuffer {
     private var requestID: String?
     private var requestIsListing = false
     private var requestPath = "."
+    private var folderCache = RemoteFolderCache()
+    @Published private var remoteHistory: [String] = []
+    @Published private var historyIndex = -1
+    private var requestedHistoryIndex: Int?
+    var canGoRemoteBack: Bool { !busy && historyIndex > 0 }
+    var canGoRemoteForward: Bool { !busy && historyIndex + 1 < remoteHistory.count }
     private var requested = false
     private var scope: URL?
     private var bufferScope: URL?
@@ -193,6 +239,7 @@ private struct FileBuffer {
         error = nil
         remoteFiles = []
         remotePath = "."
+        resetRemoteBrowsing()
         message = "Choose Files or Split to browse this server."
     }
     func resolveConflict(overwrite: Bool, all: Bool = false) {
@@ -207,12 +254,60 @@ private struct FileBuffer {
         refreshRemote()
     }
     func refreshRemote(path: String? = nil) {
+        readRemote(path: path ?? remotePath, refresh: true)
+    }
+    func navigateRemote(path: String) {
+        readRemote(path: path, refresh: false)
+    }
+    func remoteBack() {
+        guard canGoRemoteBack else { return }
+        readRemote(path: remoteHistory[historyIndex - 1], refresh: false, history: historyIndex - 1)
+    }
+    func remoteForward() {
+        guard canGoRemoteForward else { return }
+        readRemote(path: remoteHistory[historyIndex + 1], refresh: false, history: historyIndex + 1)
+    }
+    private func readRemote(path: String, refresh: Bool, history: Int? = nil) {
         guard !busy, let client else { return }
         requested = true
+        requestedHistoryIndex = history
+        if refresh { folderCache.remove(path) }
+        if !refresh, let files = folderCache.files(at: path, now: clock()) {
+            error = nil
+            remotePath = path
+            remoteFiles = files
+            recordRemoteVisit(path)
+            message = "\(files.count) server items (cached). Refresh to check for changes."
+            return
+        }
         requestIsListing = true
-        requestPath = path ?? remotePath
+        requestPath = path
         let id = begin("Reading server folder…")
         client.listDirectory(requestPath, requestID: id)
+    }
+    private func recordRemoteVisit(_ path: String) {
+        defer { requestedHistoryIndex = nil }
+        if let index = requestedHistoryIndex {
+            historyIndex = index
+            remoteHistory[index] = path
+        } else if remoteHistory.indices.contains(historyIndex), remoteHistory[historyIndex] == path {
+            return
+        } else {
+            remoteHistory = Array(remoteHistory.prefix(historyIndex + 1))
+            remoteHistory.append(path)
+            if remoteHistory.count > 32 { remoteHistory.removeFirst() }
+            historyIndex = remoteHistory.count - 1
+        }
+    }
+    private func resetRemoteBrowsing() {
+        folderCache = RemoteFolderCache()
+        remoteHistory = []
+        historyIndex = -1
+        requestedHistoryIndex = nil
+    }
+    static func filteredFiles(_ files: [TransferFile], matching query: String) -> [TransferFile] {
+        guard !query.isEmpty else { return files }
+        return files.filter { $0.name.localizedStandardContains(query) }
     }
     private func begin(_ text: String) -> String {
         let id = UUID().uuidString
@@ -230,6 +325,7 @@ private struct FileBuffer {
         progress = nil
         resetTransferSpeed()
         if cancelling {
+            requestedHistoryIndex = nil
             cancelling = false
             busy = false
             activeJob = nil
@@ -241,6 +337,7 @@ private struct FileBuffer {
             return
         }
         if let error {
+            requestedHistoryIndex = nil
             busy = false
             self.error = error
             jobs = []
@@ -261,6 +358,8 @@ private struct FileBuffer {
                         regular: entry["regular"] as? Bool ?? false,
                         size: (entry["size"] as? NSNumber)?.uint64Value ?? 0)
                 })
+            folderCache.store(remoteFiles, at: remotePath, now: clock())
+            recordRemoteVisit(remotePath)
             message = "\(remoteFiles.count) server items"
         } else {
             if let preview = activeJob?.preview, !NSWorkspace.shared.open(preview) {
@@ -305,6 +404,7 @@ private struct FileBuffer {
         resetTransferSpeed()
         requested = false
         remoteFiles = []
+        resetRemoteBrowsing()
         clearBuffer()
         message = "Reconnect SSH to browse files."
     }
@@ -394,10 +494,10 @@ private struct FileBuffer {
     }
     func openRemote(_ file: TransferFile) {
         guard file.directory else { return }
-        refreshRemote(path: remoteChild(file.name))
+        navigateRemote(path: remoteChild(file.name))
     }
     func remoteParent() {
-        refreshRemote(
+        navigateRemote(
             path: (remotePath as NSString).deletingLastPathComponent.isEmpty
                 ? "/" : (remotePath as NSString).deletingLastPathComponent)
     }
@@ -496,6 +596,10 @@ private struct FileBuffer {
     }
     private func run(_ work: [FileJob]) {
         guard !busy, !work.isEmpty, work.allSatisfy({ $0.local || client != nil }) else { return }
+        if work.contains(where: { !$0.local && ($0.operation != "downloadTree" || $0.move) }) {
+            // Recursive writes/moves may affect several cached ancestors, even on failure.
+            folderCache = RemoteFolderCache()
+        }
         localWork = FileWorkCancellation()
         overwriteAll = false
         conflict = nil

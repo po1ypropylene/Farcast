@@ -13,21 +13,27 @@ struct ConnectionEditor: View {
     private let loadCredential: (UUID) throws -> ConnectionCredential?
     @State private var sheetHeight: CGFloat
     @State private var showWireGuard = false
+    @State private var quickAddress = ""
     @State private var draft: ConnectionDraft
     @State private var credential = ConnectionCredential()
     @State private var remember = true
     @State private var revealPassword = false
     @State private var selectedTab = EditorTab.general
     @State private var customResolution = false
+    @State private var visitedFields: Set<EditorField> = []
+    @State private var attemptedSave = false
+    @State private var tunnelIssues: Set<UUID> = []
+    @State private var tunnelVisited: [UUID: Set<SSHForwardingField>] = [:]
+    @State private var validationFocusRequest: UUID?
     @FocusState private var focusedField: EditorField?
     private enum EditorField: Hashable {
-        case address, port, name, username, width, height
+        case address, port, name, username, password, domain, quickAddress, width, height
         case folder(UUID)
     }
     private static let sheetWidth: CGFloat = 540
-    private static let labelWidth: CGFloat = 128
-    private static let columnGap: CGFloat = 12
-    private static let contentPadding: CGFloat = 24
+    private static let labelWidth = ConnectionFormLayout.labelWidth
+    private static let columnGap = ConnectionFormLayout.gap
+    private static let contentPadding = ConnectionFormLayout.inset
     @State private var fingerprint: String?
     @State private var error: String?
     init(
@@ -38,6 +44,7 @@ struct ConnectionEditor: View {
         self.request = request
         self.loadCredential = loadCredential
         _draft = State(initialValue: request.draft)
+        _selectedTab = State(initialValue: request.initialTab)
         let parent = NSApp.keyWindow?.sheetParent ?? NSApp.keyWindow
         _sheetHeight = State(initialValue: min(600, max(320, (parent?.contentLayoutRect.height ?? 680) - 80)))
     }
@@ -77,10 +84,19 @@ struct ConnectionEditor: View {
                     self.error = error.localizedDescription
                 }
                 refreshFingerprint()
-                if request.mode != .edit { focusedField = .address }
+                if request.mode != .edit && selectedTab == .general {
+                    focusedField = request.mode == .quick ? .quickAddress : .address
+                }
             }
-            .onChange(of: draft.kind) { old, new in
-                if draft.port == old.defaultPort { draft.port = new.defaultPort }
+            .onChange(of: focusedField) { old, new in
+                // AppKit may clear automatic focus while presenting a sheet. Only
+                // navigation to another field establishes an explicit skip.
+                if let old, new != nil { visitedFields.insert(old) }
+            }
+            .onChange(of: selectedTab) { old, new in
+                if old == .general && new != old { visitedFields.insert(.address) }
+            }
+            .onChange(of: draft.kind) { _, new in
                 credential = ConnectionCredential()
                 revealPassword = false
                 if new != .ssh { draft.authentication = .password }
@@ -96,7 +112,17 @@ struct ConnectionEditor: View {
     }
     private var commonFields: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ConnectionProtocolPicker(selection: $draft.kind).frame(height: 28)
+            if request.mode == .quick {
+                row("Quick address") {
+                    HStack(spacing: 6) {
+                        TextField("Quick address", text: $quickAddress, prompt: Text("user@host:port or ssh://…"))
+                            .accessibilityLabel("Quick address").focused($focusedField, equals: .quickAddress).onSubmit
+                        { applyQuickAddress() }
+                        Button("Use") { applyQuickAddress() }.disabled(quickAddress.isEmpty)
+                    }
+                }
+            }
+            ConnectionProtocolPicker(selection: protocolSelection).frame(height: 28)
             section("Server") {
                 row("Address") {
                     HStack(spacing: 6) {
@@ -106,11 +132,11 @@ struct ConnectionEditor: View {
                         Text(":").foregroundStyle(.secondary).accessibilityHidden(true)
                         TextField("Port", value: $draft.port, format: .number.grouping(.never))
                             .frame(width: 64).accessibilityLabel("Port").focused($focusedField, equals: .port)
-                            .invalidBorder(!(1...65535).contains(draft.port))
+                            .invalidBorder(portMessage != nil)
                     }
                 }
                 if let message = hostMessage { inlineMessage(message) }
-                if !(1...65535).contains(draft.port) { inlineMessage("Port must be between 1 and 65535.") }
+                if let message = portMessage { inlineMessage(message) }
                 row("Name") {
                     TextField("Name", text: $draft.name, prompt: Text("Defaults to address")).accessibilityLabel("Name")
                         .focused($focusedField, equals: .name)
@@ -125,12 +151,13 @@ struct ConnectionEditor: View {
                         "Username"
                     )
                     .focused($focusedField, equals: .username)
-                    .invalidBorder(draft.validationMessage == "Enter a username.")
+                    .invalidBorder(usernameMessage != nil)
                 }
-                if draft.validationMessage == "Enter a username." { inlineMessage("Enter a username.") }
+                if let message = usernameMessage { inlineMessage(message) }
                 if draft.kind == .rdp {
                     row("Domain") {
                         TextField("Domain", text: $draft.domain, prompt: Text("Optional")).accessibilityLabel("Domain")
+                            .focused($focusedField, equals: .domain)
                     }
                 } else if draft.kind == .ssh {
                     row("Authentication") {
@@ -164,6 +191,14 @@ struct ConnectionEditor: View {
             }
         }
     }
+    private var protocolSelection: Binding<RemoteProtocol> {
+        Binding(
+            get: { draft.kind },
+            set: { kind in
+                if draft.port == draft.kind.defaultPort { draft.port = kind.defaultPort }
+                draft.kind = kind
+            })
+    }
     private var tunnelSelection: Binding<String> {
         Binding(
             get: { draft.wireGuardID?.uuidString ?? "direct" },
@@ -172,6 +207,10 @@ struct ConnectionEditor: View {
             })
     }
     private var hostMessage: String? {
+        guard attemptedSave || visitedFields.contains(.address) else { return nil }
+        return rawHostMessage
+    }
+    private var rawHostMessage: String? {
         guard let message = draft.validationMessage else { return nil }
         return message.contains("host name") || message.contains("server address") ? message : nil
     }
@@ -219,7 +258,7 @@ struct ConnectionEditor: View {
                     } else {
                         SecureField(label, text: $credential.password, prompt: Text(placeholder))
                     }
-                }.accessibilityLabel(label)
+                }.accessibilityLabel(label).focused($focusedField, equals: .password)
                 Button {
                     revealPassword.toggle()
                 } label: {
@@ -231,36 +270,65 @@ struct ConnectionEditor: View {
             }
         }
     }
-    private enum EditorTab: String, Identifiable {
-        case general, display, devices, terminal, security
-        var id: String { rawValue }
-        var title: String {
-            switch self {
-            case .general: return "General"
-            case .display: return "Display"
-            case .devices: return "Devices & audio"
-            case .terminal: return "Terminal"
-            case .security: return "Security"
-            }
-        }
-    }
+    private typealias EditorTab = EditorRequest.Tab
     private var availableTabs: [EditorTab] {
         var tabs: [EditorTab] =
             draft.kind == .ssh
-            ? [.general, .terminal] : (draft.kind == .vnc ? [.general, .display] : [.general, .display, .devices])
+            ? [.general, .terminal, .tunnels]
+            : (draft.kind == .vnc ? [.general, .display] : [.general, .display, .devices])
         // Keep the existing ability to forget a trusted endpoint when entering a new profile.
         if request.mode == .edit || fingerprint != nil { tabs.append(.security) }
         return tabs
     }
+    private var portMessage: String? {
+        guard attemptedSave || visitedFields.contains(.port) else { return nil }
+        return (1...65535).contains(draft.port) ? nil : "Port must be between 1 and 65535."
+    }
+    private var usernameMessage: String? {
+        guard attemptedSave || visitedFields.contains(.username) else { return nil }
+        return draft.kind != .vnc && draft.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "Enter a username." : nil
+    }
     private var validationTab: EditorTab? {
-        guard let message = draft.validationMessage else { return nil }
+        if hostMessage != nil || portMessage != nil || usernameMessage != nil { return .general }
+        if draft.kind == .ssh && (!tunnelIssues.isEmpty || (attemptedSave && draft.forwardingRulesUnavailable)) {
+            return .tunnels
+        }
         if draft.kind == .rdp {
-            if message.contains("Desktop dimensions") { return .display }
-            if message.localizedCaseInsensitiveContains("folder") || message.contains("drive name") {
+            if !(200...8192).contains(draft.desktopWidth) || !(200...8192).contains(draft.desktopHeight) {
+                return .display
+            }
+            if draft.redirectedFoldersUnavailable
+                || draft.redirectedFolders.contains(where: { $0.validationMessage != nil })
+            {
                 return .devices
             }
         }
+        guard let message = draft.validationMessage, attemptedSave else { return nil }
+        if message.localizedCaseInsensitiveContains("tunnel") { return .tunnels }
+        if message.contains("Desktop dimensions") { return .display }
+        if message.localizedCaseInsensitiveContains("folder") || message.contains("drive name") { return .devices }
         return .general
+    }
+    private var validationSummary: String? {
+        guard let tab = validationTab else { return nil }
+        let count: Int
+        if tab == .tunnels {
+            count = max(
+                1,
+                draft.forwardingRules.reduce(0) { total, rule in
+                    total
+                        + SSHForwardingField.allCases.filter {
+                            (attemptedSave || tunnelVisited[rule.id]?.contains($0) == true)
+                                && rule.validationMessage(for: $0) != nil
+                        }.count
+                })
+        } else if tab == .general {
+            count = max(1, [hostMessage, portMessage, usernameMessage].compactMap { $0 }.count)
+        } else {
+            count = 1
+        }
+        return "\(count) \(count == 1 ? "issue" : "issues") in \(tab.title)"
     }
     private func revealValidation(in tab: EditorTab) {
         selectedTab = tab
@@ -269,13 +337,16 @@ struct ConnectionEditor: View {
         case .display: field = !(200...8192).contains(draft.desktopWidth) ? .width : .height
         case .devices: field = draft.redirectedFolders.first.map { .folder($0.id) }
         case .general:
-            if hostMessage != nil {
+            if rawHostMessage != nil {
                 field = .address
             } else if !(1...65535).contains(draft.port) {
                 field = .port
             } else {
                 field = .username
             }
+        case .tunnels:
+            validationFocusRequest = UUID()
+            field = nil
         default: field = nil
         }
         DispatchQueue.main.async { focusedField = field }
@@ -283,24 +354,13 @@ struct ConnectionEditor: View {
     private var tabBar: some View {
         HStack(spacing: 20) {
             ForEach(availableTabs) { tab in
-                Button {
-                    selectedTab = tab
-                } label: {
-                    HStack(spacing: 5) {
-                        Text(tab.title).font(.body.weight(selectedTab == tab ? .semibold : .regular))
-                        if validationTab == tab {
-                            Circle().fill(.red).frame(width: 5, height: 5).accessibilityHidden(true)
-                        }
-                    }.foregroundStyle(selectedTab == tab ? Color.primary : .secondary)
-                        .padding(.vertical, 10)
-                        .overlay(alignment: .bottom) {
-                            if selectedTab == tab { Rectangle().fill(.tint).frame(height: 2) }
-                        }
-                        .contentShape(Rectangle())
-                }.buttonStyle(.plain)
-                    .accessibilityLabel(validationTab == tab ? "\(tab.title), invalid settings" : tab.title)
-                    .accessibilityValue(selectedTab == tab ? "Selected" : "")
-                    .help(validationTab == tab ? draft.validationMessage ?? tab.title : tab.title)
+                UnderlineTabButton(
+                    title: tab.title, selected: selectedTab == tab,
+                    invalid: tab == .tunnels
+                        ? !tunnelIssues.isEmpty || (attemptedSave && draft.forwardingRulesUnavailable)
+                        : validationTab == tab,
+                    help: validationTab == tab ? validationSummary ?? tab.title : tab.title
+                ) { selectedTab = tab }
             }
             Spacer(minLength: 0)
         }.padding(.horizontal, Self.contentPadding)
@@ -309,6 +369,13 @@ struct ConnectionEditor: View {
         switch selectedTab {
         case .general: commonFields
         case .terminal: terminalAppearance
+        case .tunnels:
+            SSHForwardingEditor(
+                rules: $draft.forwardingRules, unavailable: $draft.forwardingRulesUnavailable,
+                server: draft.host, submitted: attemptedSave, visibleIssues: $tunnelIssues,
+                visitedFields: $tunnelVisited, focusRequest: validationFocusRequest,
+                liveController: workspace.sessions.first { $0.profile.id == draft.id && $0.state == .connected }?
+                    .forwarding)
         case .display:
             if draft.kind == .vnc { vncDisplay } else { display }
         case .devices: devices
@@ -476,6 +543,8 @@ struct ConnectionEditor: View {
             }.padding(.top, 10)
             section("Local folders") {
                 if draft.redirectedFoldersUnavailable {
+                    Text("Saved folder settings could not be read. Reset them and choose the folders again.")
+                        .font(.callout).foregroundStyle(.red)
                     Button("Reset unavailable folder settings") {
                         draft.redirectedFolders = []
                         draft.redirectedFoldersUnavailable = false
@@ -509,6 +578,13 @@ struct ConnectionEditor: View {
                         Button("Choose another folder…") { chooseRedirectedFolder(replacing: folder.id) }
                             .accessibilityLabel("Choose another local folder for \(folder.name)")
                     }
+                }
+                if draft.redirectedFolders.count > 16 {
+                    Text("Redirect at most 16 local folders per connection.").font(.callout).foregroundStyle(.red)
+                }
+                let names = draft.redirectedFolders.map { $0.name.precomposedStringWithCanonicalMapping.lowercased() }
+                if Set(names).count != names.count {
+                    Text("Give each redirected folder a different drive name.").font(.callout).foregroundStyle(.red)
                 }
                 Button("Add Folder…") { chooseRedirectedFolder(replacing: nil) }
                     .disabled(draft.redirectedFolders.count >= 16)
@@ -545,6 +621,7 @@ struct ConnectionEditor: View {
             || draft.clipboard != original.clipboard || draft.audioPlayback != original.audioPlayback
             || draft.redirectedFolders != original.redirectedFolders
             || draft.terminalTheme != original.terminalTheme || draft.fontSize != original.fontSize
+            || draft.forwardingRules != original.forwardingRules
     }
     private var footer: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -553,7 +630,7 @@ struct ConnectionEditor: View {
                     if let error {
                         Text(error).font(.caption).foregroundStyle(.red)
                             .fixedSize(horizontal: false, vertical: true)
-                    } else if let message = draft.validationMessage, let tab = validationTab {
+                    } else if let message = validationSummary, let tab = validationTab {
                         Button {
                             revealValidation(in: tab)
                         } label: {
@@ -567,11 +644,11 @@ struct ConnectionEditor: View {
                 HStack(spacing: 8) {
                     Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                     if request.mode != .quick {
-                        Button("Save") { commit(connect: false) }.disabled(draft.validationMessage != nil)
+                        Button("Save") { commit(connect: false) }
                     }
                     PrimaryActionButton(title: request.mode == .quick ? "Connect" : "Save & Connect") {
                         commit(connect: true)
-                    }.keyboardShortcut(.defaultAction).disabled(draft.validationMessage != nil)
+                    }.keyboardShortcut(.defaultAction)
                 }.fixedSize()
             }
             if needsReconnectNote {
@@ -579,12 +656,8 @@ struct ConnectionEditor: View {
             }
         }.padding(.horizontal, 24).padding(.vertical, 16)
     }
-    private func row<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: Self.columnGap) {
-            Text(label).multilineTextAlignment(.trailing)
-                .fixedSize(horizontal: false, vertical: true).frame(width: Self.labelWidth, alignment: .trailing)
-            content().frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-        }
+    private func row<Content: View>(_ label: String, @ViewBuilder content: @escaping () -> Content) -> some View {
+        ConnectionFormRow(label: label, content: content).padding(.horizontal, 12)
     }
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -597,11 +670,13 @@ struct ConnectionEditor: View {
         Text(text).font(.callout).foregroundStyle(.secondary).lineLimit(2).help(text)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, Self.labelWidth + Self.columnGap)
+            .padding(.horizontal, 12)
     }
     private func inlineMessage(_ text: String) -> some View {
         Text(text).font(.caption).foregroundStyle(.red)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, Self.labelWidth + Self.columnGap)
+            .padding(.horizontal, 12)
     }
     private func chooseRedirectedFolder(replacing id: UUID?) {
         do {
@@ -622,12 +697,28 @@ struct ConnectionEditor: View {
             }
         } catch { self.error = error.localizedDescription }
     }
+    private func applyQuickAddress() {
+        do {
+            let address = try QuickConnectAddress.parse(quickAddress, defaultKind: draft.kind)
+            draft.kind = address.kind
+            draft.host = address.host
+            draft.port = address.port
+            if let username = address.username { draft.username = username }
+            error = nil
+            focusedField = .address
+        } catch { self.error = error.localizedDescription }
+    }
     private func commit(connect: Bool) {
-        draft.normalize()
+        attemptedSave = true
+        error = nil
         guard draft.validationMessage == nil else {
-            error = draft.validationMessage
+            if draft.kind == .ssh {
+                tunnelIssues = Set(draft.forwardingRules.filter { $0.validationMessage != nil }.map(\.id))
+            }
+            if let tab = validationTab { revealValidation(in: tab) }
             return
         }
+        draft.normalize()
         if draft.kind == .ssh && draft.authentication == .privateKey && credential.privateKey == nil {
             error = "Choose a private key first."
             return
@@ -666,7 +757,7 @@ struct ConnectionEditor: View {
 }
 
 extension View {
-    fileprivate func invalidBorder(_ invalid: Bool) -> some View {
+    func invalidBorder(_ invalid: Bool) -> some View {
         overlay {
             if invalid {
                 RoundedRectangle(cornerRadius: 5).stroke(Color.red, lineWidth: 1)

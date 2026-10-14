@@ -8,6 +8,31 @@ import UniformTypeIdentifiers
     @Published var selectedSessionID: UUID?
     @Published var prompts: [SessionPrompt] = []
     @Published var error: String?
+    struct PendingSessionAction: Identifiable {
+        let id = UUID()
+        let title: String
+        let reason: String
+        let action: () -> Void
+    }
+    @Published var pendingSessionAction: PendingSessionAction?
+    func confirmSessionAction(_ title: String, reason: String?, action: @escaping () -> Void) {
+        if let reason {
+            pendingSessionAction = PendingSessionAction(title: title, reason: reason, action: action)
+        } else {
+            action()
+        }
+    }
+    func editSavedTunnels(for profile: ConnectionDraft) {
+        let id = profile.id
+        let query = FetchDescriptor<SavedConnection>(predicate: #Predicate { $0.id == id })
+        do {
+            guard let saved = try modelContext?.fetch(query).first else {
+                error = "This connection is no longer saved. Add tunnels for this session instead."
+                return
+            }
+            editor = EditorRequest(draft: ConnectionDraft(saved), mode: .edit, initialTab: .tunnels)
+        } catch { self.error = error.localizedDescription }
+    }
     @Published var testServerImport: TestServerImportRequest?
     @Published var editor: EditorRequest?
     @Published var showWireGuard = false

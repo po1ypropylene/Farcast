@@ -19,15 +19,25 @@ struct SessionPane: View {
                 if let terminal = session.terminal {
                     VStack(spacing: 0) {
                         HStack {
-                            SSHWorkspacePicker(
-                                selection: $session.sshMode, terminalAvailable: session.terminalAvailable
-                            )
-                            .frame(width: 240, height: 28)
+                            HStack(spacing: 20) {
+                                ForEach(SSHWorkspaceMode.allCases) { mode in
+                                    UnderlineTabButton(
+                                        title: mode == .split ? "Split View" : mode.rawValue,
+                                        selected: session.sshMode == mode, enabled: session.supports(mode),
+                                        help: mode == .split ? "Terminal above files in one session" : mode.rawValue
+                                    ) {
+                                        session.sshMode = mode
+                                    }
+                                }
+                            }
                             if !session.terminalAvailable {
-                                Text("File transfer only").font(.callout).foregroundStyle(.secondary)
+                                Text(session.filesAvailable ? "File transfer only" : "Tunnels only").font(.callout)
+                                    .foregroundStyle(.secondary)
+                            } else if !session.filesAvailable {
+                                Text("Files unavailable").font(.callout).foregroundStyle(.secondary)
                             }
                             Spacer()
-                        }.padding(8).background(.bar)
+                        }.padding(.horizontal, ConnectionFormLayout.inset).background(.bar)
                         switch session.sshMode {
                         case .terminal:
                             terminalView(terminal)
@@ -37,6 +47,13 @@ struct SessionPane: View {
                             VSplitView {
                                 terminalView(terminal).frame(minHeight: 160)
                                 filesView.frame(minHeight: 240)
+                            }
+                        case .tunnels:
+                            SSHForwardingView(
+                                controller: session.forwarding, connected: session.state == .connected,
+                                profileID: session.persistent ? session.profile.id : nil, server: session.profile.host
+                            ) {
+                                workspace.editSavedTunnels(for: session.profile)
                             }
                         }
                     }
@@ -66,7 +83,8 @@ struct SessionPane: View {
                             Button("Cancel connection") { session.disconnect() }
                         } else {
                             HStack {
-                                Button("Close") { workspace.close(session) }
+                                Button("Close") { workspace.requestClose(session) }
+                                Button("Connection Details") { workspace.toggleInspector() }
                                 PrimaryActionButton(title: session.credentialsRejected ? "Retry sign-in" : "Reconnect")
                                 {
                                     workspace.reconnect(session)
@@ -80,7 +98,11 @@ struct SessionPane: View {
             HStack(spacing: 9) {
                 Circle().fill(session.state.color).frame(width: 6, height: 6)
                 Text(session.state.title)
-                Text("·").foregroundStyle(.tertiary)
+                if session.state == .connected, let since = session.connectedAt {
+                    Text(since, style: .relative).help("Time since connection").accessibilityLabel(
+                        "Connected since \(since.formatted())")
+                }
+                Text("·").foregroundStyle(.secondary)
                 Text("\(session.profile.username)@\(session.profile.host):\(String(session.profile.port))").lineLimit(1)
                     .textSelection(.enabled)
                 Spacer()
@@ -108,59 +130,25 @@ struct SessionPane: View {
                     Button("Ctrl + Alt + Delete") { session.controlAltDelete() }.disabled(session.state != .connected)
                 } else {
                     IconActionButton(title: "Decrease terminal font size", symbol: "minus.magnifyingglass") {
-                        session.terminal?.zoom(-1)
+                        session.zoomTerminal(-1)
                     }.disabled(!session.terminalAvailable)
+                    Text("\(session.terminalZoom)%").monospacedDigit().help("Terminal zoom")
+                    IconActionButton(title: "Reset terminal zoom", symbol: "arrow.counterclockwise") {
+                        session.resetTerminalZoom()
+                    }
+                    .disabled(!session.terminalAvailable)
                     IconActionButton(title: "Increase terminal font size", symbol: "plus.magnifyingglass") {
-                        session.terminal?.zoom(1)
+                        session.zoomTerminal(1)
                     }.disabled(!session.terminalAvailable)
                     IconActionButton(title: "Find in terminal", symbol: "magnifyingglass") {
                         session.terminal?.find()
                     }.disabled(session.state != .connected || !session.terminalAvailable)
                 }
-                Text(session.profile.kind.rawValue).fontWeight(.semibold)
+
             }.buttonStyle(.bordered).font(.callout).foregroundStyle(.secondary).padding(.horizontal, 14)
                 .padding(
                     .vertical, 4
                 ).background(.bar)
         }.buttonStyle(.bordered).controlSize(.regular)
-    }
-}
-
-// SwiftUI's macOS segmented Picker ignores disabled state on individual items.
-// AppKit retains native keyboard/accessibility behavior and disables each segment.
-private struct SSHWorkspacePicker: NSViewRepresentable {
-    @Binding var selection: SSHWorkspaceMode
-    let terminalAvailable: Bool
-
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-    func makeNSView(context: Context) -> NSSegmentedControl {
-        let control = NSSegmentedControl(
-            labels: SSHWorkspaceMode.allCases.map(\.rawValue), trackingMode: .selectOne,
-            target: context.coordinator, action: #selector(Coordinator.selectMode(_:)))
-        control.controlSize = .regular
-        control.font = .systemFont(ofSize: NSFont.systemFontSize)
-        control.setAccessibilityLabel("SSH workspace")
-        return control
-    }
-    func updateNSView(_ control: NSSegmentedControl, context: Context) {
-        context.coordinator.parent = self
-        for (index, mode) in SSHWorkspaceMode.allCases.enumerated() {
-            control.setEnabled(terminalAvailable || mode == .files, forSegment: index)
-            control.setWidth(0, forSegment: index)
-        }
-        let mode = terminalAvailable ? selection : .files
-        control.selectedSegment = SSHWorkspaceMode.allCases.firstIndex(of: mode) ?? 0
-        control.setAccessibilityHelp(
-            terminalAvailable ? "SSH workspace" : "This connection supports file transfer only.")
-    }
-    @MainActor final class Coordinator: NSObject {
-        var parent: SSHWorkspacePicker
-        init(_ parent: SSHWorkspacePicker) { self.parent = parent }
-        @objc func selectMode(_ control: NSSegmentedControl) {
-            guard SSHWorkspaceMode.allCases.indices.contains(control.selectedSegment) else { return }
-            let mode = SSHWorkspaceMode.allCases[control.selectedSegment]
-            guard parent.terminalAvailable || mode == .files else { return }
-            parent.selection = mode
-        }
     }
 }

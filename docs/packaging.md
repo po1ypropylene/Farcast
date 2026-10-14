@@ -78,6 +78,10 @@ It invokes `--verify-bundle-launch` before UI/storage initialization to exercise
 and `--verify-wireguard-helper` to start the real embedded helper with synthetic keys
 and an owned loopback endpoint, verify a listener and cleanup. Neither reads
 SwiftData, Keychain, saved profiles or private input.
+`--verify-ssh-listener` also binds, accepts and exchanges a byte through the native
+IPv4/IPv6 loopback listener code in the signed sandboxed parent. It uses disposable
+sockets before UI/storage initialization and supplies no SSH credentials. Protocol
+forwarding is verified separately against owned SSH fixtures.
 
 `build-dmg.sh` stages the verified app, CHANGELOG.md and an Applications shortcut, creates a
 compressed read-only image, verifies the mounted app and ejects that exact volume.

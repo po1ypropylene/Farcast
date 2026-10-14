@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Validate platform, dependency closure and signing, then exercise the macOS loader."""
 import plistlib
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -78,4 +79,11 @@ if result.returncode != 0 or 'Farcast loader check passed' not in result.stdout:
 probe = subprocess.run([str(executable), '--verify-wireguard-helper'], capture_output=True, text=True, timeout=25)
 if probe.returncode != 0 or 'Farcast sandboxed WireGuard helper check passed' not in probe.stdout:
     raise SystemExit('Packaged app failed its sandboxed WireGuard helper check. No real-server settings were used.')
-print(f'PASS bundle: macOS 27+, arm64, {len(libraries)} native libraries, signatures, loader and sandboxed WireGuard helper.')
+listener = subprocess.run([str(executable), '--verify-ssh-listener'], capture_output=True, text=True, timeout=15)
+if listener.returncode != 0 or 'Farcast sandboxed SSH listener check passed' not in listener.stdout:
+    # The probe's own stage codes contain no user/session data.
+    diagnostic = re.search(r'SSH listener probe: (bind|accept/data) failed \([0-9]+\)\.', listener.stderr)
+    if diagnostic:
+        print(diagnostic.group(0))
+    raise SystemExit('Packaged app failed its sandboxed SSH listener check. No real-server settings were used.')
+print(f'PASS bundle: macOS 27+, arm64, {len(libraries)} native libraries, signatures, loader, sandboxed SSH listeners and WireGuard helper.')

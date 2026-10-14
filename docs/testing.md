@@ -22,7 +22,9 @@ scripts/prepare-rdp-fixture.sh
 | `swift test --scratch-path .build/core-tests` | Domain, persistence, credentials, trust, prompts, imports and display/resize geometry |
 | `scripts/test-vnc.sh` | RFB 3.3/3.7/3.8, password/no-auth, VeNCrypt X509 modes/refusal, marked frames, malformed geometry/encoding, Unicode typing, Ctrl+Alt+Delete, pointer and cancellation |
 | `scripts/test-ssh.sh` | Password/key/interactive authentication, trust, input, PTY resize and cancellation |
-| `scripts/test-sftp.sh` | Same-session files, file-only fallback, conflicts, recursion, moves, source races, progress and cancellation |
+| `scripts/test-ssh-forwarding.sh` | Owned local/remote/SOCKS peers: byte equality, concurrent channels, server-only DNS, IPv6, fragmented/malformed proxy messages, partial writes/backpressure, both EOF directions, policy denial, fixed/dynamic ports, Stop/Start, file concurrency/conflicts/cancellation and worker drain |
+| `scripts/test-ssh-forwarding-session.sh` | Production forwarding-only session capabilities, native view/controller, dynamic ports, reconnect, stale-event rejection and cleanup with isolated preferences |
+| `scripts/test-sftp.sh` | Same-session files, file-only fallback, conflicts, recursion, moves, source races, progress and cancellation; synthetic navigation, cache expiry/eviction/invalidation, stale replies and filtering |
 | `scripts/test-sftp-throughput.sh` | Byte-verified upload-window comparison under controlled latency |
 | `scripts/test-sftp-terminal-latency.sh` | Terminal echo latency during shared-transport transfers and mode changes |
 | `scripts/test-rdp.sh`, then `scripts/test-rdp-nla.sh` | TLS/NLA, frames, clipboard/drive channels, monitor/DPI negotiation and pointer input |
@@ -32,8 +34,9 @@ scripts/prepare-rdp-fixture.sh
 | `scripts/test-rdp-resize.sh` | Actual Display Control PDUs, graphics reactivation, pixels and post-resize pointer input |
 | `scripts/test-rdp-display-session.sh` | Production full-screen startup, exit/re-entry, missing confirmation and worker cleanup |
 | `scripts/test-display-migration.sh`, `scripts/test-wireguard-migration.sh`, `scripts/test-library-migration.sh` | Pre-feature/old-module store migration, IDs/defaults/bookmarks, opt-in credentials and reopening |
+| `scripts/test-connection-ui.sh` | In-memory native connection/tunnel hosts, deferred validation, explicit URL ports, long-list field navigation, light/dark and wide-window layout; optional FARCAST_UI_REVIEW=1 and a directory pause synthetic scenes for native inspection |
 | `scripts/test-workspace.sh` | Tabs/reconnect, prompts, sign-in retry, AppKit shutdown, detached surfaces, cropped Metal frames and terminal menus |
-| `scripts/test-wireguard.sh`, `scripts/test-wireguard-rdp.sh`, `scripts/test-wireguard-sessions.sh`, `scripts/test-wireguard-lifecycle.sh` | Go race checks, encrypted RDP, concurrent production SSH/SFTP/RDP/VNC sessions sharing one helper, endpoint identity, fail-closed routing and shared-lease lifecycle |
+| `scripts/test-wireguard.sh`, `scripts/test-wireguard-rdp.sh`, `scripts/test-wireguard-sessions.sh`, `scripts/test-wireguard-lifecycle.sh` | Go race checks, encrypted RDP, concurrent production SSH/SFTP/forwarding/RDP/VNC sessions sharing one helper, forwarded byte equality, endpoint identity, fail-closed routing and shared-lease lifecycle |
 | `scripts/test-signing-continuity.sh` | Changed binaries retain certificate requirement and synthetic Keychain access |
 | `python3 -m unittest discover -s Tests/Maintenance -v` | Cleanup, update rollback, signing rules and harness teardown |
 | `scripts/test-live-fixtures.sh` | Redacted probe behavior against synthetic SSH/RDP servers |

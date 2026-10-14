@@ -7,7 +7,7 @@ products="$PWD/.build/Xcode/Build/Products/Release"
 server="$PWD/.dependencies/rdp-fixture/build/server/Sample/sfreerdp-server"
 [[ -x "$server" ]] || scripts/prepare-rdp-fixture.sh
 mkdir -p "$fixture_root/vnc" "$fixture_root/ssh" "$fixture_root/Sessions.app/Contents/MacOS"
-"${FARCAST_TEST_PYTHON:-.dependencies/test-venv/bin/python}" Tests/Integration/SSH/ssh_fixture.py "$fixture_root/ssh" password > "$fixture_root/ssh.log" 2>&1 &
+"${FARCAST_TEST_PYTHON:-.dependencies/test-venv/bin/python}" Tests/Integration/SSH/ssh_fixture.py "$fixture_root/ssh" forwarding > "$fixture_root/ssh.log" 2>&1 &
 fixture_pids+=("$!")
 for ((i=0; i<100; i++)); do [[ -f "$fixture_root/ssh/port" ]] && break; sleep 0.05; done
 Vendor/Native/bin/openssl req -config /dev/null -x509 -newkey rsa:2048 -nodes -keyout "$fixture_root/key.pem" -out "$fixture_root/cert.pem" -days 1 -subj /CN=localhost > "$fixture_root/cert.log" 2>&1

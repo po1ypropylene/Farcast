@@ -8,10 +8,21 @@
 - (BOOL)openSFTPUntil:(double)deadline {
     if (_sftp)
         return YES;
+    if (_filesUnavailable)
+        return NO;
+    if (![self drainForwardOpenUntil:deadline])
+        return NO;
+    _channelOpenBusy = YES;
     do {
         _sftp = libssh2_sftp_init(_workerSession);
     } while (!_sftp && libssh2_session_last_errno(_workerSession) == LIBSSH2_ERROR_EAGAIN &&
              [self waitForFileUntil:deadline]);
+    _channelOpenBusy = NO;
+    if (!_sftp && !atomic_load(&_stopped)) {
+        _filesUnavailable = YES;
+        if (self.onFileAvailability)
+            self.onFileAvailability(NO);
+    }
     return _sftp != NULL;
 }
 - (BOOL)pumpIdleSFTP {
@@ -47,12 +58,11 @@
         [_lock unlock];
         if (choice >= 0)
             break;
-        if (![self pumpTerminal:_workerChannel]) {
+        if (![self serviceInteractive]) {
             [self disconnect];
             break;
         }
-        struct pollfd pending = {_socket, POLLIN, 0};
-        poll(&pending, 1, 20);
+        [self waitForServiceEvents:POLLIN timeout:20];
     }
     [_lock lock];
     _conflictToken = nil;
@@ -72,13 +82,13 @@
         events = POLLIN | POLLOUT;
     if (monotonicTime() - _lastTerminalPump > 0.01) {
         _lastTerminalPump = monotonicTime();
-        if (![self pumpTerminal:_workerChannel]) {
+        if (![self serviceInteractive]) {
             [self disconnect];
             return NO;
         }
         // A terminal write may also need socket readiness. Preserve both
         // operations' directions, rather than waiting only for SFTP replies.
-        int terminalDirection = _terminalWaitDirections;
+        int terminalDirection = _terminalWaitDirections | _forwardWaitDirections;
         if (terminalDirection & LIBSSH2_SESSION_BLOCK_INBOUND)
             events |= POLLIN;
         if (terminalDirection & LIBSSH2_SESSION_BLOCK_OUTBOUND)
@@ -88,8 +98,9 @@
         [self disconnect];
         return NO;
     }
-    struct pollfd pending = {_socket, events, 0};
-    poll(&pending, 1, _workerChannel && atomic_load(&_terminalVisible) ? 10 : 50);
+    [self
+        waitForServiceEvents:events
+                     timeout:((_workerChannel && atomic_load(&_terminalVisible)) || [self forwardingActive]) ? 10 : 50];
     return !atomic_load(&_stopped) && monotonicTime() < deadline;
 }
 - (NSDictionary *)performFileRequest:(NSDictionary *)request {
@@ -248,7 +259,7 @@ openRemote:
                     ? remoteSnapshot(attrs)
                     : @{}
             }];
-            if (![self pumpTerminal:_workerChannel]) {
+            if (![self serviceInteractive]) {
                 [self disconnect];
                 break;
             }
@@ -282,7 +293,7 @@ openRemote:
         size_t bufferSize = window.length;
         double lastProgress = 0;
         while (!atomic_load(&_stopped) && !atomic_load(&_filesCancelled)) {
-            size_t budget = _workerChannel && atomic_load(&_terminalVisible)
+            size_t budget = ((_workerChannel && atomic_load(&_terminalVisible)) || [self forwardingActive])
                                 ? MIN(bufferSize, upload ? 128 * 1024 : 32 * 1024)
                                 : bufferSize;
             ssize_t count;
@@ -301,8 +312,9 @@ openRemote:
             size_t offered = 0;
             while (offset < count && !atomic_load(&_stopped)) {
                 if (!offered) {
-                    budget =
-                        _workerChannel && atomic_load(&_terminalVisible) ? MIN(bufferSize, 128 * 1024) : bufferSize;
+                    budget = ((_workerChannel && atomic_load(&_terminalVisible)) || [self forwardingActive])
+                                 ? MIN(bufferSize, 128 * 1024)
+                                 : bufferSize;
                     offered = MIN(count - offset, budget);
                 }
                 ssize_t written = upload ? libssh2_sftp_write(handle, buffer + offset, offered)
@@ -340,7 +352,7 @@ openRemote:
                 }
                 if (upload && monotonicTime() - _lastTerminalPump >= 0.01) {
                     _lastTerminalPump = monotonicTime();
-                    if (![self pumpTerminal:_workerChannel]) {
+                    if (![self serviceInteractive]) {
                         [self disconnect];
                         break;
                     }
@@ -348,7 +360,7 @@ openRemote:
             }
             if (offset != count)
                 break;
-            if (![self pumpTerminal:_workerChannel]) {
+            if (![self serviceInteractive]) {
                 [self disconnect];
                 break;
             }

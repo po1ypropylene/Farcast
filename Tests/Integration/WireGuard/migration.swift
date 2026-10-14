@@ -35,6 +35,8 @@ import SwiftData
             else { throw WireGuardError.unavailable }
             if CommandLine.arguments.count == 2 {
                 guard saved.wireGuardID == nil, saved.rdpDisplayMode == nil, saved.rdpFolderExports == nil,
+                    saved.sshForwardingRules == nil, ConnectionDraft(saved).forwardingRules.isEmpty,
+                    !ConnectionDraft(saved).forwardingRulesUnavailable,
                     ConnectionDraft(saved).redirectedFolders.isEmpty, ConnectionDraft(saved).displayMode == .fit
                 else { throw WireGuardError.unavailable }
                 let tunnel = try SavedWireGuard(
@@ -45,11 +47,14 @@ import SwiftData
                 saved.rdpFolderExports = try JSONEncoder().encode([
                     RDPFolderExport(name: "Migrated files", bookmark: Data([1, 2, 3]), readOnly: true)
                 ])
+                saved.sshForwardingRules = try JSONEncoder().encode([SSHForwardingRule(kind: .socks)])
                 try container.mainContext.save()
                 print("PASS existing SwiftData library migrated with profiles/folders/settings preserved")
             } else {
                 let tunnels = try container.mainContext.fetch(FetchDescriptor<SavedWireGuard>())
                 guard tunnels.count == 1, saved.wireGuardID == tunnels[0].id,
+                    ConnectionDraft(saved).forwardingRules.count == 1,
+                    ConnectionDraft(saved).forwardingRules[0].kind == .socks,
                     ConnectionDraft(saved).displayMode == .actualSize,
                     ConnectionDraft(saved).redirectedFolders == [
                         RDPFolderExport(

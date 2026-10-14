@@ -46,7 +46,9 @@ Private categories hold terminal pumping (`SSHClient+Terminal.m`), SFTP request,
 conflict and single-file transfer work (`SSHClient+SFTP.m`), and bounded recursive
 preflight/copy/move/removal (`SSHClient+SFTPTree.m`). `SSHClientInternal.h` declares
 shared private state and worker methods; it is excluded from the public bridge.
-The split creates no extra sessions, authentication, queues or native-handle owners.
+The split creates no extra sessions, authentication or native-handle owners.
+`SSHClient+Forwarding.m` owns rule commands, listeners, bounded socket/channel flows,
+SOCKS5 parsing and half-close handling on that same worker.
 RDP folder provider/bookmark/device registration lives in `RDPDriveManager.m`;
 root-confined filesystem requests and handles stay in `RDPDrive.m`.
 Drive registration explicitly decodes FreeRDP's UTF-8 name/path when matching
@@ -163,9 +165,25 @@ The editor is a 540 × 600-point sheet capped to its presenting window, with a
 Terminal and Security tabs appear as applicable. Header/tabs/actions stay fixed;
 one body scroll view handles short windows and long folder lists. Tab state starts
 on General and falls back there if a tab becomes unavailable. All tabs share the
-draft/credentials; switching tabs never reloads values. Invalid fields disable
-saving and are reachable through marked tabs and a clickable footer hint.
-Edit clears automatic text selection; New/Quick Connect focus Address.
+draft/credentials; switching tabs never reloads values. Validation appears after
+leaving a required field or attempting Save; new tunnels defer field errors until
+edited fields lose focus or Save is attempted. Errors appear inline once, with
+marked tabs and a clickable issue-count footer that reaches the invalid field.
+Tunnel navigation reveals the laid-out native card before focusing its invalid
+field, including near the end of the 16-tunnel list.
+Edit clears automatic text selection; New focuses Address and Quick Connect focuses
+its compact address input. Quick Connect parses explicit user@host:port and SSH/RDP/VNC URLs without accepting passwords.
+
+
+Session and tool navigation share underline tabs and compact, accessible controls.
+Live tunnel cards have one 640-point content limit and the same 24-point left inset
+in empty/populated states; terminal and file surfaces retain usable full width.
+Saved/live tunnel forms share the 128-point right-aligned label column, 12-point
+gap and 64-point port fields. Empty listen ports display Auto. Contextual warnings
+cover non-loopback remote listeners and unauthenticated SOCKS access. Sidebar
+state includes active/failed sessions and uptime, and duplication preserves all
+raw optional metadata while assigning a fresh credential identity. Destructive
+session actions ask for confirmation when file work or tunnels are active.
 
 Display labels map to existing stored modes: Resize with window is Fit plus
 `dynamicResolution=true`; Fit to window is Fit plus false. 100% with scrolling
@@ -404,6 +422,17 @@ Worker capability callbacks use the session's generation guard, select Files and
 disable Terminal/Split and terminal tools. The native NSSegmentedControl enforces
 per-segment disabled states; preserve that behavior when changing the mode picker.
 Reconnect checks capabilities anew.
+Server navigation records only successful visits in a 32-folder Back/Forward
+history. A controller-local LRU listing cache retains at most 16 folders and
+4 MiB of accounted path/name/entry payload, with a 30-second lifetime measured
+from the server read (cache hits do not extend it). Oversized listings remain
+viewable but are not cached. Refresh bypasses and removes the old snapshot.
+Remote mutation batches invalidate all snapshots before starting, including
+failure/cancellation paths; reconnect/disconnect clear cache and history.
+Cached metadata is only a display hint: the native operation's current-server
+preflight and conflict checks remain authoritative. Independent filename filters
+operate on existing listings; hidden selections cannot enter transfers, context
+actions or Select All. No cache/history is persisted or shared across sessions.
 Subsystem refusal with a usable shell leaves the terminal available. The worker
 services terminal I/O/resize between file
 chunks and socket waits. Callbacks check generation and operation IDs. Listings are
@@ -486,6 +515,74 @@ session tokens and Finder file URLs with retained scopes/provider lifetime. Text
 never treated as paths. Drops copy and reuse recursive/conflict rules. Finder download
 promises and actual production drag/sandbox interoperability remain deferred/unverified.
 
+## SSH forwarding
+
+`SSHForwardingRule` holds optional profile metadata for local TCP, loopback SOCKS5
+CONNECT and remote TCP forwarding. `SavedConnection.sshForwardingRules` is an
+optional JSON blob; absent data preserves existing profiles with no rules. Draft
+decoding bounds the blob to 64 KiB and rejects unreadable settings until explicitly
+reset. Existing entity/property identities and credentials remain unchanged.
+Rule IDs are unique, with at most 16 validated rules. The connection editor changes
+saved defaults for the next connection. Each session owns a main-actor
+`SSHForwardingController` with independently mutable live rules. The live editor
+can save a rule to its existing profile or keep it for this session only; only the
+optional tunnel blob is updated, preserving other metadata and credentials.
+Storage failure prevents runtime apply; rejected enqueue restores the prior blob.
+Runtime status and actual bound ports are separate from saved configuration.
+Add/edit/remove are bounded commands on the original worker. Replacement closes
+the old listener and flows, retains pending libssh2 arguments through EAGAIN, then
+installs the new configuration. Removing the final tunnel preserves the SSH
+session; adding the first tunnel needs no reconnect. Session-only changes end on
+reconnect. No system proxy settings or separate SSH logins are created.
+
+The original native SSH worker owns local sockets, libssh2 forwarding listeners
+and channels. Local/SOCKS listeners bind only 127.0.0.1 or ::1; remote listeners use
+an explicit numeric address. Port zero requests a dynamic port; collisions fail
+without fallback. Local fixed destinations and SOCKS names are sent through
+direct-tcpip for the server to resolve/connect. Remote forwarded channels connect
+to the configured Mac destination, with DNS off the worker, unique-flow completion
+keys and a bounded connect deadline. SOCKS parsing is incremental, validates version,
+reserved fields, names and ports, and rejects unsupported methods, BIND and UDP.
+The loopback proxy intentionally has no proxy authentication; no system settings
+or firewall rules change. Server policy determines remote binding and forwarding
+permission, independently of SSH authentication.
+
+At most 64 accepted flows have 256 KiB queues per direction and a 16 MiB aggregate
+data-queue budget, plus at most 2 MiB of stable write-retry snapshots and bounded
+control bytes. libssh2's own channel windows are additional bounded storage.
+Each service pass rotates through at most eight flows with 32 KiB I/O slices.
+Reads pause under backpressure; only completed bytes leave queues. Pending writes
+retain their arguments across EAGAIN. Each EOF direction drains independently;
+EOF does not prematurely close reverse traffic. Handshake/connect and control
+requests have 20-second deadlines, failed SOCKS replies five seconds, and channel
+close retries ten seconds. Unrecoverable pending library state ends the transport
+rather than reusing it with abandoned control packets.
+
+Session-level channel opens and remote-listener requests retain their pending
+arguments and are serialized. Lazy SFTP initialization drains pending forwarding
+control requests before taking the generic channel-open state. Keepalives always request
+no reply, including sessions that initially have no tunnels: libssh2's keepalive sender does not consume
+replies, and uncorrelated global replies would otherwise be mistaken for remote
+listener responses. Transport EOF is detected even without a shell or SFTP.
+
+One interactive service hook pumps terminal and established forwarding work in
+the idle loop, SFTP waits/chunks, recursive preflight, overwrite prompts and cleanup
+waits. Polling preserves/combines library readiness and watches local flow sockets;
+rule commands wake the worker through an owned socket pair. Active forwarding uses
+the smaller interactive SFTP budget, including Files mode. All native handles stay
+on the worker, and callbacks use session generation guards on the main actor.
+Terminal and file capabilities are independent: configured forwarding-only accounts
+remain connected in Tunnels. Ordinary profiles with neither service still fail.
+
+Stop closes one rule's listener and flows; other rules, terminal and SFTP remain
+usable. File cancellation affects only file work. Disconnect/transport loss/quit
+close all sockets and drain native cleanup; reconnect creates fresh rules/ports.
+If WireGuard is selected, forwarding rides the existing SSH destination lease and
+retains original SSH trust, with no new helper or direct fallback. The server's
+forwarded destinations are reached from the server, outside the Mac-to-SSH lease's
+AllowedIPs restriction. SSH encrypts its transport hop; destination protocols must
+provide any required protection beyond the SSH server.
+
 ## Embedded WireGuard
 
 Saved profiles hold bounded single-peer metadata; keys use existing credential storage.
@@ -555,6 +652,7 @@ SHA256 checks are required; see [packaging](packaging.md) and [testing](testing.
 ## Unsupported features
 
 SCP/WebDAV; SFTP resume/Finder download promises; SSH config/agent/jump hosts/
-forwarding/certificates/hardware keys; RDP Gateway/RemoteApp/microphone/other devices/
+certificates/hardware keys, SOCKS BIND/UDP, HTTP proxy and streamlocal forwarding;
+RDP Gateway/RemoteApp/microphone/other devices/
 hardware video; nested folders/cloud sync/updater. The app source license is
 undecided. [Validation](validation.md) tracks remaining interoperability/release work.
