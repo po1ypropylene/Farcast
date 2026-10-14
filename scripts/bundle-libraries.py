@@ -64,7 +64,9 @@ if os.environ.get('ENABLE_HARDENED_RUNTIME') == 'YES':
     helper_signing += ['--options', 'runtime']
 helper_entitlements = Path(__file__).resolve().parent.parent / 'Configuration/WireGuardHelper.entitlements'
 subprocess.run(helper_signing + ['--entitlements', str(helper_entitlements), str(helper)], check=True)
-license_root = Path(__file__).resolve().parent.parent / 'ThirdParty'
+project_root = Path(__file__).resolve().parent.parent
+shutil.copyfile(project_root / 'LICENSE', resources / 'LICENSE')
+license_root = project_root / 'ThirdParty'
 if license_root.exists():
     bundled_licenses = resources / 'ThirdParty'
     shutil.rmtree(bundled_licenses, ignore_errors=True)

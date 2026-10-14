@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 if [[ "${1:-}" == --help && $# == 1 ]]; then
-  printf 'Usage: scripts/build-dmg.sh\nEdit Version.xcconfig first. Outputs a verified DMG and SHA256 file in .build/releases.\nLocal builds are ad-hoc signed and not notarized. Nothing is committed or uploaded.\n'
+  printf 'Usage: scripts/build-dmg.sh\nEdit Version.xcconfig first. Outputs a verified DMG and SHA256 file in .build/releases.\nLocal builds use pinned certificate-backed signing and not notarized. Nothing is committed or uploaded.\n'
   exit 0
 fi
 if [[ $# != 0 ]]; then
@@ -49,6 +49,7 @@ trap 'exit 143' TERM
 mkdir "$work/payload" "$work/mount"
 ditto "$app" "$work/payload/Farcast.app"
 cp CHANGELOG.md "$work/payload/CHANGELOG.md"
+cp LICENSE "$work/payload/LICENSE"
 ln -s /Applications "$work/payload/Applications"
 diskutil image create from --volumeName "Farcast" --format UDZO \
   "$work/payload" "$work/$release_name.dmg"
@@ -58,6 +59,7 @@ mounted=1
 python3 scripts/verify-bundle.py "$work/mount/Farcast.app"
 python3 scripts/local-signing.py verify "$work/mount/Farcast.app"
 cmp CHANGELOG.md "$work/mount/CHANGELOG.md"
+cmp LICENSE "$work/mount/LICENSE"
 [[ "$(readlink "$work/mount/Applications")" == /Applications ]]
 diskutil eject "$work/mount" >/dev/null
 mounted=0

@@ -1,4 +1,5 @@
 #import "RDPDrive.h"
+#import "RDPDirectory.h"
 #define REFIID WINPR_REFIID
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -149,7 +150,7 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
 @property uint32_t access, sharing;
 @property BOOL directory, deleting, append;
 @property(copy) NSString *path;
-@property(strong) NSArray<NSString *> *listing;
+@property DIR *enumeration;
 @property(copy) NSString *pattern;
 @property NSUInteger cursor;
 @end
@@ -160,6 +161,8 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
     return self;
 }
 - (void)dealloc {
+    if (_enumeration)
+        closedir(_enumeration);
     if (_fd >= 0)
         close(_fd);
 }
@@ -404,10 +407,9 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
         if (!r->valid)
             return STATUS_INVALID_PARAMETER;
         if (deleting && h.directory) {
-            DIR *directory = fdopendir(dup(h.fd));
+            DIR *directory = FCRDPOpenDirectory(h.fd);
             if (!directory)
                 return statusForErrno();
-            rewinddir(directory);
             BOOL empty = YES;
             struct dirent *entry;
             while ((entry = readdir(directory))) {
@@ -539,9 +541,15 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
     if (kind != FileDirectoryInformation && kind != FileFullDirectoryInformation &&
         kind != FileBothDirectoryInformation && kind != FileNamesInformation)
         return STATUS_NOT_SUPPORTED;
-    if (!initial && !h.listing)
+    if (!(h.access & readMask))
+        return STATUS_ACCESS_DENIED;
+    if (!initial && !h.enumeration)
         return STATUS_INVALID_PARAMETER;
     if (initial) {
+        if (h.enumeration)
+            closedir(h.enumeration);
+        h.enumeration = NULL;
+        h.cursor = 0;
         NSString *path = relativePath(wire, NO);
         if (!path)
             return STATUS_ACCESS_DENIED;
@@ -551,45 +559,32 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
         h.pattern = path.length ? path.lastPathComponent : @"*";
         if ([h.pattern isEqual:@"*.*"])
             h.pattern = @"*";
-        DIR *dir = fdopendir(dup(h.fd));
+        // dup() shares the directory offset with other handles. A separate
+        // open description preserves independent cursors and restart semantics.
+        DIR *dir = FCRDPOpenDirectory(h.fd);
         if (!dir)
             return statusForErrno();
-        rewinddir(dir);
-        NSMutableArray *names = [NSMutableArray new];
-        struct dirent *entry;
-        BOOL okay = YES;
-        while (YES) {
-            errno = 0;
-            entry = readdir(dir);
-            if (!entry) {
-                okay = errno == 0;
-                break;
-            }
-            NSString *name = [[NSString alloc] initWithUTF8String:entry->d_name];
-            if (!name || [name isEqual:@"."] || [name isEqual:@".."] ||
-                fnmatch(h.pattern.lowercaseString.UTF8String, name.lowercaseString.UTF8String, 0))
-                continue;
-            struct stat s;
-            if (fstatat(h.fd, entry->d_name, &s, AT_SYMLINK_NOFOLLOW) || (!S_ISREG(s.st_mode) && !S_ISDIR(s.st_mode)))
-                continue;
-            if (names.count == 20000) {
-                okay = NO;
-                break;
-            }
-            [names addObject:name];
-        }
-        closedir(dir);
-        if (!okay)
-            return STATUS_INSUFFICIENT_RESOURCES;
-        h.listing = [names sortedArrayUsingSelector:@selector(compare:)];
-        h.cursor = 0;
+        h.enumeration = dir;
+        h.pattern = h.pattern.lowercaseString;
     }
-    while (h.cursor < h.listing.count) {
-        NSString *name = h.listing[h.cursor++];
-        struct stat s;
-        if (fstatat(h.fd, name.fileSystemRepresentation, &s, AT_SYMLINK_NOFOLLOW) ||
-            (!S_ISREG(s.st_mode) && !S_ISDIR(s.st_mode)))
+    // Keep one packed entry per request, matching FreeRDP's directory contract.
+    // Stream the native cursor instead of stat/sort/restat of the whole folder.
+    while (YES) {
+        errno = 0;
+        struct dirent *entry = readdir(h.enumeration);
+        if (!entry)
+            return errno ? statusForErrno() : (initial ? STATUS_NO_SUCH_FILE : STATUS_NO_MORE_FILES);
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
             continue;
+        if (entry->d_type != DT_UNKNOWN && entry->d_type != DT_REG && entry->d_type != DT_DIR)
+            continue;
+        NSString *name = [[NSString alloc] initWithUTF8String:entry->d_name];
+        if (!name || fnmatch(h.pattern.UTF8String, name.lowercaseString.UTF8String, 0))
+            continue;
+        struct stat s;
+        if (fstatat(h.fd, entry->d_name, &s, AT_SYMLINK_NOFOLLOW) || (!S_ISREG(s.st_mode) && !S_ISDIR(s.st_mode)))
+            continue;
+        h.cursor++;
         NSData *encoded = [name dataUsingEncoding:NSUTF16LittleEndianStringEncoding];
         Stream_Write_UINT32(out, 0);
         Stream_Write_UINT32(out, (uint32_t)h.cursor);
@@ -614,7 +609,6 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
         Stream_Write(out, encoded.bytes, encoded.length);
         return STATUS_SUCCESS;
     }
-    return initial ? STATUS_NO_SUCH_FILE : STATUS_NO_MORE_FILES;
 }
 - (NTSTATUS)volume:(uint32_t)kind output:(wStream *)out {
     struct statfs fs;
@@ -669,7 +663,16 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
             irp->Complete(irp);
             return;
         }
-        if (!Stream_EnsureRemainingCapacity(out, 1024 * 1024 + 4096)) {
+        // Only reads need a large response. Directory/metadata calls used to
+        // allocate a megabyte per entry, even for a few hundred output bytes.
+        size_t capacity = irp->MajorFunction == IRP_MJ_QUERY_INFORMATION ? 17000 : 4096;
+        if (irp->MajorFunction == IRP_MJ_READ) {
+            Reader sizeReader = r;
+            uint32_t length = (uint32_t)take(&sizeReader, 4);
+            if (sizeReader.valid && length <= 1024 * 1024)
+                capacity = MAX(capacity, (size_t)length + 4);
+        }
+        if (!Stream_EnsureRemainingCapacity(out, capacity)) {
             irp->IoStatus = STATUS_INSUFFICIENT_RESOURCES;
             emptyResponse(irp);
             irp->Complete(irp);

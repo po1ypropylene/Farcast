@@ -5,7 +5,9 @@
 SSH terminals, SFTP files and RDP/VNC desktops in one native Mac app.
 Includes saved connections, session tabs, SSH tunnels and optional shared WireGuard for SSH, RDP and VNC.
 
-Farcast is free and open source, and will stay that way forever.
+Farcast is free and open source under the [MIT License](LICENSE): free to download,
+use, modify and redistribute. Retain the copyright and license notice.
+[Bundled dependencies](ThirdParty/README.md) retain their own licenses.
 
 Requires **macOS 27+ and Apple silicon**. Protocol libraries are bundled.
 Local builds are Apple Development signed and unnotarized.

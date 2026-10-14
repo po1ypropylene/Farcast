@@ -45,6 +45,7 @@ or remove App Sandbox to hide signing errors. Distribution remains pending.
 
 `bundle-libraries.py` copies the entire native dependency closure to
 `Contents/Frameworks`, relocates load paths, and signs every copied library.
+The MIT LICENSE is copied into Contents/Resources/LICENSE.
 The third-party notice directory is replaced before copying, so read-only licenses
 from a previous build cannot block updates or leave removed notices behind.
 
@@ -83,7 +84,7 @@ IPv4/IPv6 loopback listener code in the signed sandboxed parent. It uses disposa
 sockets before UI/storage initialization and supplies no SSH credentials. Protocol
 forwarding is verified separately against owned SSH fixtures.
 
-`build-dmg.sh` stages the verified app, CHANGELOG.md and an Applications shortcut, creates a
+`build-dmg.sh` stages the verified app, LICENSE, CHANGELOG.md and an Applications shortcut, creates a
 compressed read-only image, verifies the mounted app and ejects that exact volume.
 Temporary staging is cleaned on exit; failed detach preserves the staging directory
 to avoid deleting a mounted volume. It emits a version/build-named DMG and SHA256

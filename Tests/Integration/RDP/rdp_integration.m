@@ -79,6 +79,7 @@ int main(int argc, char **argv) {
               // The notification now advertises pending items. Fulfill from a
               // consumer queue so the protocol worker continues receiving PDUs.
               dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+                [batch requestContents];
                 NSArray<NSURL *> *files = batch.files;
                 filesPassed =
                     [batch waitUntilReadyWithTimeout:20] && files.count == 1 &&

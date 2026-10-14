@@ -7,7 +7,8 @@ Package.swift and native builds share that minimum. SwiftData stores metadata;
 Security.framework provides Keychain and certificate trust. SwiftTerm handles
 terminal emulation, libssh2 SSH/SFTP, FreeRDP/WinPR RDP/NLA/channels, OpenSSL native
 cryptography, Metal desktop frames, and wireguard-go/gVisor private session transport.
-Pins, checksums and licenses live in the build scripts, Go manifests and ThirdParty.
+Farcast's original source is MIT-licensed in LICENSE. Dependency pins, checksums
+and separate licenses live in the build scripts, Go manifests and ThirdParty.
 No runtime Homebrew, external protocol client or SSH agent is required.
 
 ## Source map
@@ -288,14 +289,21 @@ range's offset and length; reordered responses use positional writes and short
 responses request only their missing suffix. Progress reports received bytes.
 Descriptor paths, collisions and file/directory conflicts are validated before
 creation; links, absolute/traversal paths and partial batches are rejected. Finder
-gets delayed file items after descriptors are validated, and standard file URLs
-only after the entire batch completes. The main-actor
+gets delayed file items after descriptors are validated. Copy does not send SIZE or
+RANGE requests or create the descendant tree. File-URL demand sets a thread-safe
+batch request, consumed once by the RDP worker's tick; only then does staging begin.
+Standard file URLs are supplied only after the entire batch completes. The main-actor
 pasteboard bridge preserves a newer local copy and suppresses remote-file echoes.
 AppKit file-URL data providers retain batches independently of the session.
-Fulfillment waits on a native condition for at most five minutes; the RDP worker
-signals completion/cancellation directly, independently of main-actor callbacks.
-The channel loop and disk work continue while a paste consumer waits. Selection
-changes/disconnect cancel partial downloads; completed clipboard files survive
+A concrete private pasteboard type prevents self-consumption even after focus reset
+or when another session synchronizes. Availability checks never read delayed URLs.
+AppKit's file-URL fulfillment contract is synchronous, with a five-minute deadline.
+Background callers wait on a native condition; main-thread callbacks service a
+bounded nested AppKit event loop so progress and cancellation remain responsive.
+A reentrancy guard and final pasteboard-change check prevent recursive fulfillment
+and publishing into a newer local copy. The worker signals completion/cancellation
+independently of UI callbacks; channel and disk work continue during fulfillment.
+Selection changes/disconnect cancel partial downloads; completed clipboard files survive
 disconnect while the app and pasteboard provider remain alive. After ownership
 ends, cleanup waits 60 seconds for consumers already copying. App exit can leave
 OS temporary files pending system cleanup; this is not persistent file storage.
@@ -376,9 +384,15 @@ the shared empty-response encoder also handles errors and cancellation.
 Directory notifications, byte-range
 locking, security-descriptor updates and arbitrary device controls return unsupported;
 this is folder access, not a complete Windows filesystem emulation. Up to 16 named
-exports, 1,024 handles/device, 20,000 listing entries and 1 MiB I/O requests bound
-resource use. Windows policy may disable device redirection independently of
-clipboard sharing. Writable exports directly modify the selected Mac files.
+exports, 1,024 handles/device and 1 MiB I/O requests bound resource use.
+Each directory search retains an independent native cursor, streams one packed
+record per request (as the FreeRDP drive implementation does), and obtains metadata
+once for each returned entry. No full-folder snapshot, sorting or listing-count cap
+is needed. Search restarts reopen their own cursor; opening through dup alone would
+share offsets. Small metadata replies allocate only a small response buffer.
+Listing requires FILE_LIST_DIRECTORY/read access. Network round trips still bound
+large-folder throughput; streaming is not a claim of comparative server speed.
+Windows policy may disable device redirection independently of clipboard sharing. Writable exports directly modify the selected Mac files.
 
 ## Shared SSH and SFTP
 
@@ -654,5 +668,4 @@ SHA256 checks are required; see [packaging](packaging.md) and [testing](testing.
 SCP/WebDAV; SFTP resume/Finder download promises; SSH config/agent/jump hosts/
 certificates/hardware keys, SOCKS BIND/UDP, HTTP proxy and streamlocal forwarding;
 RDP Gateway/RemoteApp/microphone/other devices/
-hardware video; nested folders/cloud sync/updater. The app source license is
-undecided. [Validation](validation.md) tracks remaining interoperability/release work.
+hardware video; nested folders/cloud sync/updater. [Validation](validation.md) tracks remaining interoperability/release work.

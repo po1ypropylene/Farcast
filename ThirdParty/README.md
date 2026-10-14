@@ -1,5 +1,9 @@
 # Bundled open-source components
 
+Farcast's original code is licensed under the [MIT License](../LICENSE). That grant
+does not replace the licenses, copyright notices or NOTICE files for the components
+below. Redistributed builds must retain both Farcast's license and these notices.
+
 | Component | Pinned release | License | Upstream |
 |---|---|---|---|
 | FreeRDP / WinPR | 3.32.1 | Apache-2.0 | https://github.com/FreeRDP/FreeRDP |

@@ -316,8 +316,11 @@ See [known limits](validation.md) for remaining interoperability checks.
   Command+C/X/V/A map to Windows Control shortcuts; otherwise Command maps to the Windows key;
   app shortcuts such as Command+W and Command+Q remain local.
   Copy files/folders in Finder and paste into Windows Explorer, or copy in Explorer
-  and paste into Finder. Windows-to-Mac files download first; the desktop status
-  reports when they are ready. Only complete batches enter the Mac clipboard.
+  and paste into Finder. Copying in Windows advertises file availability on the Mac
+  without downloading the contents. A Mac pasteboard consumer requesting the file
+  URLs (normally Finder Paste) starts the download; the desktop status shows progress.
+  Only fully downloaded batches become usable local file URLs. Clipboard managers
+  that request file URLs can also trigger a download.
   Transfers always copy; they do not delete the sources, even when Cut is used.
   The server must permit file clipboard redirection. Local files need readable
   access and Windows-compatible names; symbolic links and special files are refused.

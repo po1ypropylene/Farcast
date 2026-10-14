@@ -255,6 +255,44 @@ int main(int argc, char **argv) {
                 closeFile(rw, handle);
             }
         }
+        // Independent cursors must not share the root's seek position. A folder
+        // larger than the former snapshot cap must enumerate completely.
+        NSURL *many = [export URLByAppendingPathComponent:@"Many"];
+        [fm createDirectoryAtURL:many withIntermediateDirectories:NO attributes:nil error:NULL];
+        for (NSUInteger i = 0; i < 20005; i++) {
+            NSURL *url = [many URLByAppendingPathComponent:[NSString stringWithFormat:@"item-%05lu", (unsigned long)i]];
+            check([NSData.data writeToURL:url atomically:NO], "large directory fixture file");
+        }
+        UINT32 first = create(rw, @"Many", GENERIC_READ, FILE_OPEN, FILE_DIRECTORY_FILE, shares);
+        UINT32 second = create(rw, @"Many", GENERIC_READ, FILE_OPEN, FILE_DIRECTORY_FILE, shares);
+        NSMutableSet *manyNames = [NSMutableSet new];
+        NSTimeInterval began = NSProcessInfo.processInfo.systemUptime;
+        for (NSUInteger i = 0; i <= 20005; i++) {
+            queryDirectory(rw, first, FileNamesInformation, i == 0, i == 0 ? @"Many/*" : nil);
+            if (result == STATUS_NO_MORE_FILES)
+                break;
+            check(result == STATUS_SUCCESS, "large streamed listing does not hit the old 20000-entry cap");
+            NSString *name = [[NSString alloc] initWithBytes:(const BYTE *)output.bytes + 16
+                                                      length:word(output, 12)
+                                                    encoding:NSUTF16LittleEndianStringEncoding];
+            [manyNames addObject:name];
+            if (i == 10) {
+                queryDirectory(rw, second, FileNamesInformation, YES, @"Many/*");
+                check(result == STATUS_SUCCESS, "independent search starts during another enumeration");
+                queryDirectory(rw, second, FileNamesInformation, YES, @"Many/*");
+                check(result == STATUS_SUCCESS, "restarting a second search preserves the first cursor");
+            }
+        }
+        check(result == STATUS_NO_MORE_FILES && manyNames.count == 20005,
+              "large search has no missing or duplicate entries");
+        printf("PASS streamed 20005-entry local enumeration in %.3f seconds (no network)\n",
+               NSProcessInfo.processInfo.systemUptime - began);
+        closeFile(rw, first);
+        closeFile(rw, second);
+        UINT32 metadataOnly = create(rw, @"Many", FILE_READ_ATTRIBUTES, FILE_OPEN, FILE_DIRECTORY_FILE, shares);
+        queryDirectory(rw, metadataOnly, FileNamesInformation, YES, @"Many/*");
+        check(result == STATUS_ACCESS_DENIED, "directory listing requires list-directory access");
+        closeFile(rw, metadataOnly);
         for (FCRDPDrive *drive in @[ rw, [[FCRDPDrive alloc] initWithURL:export readOnly:YES] ]) {
             UINT32 file = create(drive, @"\\Nested\\繁體😀\\original.bin", GENERIC_READ, FILE_OPEN,
                                  FILE_NON_DIRECTORY_FILE, shares);

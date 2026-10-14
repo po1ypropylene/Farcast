@@ -2,6 +2,14 @@
 
 Changes are recorded from version 1.7.0 onwards.
 
+## 2.3.1 — 15 October 2026
+
+- License Farcast's original source under MIT, permitting free use, modification and redistribution with the license notice retained. Include LICENSE in the app and DMG; bundled dependencies keep their own licenses.
+- Advertise Windows clipboard files without downloading their contents on Copy. Begin size/range requests only when a Mac pasteboard consumer requests the files, and prevent focus changes or another session from consuming Farcast's own delayed clipboard items.
+- Keep native event handling active during synchronous paste fulfillment; publish only complete files and preserve a newer local copy.
+- Stream redirected-folder enumeration instead of scanning/sorting the entire directory first. Avoid duplicate metadata reads and large per-entry response allocations, remove the 20,000-entry listing cap, and keep independent search cursors with list-access checks. Clean up directory descriptors on enumeration setup failure. Reject inbound files above 4 GiB when large-file support was not negotiated.
+- Synthetic coverage includes lazy 50 MB file transfers and directories above 20,000 entries. Real Finder/Windows copy-paste and comparative directory throughput still require live verification.
+
 ## 2.3.0 — 15 October 2026
 
 - Add, edit, duplicate, start, stop and remove SSH tunnels in a live session without reconnecting. Save to the connection or keep a tunnel for this session only. Show actual listener addresses with copy controls, status and actionable failures.

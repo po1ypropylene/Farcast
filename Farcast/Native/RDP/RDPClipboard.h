@@ -3,6 +3,10 @@
 @interface FCRDPClipboardFileBatch : NSObject
 - (instancetype)initWithRoot:(NSURL *)root files:(NSArray<NSURL *> *)files;
 @property(nonatomic, readonly) NSArray<NSURL *> *files;
+// Explicit demand only: advertising the batch never requests file contents.
+- (void)requestContents;
+- (void)cancel;
+@property(nonatomic, readonly, getter=isFinished) BOOL finished;
 // A pasteboard consumer can wait without involving the main actor. The RDP
 // worker completes or cancels this condition independently of UI callbacks.
 - (BOOL)waitUntilReadyWithTimeout:(NSTimeInterval)timeout NS_SWIFT_NAME(waitUntilReady(timeout:));

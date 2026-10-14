@@ -252,6 +252,13 @@ int main(int argc, char **argv) {
         remoteDescriptors(&channel, descriptor(@"50MB.bin", FILE_ATTRIBUTE_NORMAL, largeSize));
         check(batch.files.count == 1 && ![batch waitUntilReadyWithTimeout:0],
               "pending file items advertised before the 50 MB download");
+        [bridge tick];
+        check(pendingRequests.count == 0, "Copy and availability polling never request file size or bytes");
+        [batch requestContents];
+        [batch requestContents];
+        [bridge tick];
+        [bridge tick];
+        check(pendingRequests.count == 1, "explicit paste starts once on the protocol worker");
         __block BOOL waiterReady = NO;
         dispatch_semaphore_t waiterDone = dispatch_semaphore_create(0);
         FCRDPClipboardFileBatch *waitingBatch = batch;
@@ -302,6 +309,14 @@ int main(int argc, char **argv) {
         [bridge setText:@"cancel pending paste"];
         check(![interrupted waitUntilReadyWithTimeout:1] && ![fm fileExistsAtPath:interrupted.files.firstObject.path],
               "cancellation wakes fulfillment and removes partial files");
+        remoteFormat(&channel);
+        [pendingRequests removeAllObjects];
+        remoteDescriptors(&channel, descriptor(@"consumer-cancelled.bin", FILE_ATTRIBUTE_NORMAL, 100));
+        [batch requestContents];
+        [batch cancel];
+        [bridge tick];
+        check(batch.isFinished && ![batch waitUntilReadyWithTimeout:0] && pendingRequests.count == 0,
+              "consumer cancellation before worker starts sends no file requests");
         [bridge detach];
         check([fm fileExistsAtPath:largeDownload.path], "provider batch survives disconnect");
         [fm removeItemAtURL:largeDownload.URLByDeletingLastPathComponent error:NULL];
@@ -327,6 +342,21 @@ int main(int argc, char **argv) {
         channel.ServerFileContentsResponse(&channel, &late);
         check(!received, "late file response ignored after deselection");
         [bridge setActive:YES];
+        general.generalFlags &= ~CB_HUGE_FILE_SUPPORT_ENABLED;
+        channel.ServerCapabilities(&channel, &caps);
+        remoteFormat(&channel);
+        remoteDescriptors(&channel, descriptor(@"unsupported-large.bin", FILE_ATTRIBUTE_NORMAL, (1ULL << 32) + 1));
+        uint64_t hugeSize = CFSwapInt64HostToLittle((1ULL << 32) + 1);
+        CLIPRDR_FILE_CONTENTS_RESPONSE unsupported = {0};
+        unsupported.common.msgFlags = CB_RESPONSE_OK;
+        unsupported.streamId = pending.streamId;
+        unsupported.cbRequested = 8;
+        unsupported.requestedData = (BYTE *)&hugeSize;
+        channel.ServerFileContentsResponse(&channel, &unsupported);
+        check([message hasPrefix:@"Clipboard file transfer failed"],
+              "inbound large files require negotiated huge-file support");
+        general.generalFlags |= CB_HUGE_FILE_SUPPORT_ENABLED;
+        channel.ServerCapabilities(&channel, &caps);
         NSURL *sparse = [root URLByAppendingPathComponent:@"Sparse.bin"];
         int fd = open(sparse.fileSystemRepresentation, O_CREAT | O_EXCL | O_RDWR, 0600);
         off_t offset = (1ULL << 32) + 17;

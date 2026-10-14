@@ -1,4 +1,5 @@
 #import "RDPClipboard.h"
+#import "RDPDirectory.h"
 #define REFIID WINPR_REFIID
 #import <dirent.h>
 #import <fcntl.h>
@@ -98,11 +99,12 @@ static BOOL makeDirectory(int root, NSString *path) {
 @interface FCRDPClipboardFileBatch ()
 - (instancetype)initWithRoot:(NSURL *)root files:(NSArray<NSURL *> *)files pending:(BOOL)pending;
 - (void)finish:(BOOL)success;
+- (BOOL)takeRequest;
 @end
 @implementation FCRDPClipboardFileBatch {
     NSURL *_root;
     NSCondition *_condition;
-    BOOL _finished, _success;
+    BOOL _finished, _success, _requested, _started;
 }
 - (instancetype)initWithRoot:(NSURL *)root files:(NSArray<NSURL *> *)files {
     return [self initWithRoot:root files:files pending:NO];
@@ -115,6 +117,29 @@ static BOOL makeDirectory(int root, NSString *path) {
         _finished = _success = !pending;
     }
     return self;
+}
+- (void)requestContents {
+    [_condition lock];
+    if (!_finished)
+        _requested = YES;
+    [_condition unlock];
+}
+- (void)cancel {
+    [self finish:NO];
+}
+- (BOOL)isFinished {
+    [_condition lock];
+    BOOL finished = _finished;
+    [_condition unlock];
+    return finished;
+}
+- (BOOL)takeRequest {
+    [_condition lock];
+    BOOL start = _requested && !_started && !_finished;
+    if (start)
+        _started = YES;
+    [_condition unlock];
+    return start;
 }
 - (void)finish:(BOOL)success {
     [_condition lock];
@@ -322,7 +347,7 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
     [entries addObject:entry];
     if (!entry.directory)
         return YES;
-    DIR *directory = fdopendir(dup(fd));
+    DIR *directory = FCRDPOpenDirectory(fd);
     if (!directory)
         return NO;
     BOOL result = YES;
@@ -513,7 +538,7 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
     if (files && !(_serverFlags & CB_STREAM_FILECLIP_ENABLED))
         [self progress:@"This server does not support file clipboard sharing."];
     else
-        [self progress:files ? @"Receiving clipboard files…" : @""];
+        [self progress:@""];
     if (!_nextFormat && !files && self.onText)
         self.onText(@"");
     return [self startRequest];
@@ -620,11 +645,6 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
     _stageFD = open(_stage.fileSystemRepresentation, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     if (_stageFD < 0)
         return NO;
-    for (FCClipboardEntry *entry in entries) {
-        NSString *directory = entry.directory ? entry.name : entry.name.stringByDeletingLastPathComponent;
-        if (directory.length && !makeDirectory(_stageFD, directory))
-            return NO;
-    }
     _remote = entries;
     _index = 0;
     _position = 0;
@@ -640,8 +660,8 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
             }
         }
         _batch = [[FCRDPClipboardFileBatch alloc] initWithRoot:_stage files:urls pending:YES];
-        // Advertise native items now; never expose their partial paths to Finder.
-        // The provider waits on the worker-owned completion condition.
+        // Publish metadata only. A provider's explicit request is consumed by
+        // tick on this worker; no SIZE/RANGE requests or tree creation on Copy.
         self.onBatch(_batch);
     }
     return YES;
@@ -678,6 +698,21 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
     if (![self beginFiles:response]) {
         [self failedTransfer];
         return CHANNEL_RC_OK;
+    }
+    if (_batch) {
+        [self progress:@"Windows files are available to paste in Finder."];
+        return CHANNEL_RC_OK;
+    }
+    // Headless consumers that install onFiles explicitly consume immediately.
+    return [self startTransfer];
+}
+- (UINT)startTransfer {
+    for (FCClipboardEntry *entry in _remote) {
+        NSString *directory = entry.directory ? entry.name : entry.name.stringByDeletingLastPathComponent;
+        if (directory.length && !makeDirectory(_stageFD, directory)) {
+            [self failedTransfer];
+            return CHANNEL_RC_OK;
+        }
     }
     return [self nextFile];
 }
@@ -787,7 +822,8 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
         uint64_t size;
         memcpy(&size, response->requestedData, 8);
         size = CFSwapInt64LittleToHost(size);
-        if ((entry.size != UINT64_MAX && size != entry.size) || size > maxCacheBytes - _cacheBytes) {
+        if ((entry.size != UINT64_MAX && size != entry.size) || size > maxCacheBytes - _cacheBytes ||
+            (size > UINT32_MAX && !(_serverFlags & CB_HUGE_FILE_SUPPORT_ENABLED))) {
             [self failedTransfer];
             return CHANNEL_RC_OK;
         }
@@ -916,6 +952,14 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
     return _channel->ClientFileContentsResponse(_channel, &response);
 }
 - (void)tick {
+    if (_batch.isFinished && ![_batch waitUntilReadyWithTimeout:0]) {
+        [self cancelRemote];
+        [self progress:@"Clipboard file transfer cancelled. Copy the files again to retry."];
+    }
+    if (_active && _channel && [_batch takeRequest]) {
+        if ([self startTransfer] != CHANNEL_RC_OK)
+            [self failedTransfer];
+    }
     BOOL stalledRange = NO;
     for (FCClipboardRange *range in _ranges.allValues)
         if (NSDate.timeIntervalSinceReferenceDate - range.sent > 30)

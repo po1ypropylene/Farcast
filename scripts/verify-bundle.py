@@ -17,6 +17,12 @@ if float(info.get('LSMinimumSystemVersion', '0').split('.')[0]) < 27:
 executable = app / 'Contents/MacOS' / info['CFBundleExecutable']
 if not (app / 'Contents/MacOS/FarcastWireGuard').is_file():
     raise SystemExit('Missing embedded WireGuard helper.')
+project_root = Path(__file__).resolve().parent.parent
+if (app / 'Contents/Resources/LICENSE').read_bytes() != (project_root / 'LICENSE').read_bytes():
+    raise SystemExit('The app must include the current Farcast MIT license.')
+for notice in (project_root / 'ThirdParty').iterdir():
+    if notice.is_file() and (app / 'Contents/Resources/ThirdParty' / notice.name).read_bytes() != notice.read_bytes():
+        raise SystemExit('The app must include all current third-party notices.')
 libraries = list((app / 'Contents/Frameworks').glob('*.dylib'))
 
 def command(*args):

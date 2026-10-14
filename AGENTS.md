@@ -71,7 +71,7 @@ Add a dated version heading and concise line items describing user-visible chang
 fixes and material limitations. Update the entry as scope changes, before the final
 DMG build; preserve earlier entries. Include it in the DMG alongside the app.
 
-Keep docs/validation.md focused on reproducible coverage, current findings and unresolved limits; synthetic tests do not prove production-server compatibility. Do not append dated run diaries, pass counts, old artifact paths or superseded UI descriptions. Put release history only in CHANGELOG.md. Record material architectural decisions in docs/architecture.md. Do not include raw credentials, server identifiers, terminal contents or original crash logs. Do not modify Codex memory unless directly requested. Do not commit/publish unless requested. Farcast's own source license is still undecided; third-party notices must ship in the app.
+Keep docs/validation.md focused on reproducible coverage, current findings and unresolved limits; synthetic tests do not prove production-server compatibility. Do not append dated run diaries, pass counts, old artifact paths or superseded UI descriptions. Put release history only in CHANGELOG.md. Record material architectural decisions in docs/architecture.md. Do not include raw credentials, server identifiers, terminal contents or original crash logs. Do not modify Codex memory unless directly requested. Do not commit/publish unless requested. Farcast's own source uses the MIT License in LICENSE; that license and third-party notices must ship in the app and license text must accompany redistribution.
 
 ## Brand assets
 

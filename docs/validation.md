@@ -35,12 +35,17 @@ stated scope; disabled live entries report SKIP.
 - **RDP input and files:** physical scan codes use the US layout. Folder redirection
   omits directory notifications, byte-range locking and ACL editing. Clipboard
   batches are temporary, copy-only and limited to 8 GiB / 20,000 entries.
-  Delayed file-URL fulfillment waits at most five minutes; only complete batches
-  become usable URLs. Eight-range pipelining is covered by synthetic 50 MB
+  Copy advertises metadata only; delayed file-URL demand starts transfer and
+  waits at most five minutes, servicing native events on the main thread. Only
+  complete batches become usable URLs. Third-party clipboard consumers that request
+  file URLs can trigger fulfillment without a Finder Paste command. Eight-range
+  pipelining is covered by synthetic 50 MB
   reordered/short/duplicate-response checks, not a production speed measurement.
   Drive names use terminated UTF-8 for interoperability. ASCII drive names and
   nested browsing have live Windows coverage; Unicode labels and real writes
-  still need verification.
+  still need verification. Streamed listings above 20,000 entries and independent
+  cursors are covered locally; one-entry wire replies remain round-trip limited.
+  Comparative production directory throughput has not been measured.
 - **VNC:** classic password/no-auth has no desktop encryption or server identity;
   use WireGuard on untrusted networks. VeNCrypt requires supported X509 modes.
   ARD/proprietary security, anonymous TLS, file/audio/cursor channels and client
@@ -65,8 +70,9 @@ stated scope; disabled live entries report SKIP.
   keyboard/VoiceOver workflows remain unverified.
 - **Release:** local signing uses a pinned Apple Development certificate with
   hardened runtime disabled. Developer ID distribution, notarization, clean-Mac
-  installation and vulnerability/legal review remain pending. Farcast's source
-  license is undecided. The development credential fallback is unencrypted.
+  installation and vulnerability/legal review remain pending. Farcast's original
+  source is MIT-licensed; bundled dependencies retain separate licenses.
+  The development credential fallback is unencrypted.
 
 See [architecture](architecture.md) for ownership, protocol bounds and unsupported
 features, and [packaging](packaging.md) for signing requirements.
