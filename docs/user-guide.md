@@ -82,6 +82,12 @@ Create folders from Add, and drag connection
 rows into folders. Folders have one level. Search matches
 names, hosts, users, protocols, and notes.
 
+The window title shows the active connection. Rounded session tabs sit above the
+lighter SSH view tabs; desktop sessions show no SSH view tabs. Terminal/Split View
+show zoom controls in minus/percentage/plus order (click the percentage to reset)
+and a labeled Find action. Files/Tunnels hide these tools. Status and sidebar
+uptime use compact elapsed time, such as `47s`, `1:47` and `1h 02m`.
+
 Session tabs can be reordered by dragging. Switching tabs does not reconnect or
 terminate their sessions. The toolbar provides reconnect, disconnect, full screen,
 and connection details. Closing a session disconnects it. Restored tabs remain
@@ -127,6 +133,12 @@ Keys follow the app’s existing credential storage policy. See
 
 ### SSH tunnels
 
+The **Tunnels** page keeps its header and cards in one centered column. Its empty
+card offers **Local forward**, **SOCKS5 proxy** and **Remote forward** shortcuts that
+open the editor with that type selected. Saved rules with **Start on connect** off
+appear as stopped cards with a **Start** button. **Edit saved tunnels…** appears only
+when saved rules exist.
+
 Use **Add Tunnel…** in a connected SSH session’s **Tunnels** view to add a live
 tunnel. **Save to this connection** is the default for saved connections;
 **This session only** leaves the saved defaults unchanged and ends at reconnect.
@@ -170,8 +182,10 @@ transport. Forwarding remains serviced during file transfers and overwrite
 prompts, and active rules use the smaller interactive file-transfer budget.
 **Stop** closes that rule's listener and current connections. Other rules and
 terminal/files remain usable. **Cancel** in Files affects only file work.
-Disconnect, reconnect and Close Session ask for confirmation when tunnels or file
-work are active. Disconnecting or closing closes all listeners; reconnect restarts
+Disconnect, reconnect and Close Session ask for confirmation when tunnels or SFTP
+file work are active. **Session → Disconnect All** (⇧⌥⌘D) ends all sessions and uses
+the same conditional confirmation. Remote applications' unsaved editor state cannot
+be detected through the terminal protocol; save remote work before ending its session. Disconnecting or closing closes all listeners; reconnect restarts
 enabled rules and may assign new automatic ports. A detached session keeps its
 tunnels until the session itself disconnects.
 
@@ -319,6 +333,8 @@ See [known limits](validation.md) for remaining interoperability checks.
   and paste into Finder. Copying in Windows advertises file availability on the Mac
   without downloading the contents. A Mac pasteboard consumer requesting the file
   URLs (normally Finder Paste) starts the download; the desktop status shows progress.
+  Remote file offers stay on this Mac and are excluded from Universal Clipboard
+  syncing to other Apple devices, so that syncing cannot initiate the download.
   Only fully downloaded batches become usable local file URLs. Clipboard managers
   that request file URLs can also trigger a download.
   Transfers always copy; they do not delete the sources, even when Cut is used.

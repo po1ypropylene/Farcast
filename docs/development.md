@@ -72,16 +72,28 @@ Maintenance regression checks use disposable files and mocked credential deletio
 
 ## Version and DMG for a release
 
-Edit **[Version.xcconfig](../Version.xcconfig)** at the repository root. It is the single
-source for the app's version (`MARKETING_VERSION`, such as `0.1.0`) and build number
-(`CURRENT_PROJECT_VERSION`, a positive integer). Both Debug and Release in Xcode
-read it; do not override these values in the project settings. Increase the build
-number for another build of the same version.
+**[Version.xcconfig](../Version.xcconfig)** is the single source for the marketing
+version and positive integer build number. Both Debug and Release read it. The
+current baseline was explicitly reset to **1.0.0 build 1**; earlier changelog history
+was removed. Do not restore the old history or versions from older artifacts.
 
-Every completed logical app code change requires a new versioned DMG. The existing
-agent rules advance the version using Semantic Versioning once per delivery. Starting
-with 1.7.0, add dated user-visible line items to [CHANGELOG.md](../CHANGELOG.md) before
-packaging; keep earlier entries. Documentation-only changes do not need a new app version.
+Ordinary work does **not** advance either number. Stage completed user-visible
+changes, fixes and material limitations under **Unreleased** in
+[CHANGELOG.md](../CHANGELOG.md). This is documentation staging, not Git staging.
+Keep the notes current as the implementation changes.
+
+Only a **separate explicit release/version request** promotes all staged changes to
+a dated release section. Determine the highest applicable Semantic Versioning
+category across the full staged scope: patch for compatible fixes, minor for
+compatible features/deprecations, major for incompatible supported behavior or data
+formats. An explicit version overrides that calculation. Set the new version in
+Version.xcconfig and reset its build to 1, leaving an empty Unreleased section.
+Advance only the build when explicitly requested for a numbered rebuild.
+
+Every completed logical app code change still requires a verified DMG, using the
+current version/build. Building a DMG does not promote notes or authorize a bump;
+ordinary rebuilds replace the matching generated artifact. Documentation-only
+changes do not require an app artifact. See [agent rules](../AGENTS.md).
 
 To build the app and required DMG, run:
 

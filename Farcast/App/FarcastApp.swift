@@ -48,6 +48,7 @@ import SwiftUI
             }.preferredColorScheme(appearance == "Dark" ? .dark : appearance == "Light" ? .light : nil)
         }.defaultSize(width: 1280, height: 820)
             .commands {
+                SidebarCommands()
                 CommandGroup(replacing: .newItem) {
                     Button("New Connection…") {
                         workspace.editor = EditorRequest(draft: ConnectionDraft(), mode: .create)
@@ -75,6 +76,10 @@ import SwiftUI
                     } else {
                         Text("No active session")
                     }
+                    Divider()
+                    Button("Disconnect All") { workspace.requestDisconnectAll() }
+                        .keyboardShortcut("d", modifiers: [.command, .option, .shift])
+                        .disabled(!workspace.sessions.contains { $0.state.active })
                 }
             }
         Settings { AppSettings() }
@@ -87,7 +92,7 @@ private struct FindInTerminalCommandButton: View {
         Button("Find in Terminal…") {
             guard session.terminalAvailable else { return }
             session.terminal?.find()
-        }.keyboardShortcut("f").disabled(session.terminal == nil || !session.terminalAvailable)
+        }.keyboardShortcut("f").disabled(!session.showsTerminalTools)
     }
 }
 
@@ -125,15 +130,15 @@ private struct SessionMenuItems: View {
             Button("Increase Terminal Zoom") { session.zoomTerminal(1) }.keyboardShortcut(
                 "+", modifiers: [.command]
             )
-            .disabled(session.terminal == nil || !session.terminalAvailable)
+            .disabled(!session.showsTerminalTools)
             Button("Decrease Terminal Zoom") { session.zoomTerminal(-1) }.keyboardShortcut(
                 "-", modifiers: [.command]
             )
-            .disabled(session.terminal == nil || !session.terminalAvailable)
+            .disabled(!session.showsTerminalTools)
             Button("Reset Terminal Zoom") { session.resetTerminalZoom() }.keyboardShortcut(
                 "0", modifiers: [.command]
             )
-            .disabled(session.terminal == nil || !session.terminalAvailable)
+            .disabled(!session.showsTerminalTools)
             Divider()
             Button("Send Ctrl+Alt+Delete") { session.controlAltDelete() }.disabled(
                 session.profile.kind == .ssh

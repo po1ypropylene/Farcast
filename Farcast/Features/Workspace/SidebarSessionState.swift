@@ -12,11 +12,9 @@ struct SidebarSessionState: View {
             if let session {
                 let uptime =
                     session.connectedAt.map {
-                        DateComponentsFormatter.localizedString(
-                            from: DateComponents(second: Int(max(0, timeline.date.timeIntervalSince($0)))),
-                            unitsStyle: .abbreviated) ?? ""
+                        SessionUptime.string(since: $0, now: timeline.date)
                     } ?? ""
-                let label = "\(session.state.title)\(uptime.isEmpty ? "" : " · " + uptime)"
+                let label = "\(session.state.title)\(uptime.isEmpty ? "" : " " + uptime)"
                 Circle().fill(session.state == .connected ? Color.green : session.state == .failed ? .red : .orange)
                     .frame(width: 6, height: 6)
                     .opacity(

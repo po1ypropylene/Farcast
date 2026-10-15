@@ -190,11 +190,14 @@ import UniformTypeIdentifiers
         }
         updateActiveSession()
     }
+    func registerMainWindow(_ window: NSWindow) {
+        mainWindow = window
+        if window.isKeyWindow { activate(window) }
+    }
     func activate(_ window: NSWindow) {
         if let slot = sessionWindows.first(where: { $0.value === window })?.key {
             focusedDetachedSlot = slot
-        } else if window === mainWindow || window.title == "Farcast" {
-            mainWindow = window
+        } else if window === mainWindow {
             focusedDetachedSlot = nil
         } else {
             // Sheets and file pickers retain their presenting connection's ownership.

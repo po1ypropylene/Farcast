@@ -176,9 +176,16 @@ Edit clears automatic text selection; New focuses Address and Quick Connect focu
 its compact address input. Quick Connect parses explicit user@host:port and SSH/RDP/VNC URLs without accepting passwords.
 
 
-Session and tool navigation share underline tabs and compact, accessible controls.
-Live tunnel cards have one 640-point content limit and the same 24-point left inset
-in empty/populated states; terminal and file surfaces retain usable full width.
+Session navigation uses rounded 28-point tabs with close buttons; secondary tools
+use underline tabs separated by a divider. Native toolbar labels use system sizing
+and glass, grouped into open/session/view actions. The window title reflects the
+active connection; explicit native-window registration keeps focus/prompt routing
+independent of that title. Sidebar selection remains independent for profile management.
+Live tunnel cards share a centered 720-point column with 24-point side padding,
+a persistent header and type-specific empty-state quick starts. Saved rules with
+Start on connect off remain stopped, startable cards. Terminal/file surfaces retain
+usable full width. Terminal zoom/find appear only for Terminal/Split View; status
+and sidebar use the same compact uptime formatter.
 Saved/live tunnel forms share the 128-point right-aligned label column, 12-point
 gap and 64-point port fields. Empty listen ports display Auto. Contextual warnings
 cover non-loopback remote listeners and unauthenticated SOCKS access. Sidebar
@@ -301,6 +308,11 @@ pasteboard bridge preserves a newer local copy and suppresses remote-file echoes
 One AppKit file-URL data provider retains each batch independently of the session.
 It maps item identities to URLs without retaining items (which retain their provider).
 AppKit's ownership-end callback cancels unfinished work for the whole batch.
+File publication uses `prepareForNewContents(with: .currentHostOnly)` so Universal
+Clipboard cannot request promised URLs for cross-device synchronization. This
+applies to both delayed batches and legacy materialized file offers. The flag uses
+Apple's [current-device-only contract](https://developer.apple.com/documentation/appkit/nspasteboard/contentsoptions/currenthostonly);
+a file-URL read alone does not identify a user Paste action.
 A concrete private pasteboard type prevents self-consumption even after focus reset
 or when another session synchronizes. Availability checks never read delayed URLs.
 AppKit's file-URL fulfillment contract is synchronous, with a five-minute deadline.
@@ -445,8 +457,8 @@ authenticated transport before reporting a file-only connection. Shell EOF also
 checks SFTP rather than ending usable file access. Transport errors, authentication
 and trust failures still fail the connection; neither service available is an error.
 Worker capability callbacks use the session's generation guard, select Files and
-disable Terminal/Split and terminal tools. The native NSSegmentedControl enforces
-per-segment disabled states; preserve that behavior when changing the mode picker.
+disable Terminal/Split and terminal tools. The secondary tool buttons enforce
+per-mode disabled states; preserve that behavior when changing the mode picker.
 Reconnect checks capabilities anew.
 Server navigation records only successful visits in a 32-folder Back/Forward
 history. A controller-local LRU listing cache retains at most 16 folders and

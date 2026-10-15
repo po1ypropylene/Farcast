@@ -28,35 +28,42 @@ struct SSHForwardingView: View {
         savedConnection.map { ConnectionDraft($0).forwardingRules.contains(rule) } ?? false
     }
     var body: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    if controller.rules.isEmpty {
-                        VStack(spacing: 12) {
-                            Image(systemName: "point.3.connected.trianglepath.dotted").font(.largeTitle)
-                                .foregroundStyle(.secondary)
-                            Text("No tunnels").font(.headline)
-                            Text("Forward traffic through this SSH session.").font(.callout).foregroundStyle(
-                                ConnectionFormLayout.captionColor)
-                            PrimaryActionButton(title: "Add Tunnel…") { add() }.disabled(!connected)
-                            if savedConnection != nil, let editSaved {
-                                Button("Edit saved tunnels…", action: editSaved)
-                            }
-                        }.frame(maxWidth: .infinity, minHeight: max(0, geometry.size.height - 48))
-                    } else {
-                        HStack {
-                            Text("Live tunnels").font(.headline)
-                            Spacer()
-                            if savedConnection != nil, let editSaved {
-                                Button("Edit saved tunnels…", action: editSaved)
-                            }
-                            Button("Add Tunnel…") { add() }.disabled(!connected || controller.rules.count >= 16)
-                        }
-                        ForEach(controller.rules) { rule in card(rule) }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Tunnels").font(.title2.weight(.semibold))
+                        Text("Forward traffic through this SSH session.")
+                            .foregroundStyle(ConnectionFormLayout.captionColor)
                     }
-                }.frame(maxWidth: 640, alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(ConnectionFormLayout.inset)
+                    Spacer(minLength: 12)
+                    Button("Add Tunnel…") { add() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!connected || controller.rules.count >= 16)
+                }
+                if controller.rules.isEmpty {
+                    VStack(spacing: 14) {
+                        Image(systemName: "point.3.connected.trianglepath.dotted")
+                            .font(.system(size: 52)).foregroundStyle(ConnectionFormLayout.captionColor)
+                            .accessibilityHidden(true)
+                        Text("No tunnels").font(.headline)
+                        Text("Pick a type to get started:").foregroundStyle(ConnectionFormLayout.captionColor)
+                        ViewThatFits(in: .horizontal) {
+                            HStack { templateButtons }
+                            VStack { templateButtons }
+                        }
+                        savedTunnelsButton
+                    }
+                    .padding(24).frame(maxWidth: .infinity, minHeight: 250)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+                } else {
+                    ForEach(controller.rules) { rule in card(rule) }
+                    savedTunnelsButton
+                }
             }
+            .frame(maxWidth: 720, alignment: .leading)
+            .padding(.horizontal, 24).padding(.vertical, 32)
+            .frame(maxWidth: .infinity, alignment: .center)
         }.buttonStyle(.bordered).controlSize(.regular)
             .sheet(item: $editing) { request in
                 LiveTunnelEditor(
@@ -91,7 +98,21 @@ struct SSHForwardingView: View {
                 Text(error ?? "")
             }
     }
-    private func add() { editing = TunnelEditRequest(rule: .newRule(), existing: false, saved: savedConnection != nil) }
+    @ViewBuilder private var savedTunnelsButton: some View {
+        if let savedConnection, !ConnectionDraft(savedConnection).forwardingRules.isEmpty, let editSaved {
+            Button("Edit saved tunnels…", action: editSaved)
+        }
+    }
+    private var templateButtons: some View {
+        ForEach(SSHForwardingKind.allCases) { kind in
+            Button(kind.title) { add(kind) }.help(kind.explanation).disabled(!connected)
+        }
+    }
+    private func add(_ kind: SSHForwardingKind = .local) {
+        var rule = SSHForwardingRule.newRule()
+        rule.kind = kind
+        editing = TunnelEditRequest(rule: rule, existing: false, saved: savedConnection != nil)
+    }
     private func card(_ rule: SSHForwardingRule) -> some View {
         let status = controller.statuses[rule.id] ?? SSHForwardingStatus()
         let endpoint = rule.endpoint(rule.bindAddress, port: status.port > 0 ? status.port : rule.bindPort)

@@ -9,8 +9,9 @@ future design task; do not apply a 44-point touch baseline to the Mac interface.
 - Prefer native bordered/primary buttons and regular control size. Do not add fixed
   padding or oversized fonts to native controls. Reuse IconActionButton (24 points)
   and PrimaryActionButton; icon buttons retain tooltips and accessibility labels.
-- Session tabs are 28 points high with normal body text and a selected underline.
-  Use the same underline style for session tools and connection editor tabs. Keep the independent 22-point close target
+- Session tabs are 28 points high with rounded top corners, an opaque selected fill
+  and normal body text. Secondary session tools and editor tabs use a lighter
+  underline style; keep a divider between the session and tool rows. Keep the independent 22-point close target
   visible, with its session name in help and accessibility. Announce protocol/state
   and selection; status never relies on colour alone.
 - Keep sizing and contentShape within custom labels so their visible region is
@@ -26,9 +27,14 @@ future design task; do not apply a 44-point touch baseline to the Mac interface.
   and leaving them, or Save. Show errors once inline and only an issue-count footer.
 - Saved/live tunnel cards fill their container at every type. Use shared form
   constants and 64-point ports; empty listen ports display Auto. Cap live cards at
-  640 points with a consistent 24-point left inset. Center the empty state within
-  that container; keep terminal and file surfaces at their useful viewport sizes.
-- Group toolbar controls by purpose, label Quick Connect, and separate Disconnect.
+  720 points in a horizontally centered column with 24-point side padding and a
+  32-point top inset. Keep the title, description and Add Tunnel action fixed across
+  states. Use a full-width empty card with type-specific quick starts. Show Edit saved
+  tunnels only when saved rules exist. Keep terminal and file surfaces full-width.
+- Use native ToolbarItem/ToolbarItemGroup buttons with unframed Label content and
+  system glass. Do not reuse fixed-size IconActionButton inside the native toolbar.
+  Group Quick Connect, session actions (Reconnect/Disconnect), and view actions
+  (Full Screen/Connection Details/Pop Out), with native fixed toolbar spacers.
   Toolbar commands have menu items and shortcuts. Confirm interruption only when
   file work or tunnels are active. Show sidebar state with accessible labels and
   uptime; keep only the protocol icon and omit marketing taglines.
@@ -39,3 +45,8 @@ future design task; do not apply a 44-point touch baseline to the Mac interface.
 - Keep transfer cancellation separate from destructive confirmations. Inspect text
   wrapping, disabled state, tooltips and keyboard navigation with synthetic data.
   Full VoiceOver coverage needs separate verification.
+
+- Terminal zoom and Find appear only in Terminal/Split View. Order zoom as minus,
+  clickable reset percentage, plus, then labeled Find. Use compact elapsed time
+  consistently (`47s`, `1:47`, `1h 02m`) and the active connection as the window title.
+  Sidebar selection remains independent of the active tab.

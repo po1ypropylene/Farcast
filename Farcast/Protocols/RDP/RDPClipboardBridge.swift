@@ -28,7 +28,7 @@ import AppKit
 
     func receive(files: [URL]) {
         guard pasteboard.changeCount == remoteChange, !files.isEmpty else { return }
-        pasteboard.clearContents()
+        pasteboard.prepareForNewContents(with: .currentHostOnly)
         pasteboard.writeObjects(files as [NSURL])
         observedChange = pasteboard.changeCount
         ownedFilesChange = observedChange
@@ -44,7 +44,9 @@ import AppKit
             item.setString("1", forType: Self.remoteFilesType)
             item.setDataProvider(provider, forTypes: [.fileURL])
         }
-        pasteboard.clearContents()
+        // Universal Clipboard can read promised URLs to synchronize them before
+        // any local Paste. These session-owned files are offered only on this Mac.
+        pasteboard.prepareForNewContents(with: .currentHostOnly)
         pasteboard.writeObjects(items)
         observedChange = pasteboard.changeCount
         // Completed files belong to the pasteboard provider, beyond disconnect.

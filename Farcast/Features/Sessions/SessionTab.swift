@@ -39,8 +39,13 @@ struct SessionTab: View {
             )
             .padding(.trailing, 4)
         }
-        .overlay(alignment: .bottom) {
-            if selected { Rectangle().fill(.tint).frame(height: 2) }
+        .background(
+            selected ? Color(nsColor: .controlBackgroundColor) : Color.clear,
+            in: UnevenRoundedRectangle(topLeadingRadius: 8, topTrailingRadius: 8)
+        )
+        .overlay {
+            UnevenRoundedRectangle(topLeadingRadius: 8, topTrailingRadius: 8)
+                .strokeBorder(selected ? Color.primary.opacity(0.18) : Color.clear, lineWidth: 1)
         }
         .accessibilityElement(children: .contain)
         .contextMenu {

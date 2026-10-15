@@ -28,7 +28,7 @@ scripts/prepare-rdp-fixture.sh
 | `scripts/test-sftp-throughput.sh` | Byte-verified upload-window comparison under controlled latency |
 | `scripts/test-sftp-terminal-latency.sh` | Terminal echo latency during shared-transport transfers and mode changes |
 | `scripts/test-rdp.sh`, then `scripts/test-rdp-nla.sh` | TLS/NLA, frames, clipboard/drive channels, monitor/DPI negotiation and pointer input |
-| `scripts/test-rdp-files.sh` | Clipboard codecs, paths/quotas, sparse ranges, 50 MB pipelined byte equality, short/reordered/duplicate replies, Copy without content requests, demand-only fulfillment/cancellation, UI event servicing, multi-item providers, ownership loss before demand, stalled-paste replacement and private-pasteboard ownership across focus/session changes |
+| `scripts/test-rdp-files.sh` | Clipboard codecs, paths/quotas, sparse ranges, 50 MB pipelined byte equality, short/reordered/duplicate replies, Copy and idle offers without content requests, demand-only fulfillment/cancellation, UI event servicing, multi-item providers, ownership loss before demand, stalled-paste replacement and private-pasteboard ownership across focus/session changes |
 | `scripts/test-rdp-drives.sh` | Owned-root filesystem requests, strict decoding of all four directory wire formats, Unicode pagination, independent streamed cursors above 20,000 entries, list-access checks, literal bracket searches, queued-operation cancellation before shutdown, empty/continuation searches, read-only denial, metadata, sharing, rename/delete and traversal refusal |
 | `scripts/test-rdp-audio.sh`, `scripts/test-rdp-keyboard.sh` | Mac output initialization with silence; synthetic keyboard/input transforms |
 | `scripts/test-rdp-resize.sh` | Actual Display Control PDUs, graphics reactivation, pixels and post-resize pointer input |
@@ -73,6 +73,15 @@ Signing probes create an owned temporary Keychain, restore the search list and
 remove the test Keychain; they never query saved user credentials.
 
 ## Important regression contracts
+
+- Connection UI checks assert quiet validation and long-list reveal, centered tunnel
+  empty/stopped states with stable header positions at 560/900/2500-point pane widths
+  in light/dark hosts, all three template selections, terminal-tool visibility and
+  idle Disconnect All. Forwarding-session checks verify that active tunnels require
+  confirmation. Optional `FARCAST_UI_REVIEW=1` with `FARCAST_UI_REVIEW_SCENE=workspace-`
+  and an output/control directory argument pauses owned workspace windows for visual
+  review; creating `continue` in that directory advances to the next scene. Native
+  glass/Reduce Transparency and VoiceOver still need direct visual/accessibility review.
 
 - Authentication modes cover keyboard-interactive-only passwords, password fallback,
   MFA, visible/code prompts, cancellation, unsupported methods and none authentication.

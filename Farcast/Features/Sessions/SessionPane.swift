@@ -99,8 +99,9 @@ struct SessionPane: View {
                 Circle().fill(session.state.color).frame(width: 6, height: 6)
                 Text(session.state.title)
                 if session.state == .connected, let since = session.connectedAt {
-                    Text(since, style: .relative).help("Time since connection").accessibilityLabel(
-                        "Connected since \(since.formatted())")
+                    TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                        Text(SessionUptime.string(since: since, now: timeline.date)).monospacedDigit()
+                    }.help("Time since connection").accessibilityLabel("Connected since \(since.formatted())")
                 }
                 Text("·").foregroundStyle(.secondary)
                 Text("\(session.profile.username)@\(session.profile.host):\(String(session.profile.port))").lineLimit(1)
@@ -128,21 +129,25 @@ struct SessionPane: View {
                         }
                     }
                     Button("Ctrl + Alt + Delete") { session.controlAltDelete() }.disabled(session.state != .connected)
-                } else {
-                    IconActionButton(title: "Decrease terminal font size", symbol: "minus.magnifyingglass") {
+                } else if session.showsTerminalTools {
+                    IconActionButton(title: "Decrease terminal font size", symbol: "minus") {
                         session.zoomTerminal(-1)
                     }.disabled(!session.terminalAvailable)
-                    Text("\(session.terminalZoom)%").monospacedDigit().help("Terminal zoom")
-                    IconActionButton(title: "Reset terminal zoom", symbol: "arrow.counterclockwise") {
-                        session.resetTerminalZoom()
-                    }
-                    .disabled(!session.terminalAvailable)
-                    IconActionButton(title: "Increase terminal font size", symbol: "plus.magnifyingglass") {
+                    Button("\(session.terminalZoom)%") { session.resetTerminalZoom() }
+                        .monospacedDigit().help("Reset terminal zoom (⌘0)")
+                        .accessibilityLabel("Terminal zoom \(session.terminalZoom) percent; reset zoom")
+                        .disabled(!session.terminalAvailable)
+                    IconActionButton(title: "Increase terminal font size", symbol: "plus") {
                         session.zoomTerminal(1)
                     }.disabled(!session.terminalAvailable)
-                    IconActionButton(title: "Find in terminal", symbol: "magnifyingglass") {
+                    Button {
                         session.terminal?.find()
-                    }.disabled(session.state != .connected || !session.terminalAvailable)
+                    } label: {
+                        Label("Find", systemImage: "magnifyingglass")
+                    }.help("Find in terminal (⌘F)")
+                        .accessibilityLabel("Find in terminal")
+                        .disabled(session.state != .connected || !session.terminalAvailable)
+
                 }
 
             }.buttonStyle(.bordered).font(.callout).foregroundStyle(.secondary).padding(.horizontal, 14)

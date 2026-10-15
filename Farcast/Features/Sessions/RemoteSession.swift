@@ -835,6 +835,9 @@ extension RemoteSession {
         case .tunnels: return true
         }
     }
+    var showsTerminalTools: Bool {
+        profile.kind == .ssh && terminalAvailable && (sshMode == .terminal || sshMode == .split)
+    }
     var interruptionReason: String? {
         if files.busy && forwarding.hasActiveTunnels {
             return "This stops file work and closes all tunnel connections."

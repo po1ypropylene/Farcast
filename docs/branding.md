@@ -1,8 +1,9 @@
 # Farcast identity
 
-The official app name is **Farcast**. Window/sidebar titles, alerts, permission text,
+The official app name is **Farcast**. The sidebar header, alerts, permission text,
 macOS app menus, Xcode project/target/source folder and the built `Farcast.app` use
-that spelling. The Swift module is `Farcast`, the core package/product is
+that spelling. The workspace window title shows the active connection, or Workspace
+when no session is selected. The Swift module is `Farcast`, the core package/product is
 `farcast-core` (Swift target `FarcastCore`), and the embedded executable is
 `FarcastWireGuard`. Package identifiers use lowercase:
 `com.peterpo.farcast`, `com.peterpo.farcast.credentials`,

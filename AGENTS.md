@@ -39,7 +39,8 @@ Xcode uses a synchronized source folder. A file under Farcast is automatically i
 9. scripts/test-live-servers.sh only when enabled entries are supplied; SKIP is not a real-server pass.
 
 For every completed logical code change, build a new DMG with `scripts/build-dmg.sh`
-after the final edits and version bump. Verify the mounted final bundle and SHA256;
+after the final edits, using the current version/build unless a separate release prompt
+authorizes advancing them. Verify the mounted final bundle and SHA256;
 deliver the versioned DMG path. Intermediate edits/test builds do not each need a DMG.
 Documentation/instruction-only changes do not require a new app artifact.
 
@@ -56,20 +57,21 @@ before claiming that no certificate is installed.
 
 Run swift-format using .swift-format for owned Swift sources. Objective-C adapters use clang-format. Do not format vendored upstream code. Keep callbacks on protocol workers, UI updates on the main actor, SSH backpressure and RDP/VNC latest-frame buffering intact. Disconnect must cancel outstanding prompts and transport work; reconnections must ignore stale callbacks.
 
-## Automatic versioning
+## Staged changes and explicit releases
 
-- Automatically advance the app version for each completed logical app change, without asking for confirmation, unless the user explicitly supplies a version or asks to keep it unchanged. Apply the bump before final build/bundle verification and report the old/new versions and the reason in delivery.
-- Follow [Semantic Versioning](https://semver.org/): **PATCH** for backward-compatible fixes (including reliability, security, performance and corrections to existing UI); **MINOR** for backward-compatible features or deprecation of supported functionality; **MAJOR** for incompatible changes to supported behavior, interfaces, import/export formats or persistence compatibility. Judge compatibility from the user's documented workflows and data, not internal implementation details. A refactor or compatible data migration alone is not a major change. Existing data-preservation requirements still apply.
-- Use the highest applicable category when a task combines changes. Increment numerically: patch `X.Y.Z → X.Y.(Z+1)`, minor `X.Y.Z → X.(Y+1).0`, major `X.Y.Z → (X+1).0.0`. Never downgrade or reuse a released version for changed app contents.
-- Edit only `Version.xcconfig`, the single source for `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`. Reset the build number to `1` when the marketing version advances. Increment the positive integer build number for a separately delivered rebuild of the same app version; ordinary local builds, test runs and intermediate edits do not each require a bump. Keep Settings and release artifact names derived from the built bundle.
-- Bump once per logical delivery, not per file, fixup or verification attempt. Inspect any version change already made for that delivery and avoid a duplicate bump; raise its category if the final scope requires it. Dependency/build/packaging changes that affect the shipped app require at least a patch, or a higher category according to their effect. Documentation, agent instructions, tests and development-tool-only changes with no shipped-app effect do not require an app-version bump.
+- Do not automatically advance the marketing version or build number for app changes, fixes, dependency updates, packaging work or ordinary rebuilds. Keep `Version.xcconfig` unchanged unless the user explicitly requests a version/build change or asks for a release in a separate prompt.
+- Record completed changes under `## Unreleased` in `CHANGELOG.md`. Keep concise user-visible changes, fixes and material limitations current as scope changes. Staging here means changelog notes, not `git add`, a commit, a tag or publication.
+- Only when the user asks in a separate prompt to release/version the staged changes: review the entire Unreleased section, determine the highest applicable Semantic Versioning category, advance the version once, and move all staged changes into a dated version section. Leave an empty Unreleased section for future work. Explain the chosen version in delivery. An explicit user-supplied version takes precedence.
+- Use PATCH for backward-compatible fixes, MINOR for backward-compatible features or deprecations, and MAJOR for incompatible supported workflows, interfaces, import/export formats or persistence. Internal refactoring or a compatible migration alone is not a major change. Preserve user data in all cases.
+- Edit only `Version.xcconfig`, the single source for `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`. A new marketing version starts at build `1`; advance the build alone only when explicitly asked for a separately numbered rebuild. Keep Settings and artifact names derived from the built bundle.
+- The user explicitly reset the baseline to **1.0.0 build 1** and removed earlier release history. Do not restore old changelog entries or infer a higher version from Git history or older artifacts. Ordinary requested DMGs retain the current version/build and may replace the matching generated artifact; creating a DMG does not authorize a version bump or promote staged notes.
 
 ## Documentation and delivery
 
-Starting with 1.7.0, maintain `CHANGELOG.md` for every delivered app version.
-Add a dated version heading and concise line items describing user-visible changes,
-fixes and material limitations. Update the entry as scope changes, before the final
-DMG build; preserve earlier entries. Include it in the DMG alongside the app.
+Maintain `CHANGELOG.md` as the staging area described above and include it in the DMG
+alongside the app. Preserve release entries created after the baseline reset unless
+the user asks to change them. Documentation/instruction-only changes do not require
+a new app artifact.
 
 Keep docs/validation.md focused on reproducible coverage, current findings and unresolved limits; synthetic tests do not prove production-server compatibility. Do not append dated run diaries, pass counts, old artifact paths or superseded UI descriptions. Put release history only in CHANGELOG.md. Record material architectural decisions in docs/architecture.md. Do not include raw credentials, server identifiers, terminal contents or original crash logs. Do not modify Codex memory unless directly requested. Do not commit/publish unless requested. Farcast's own source uses the MIT License in LICENSE; that license and third-party notices must ship in the app and license text must accompany redistribution.
 

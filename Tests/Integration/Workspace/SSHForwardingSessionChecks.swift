@@ -64,6 +64,9 @@ import SwiftUI
         workspace.requestDisconnect(first)
         precondition(workspace.pendingSessionAction != nil && first.state == .connected)
         workspace.pendingSessionAction = nil
+        workspace.requestDisconnectAll()
+        precondition(workspace.pendingSessionAction?.title == "Disconnect All" && first.state == .connected)
+        workspace.pendingSessionAction = nil
         print("PASS live add/edit/remove preserve SSH and active tunnels require interruption confirmation")
         workspace.reconnect(first)
         let replacement = workspace.sessions.first { $0 !== first }!

@@ -53,7 +53,7 @@ private struct TunnelFormHost: View {
             for: SavedConnection.self, ConnectionFolder.self, SavedWireGuard.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true))
         workspace.modelContext = container.mainContext
-        let window = NSWindow(
+        var window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 540, height: 600),
             styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -128,7 +128,9 @@ private struct TunnelFormHost: View {
             guard CommandLine.arguments.count > 1,
                 ProcessInfo.processInfo.environment["FARCAST_UI_REVIEW"] == "1"
             else { return }
-            if let scene = ProcessInfo.processInfo.environment["FARCAST_UI_REVIEW_SCENE"], scene != name { return }
+            if let scene = ProcessInfo.processInfo.environment["FARCAST_UI_REVIEW_SCENE"], !name.hasPrefix(scene) {
+                return
+            }
             print("REVIEW \(name) | \(Bundle.main.bundlePath)")
             fflush(stdout)
             let marker = URL(fileURLWithPath: CommandLine.arguments[1]).appendingPathComponent("continue")
@@ -239,21 +241,108 @@ private struct TunnelFormHost: View {
             rectangle.height > 0 && rectangle.minY >= window.frame.minY && rectangle.maxY <= window.frame.maxY,
             "Validation must reveal the invalid field in a long tunnel list")
         print("PASS validation scrolls to the invalid tunnel in a 16-rule editor")
-        window.setContentSize(NSSize(width: 1280, height: 700))
-        let empty = SSHForwardingController(rules: [])
+        func frame(_ label: String) -> NSRect {
+            let node = nodes(window).first {
+                attribute($0, "accessibilityLabel") as? String == label
+                    || attribute($0, "accessibilityValue") as? String == label
+            }!
+            return unsafeBitCast(node.method(for: selector), to: Frame.self)(node, selector)
+        }
+        var stoppedRule = SSHForwardingRule(kind: .socks)
+        stoppedRule.enabled = false
+        var savedDraft = ConnectionDraft()
+        savedDraft.name = "Synthetic SSH"
+        savedDraft.host = "fixture.invalid"
+        savedDraft.username = "fixture"
+        savedDraft.forwardingRules = [stoppedRule]
+        let saved = SavedConnection(draft: savedDraft)
+        container.mainContext.insert(saved)
+        try container.mainContext.save()
+        for scheme in [ColorScheme.light, .dark] {
+            for width in [CGFloat(560), 900, 2500] {
+                window.setContentSize(NSSize(width: width, height: 700))
+                let empty = SSHForwardingController(rules: [])
+                window.contentView = NSHostingView(
+                    rootView: SSHForwardingView(controller: empty, connected: true)
+                        .modelContainer(container).preferredColorScheme(scheme))
+                settle()
+                precondition(!labels().contains("Edit saved tunnels…"))
+                for kind in SSHForwardingKind.allCases { precondition(labels().contains(kind.title)) }
+                let title = frame("Tunnels")
+                let emptyLabel = frame("No tunnels")
+                let pane = window.convertToScreen(window.contentView!.bounds)
+                precondition(abs(emptyLabel.midX - pane.midX) < 2, "Empty card must be centered in its pane")
+                precondition(abs(title.minX - (pane.minX + max(24, (pane.width - 720) / 2))) < 2)
+                try snapshot("tunnels-empty-\(scheme)-\(Int(width))")
+                let populated = SSHForwardingController(rules: [stoppedRule])
+                window.contentView = NSHostingView(
+                    rootView: SSHForwardingView(
+                        controller: populated, connected: true,
+                        profileID: saved.id, server: "fixture.invalid", editSaved: {}
+                    )
+                    .modelContainer(container).preferredColorScheme(scheme))
+                settle()
+                precondition(labels().contains("Stopped") && labels().contains("Start"))
+                precondition(labels().contains("Edit saved tunnels…") && !labels().contains("No tunnels"))
+                let populatedTitle = frame("Tunnels")
+                precondition(
+                    abs(title.minX - populatedTitle.minX) < 1 && abs(title.minY - populatedTitle.minY) < 1,
+                    "Header must not move between empty and populated states")
+                try snapshot("tunnels-stopped-\(scheme)-\(Int(width))")
+            }
+        }
+        print("PASS centered empty/stopped tunnel layouts and stable headers at narrow/wide sizes in light/dark")
+        window.setContentSize(NSSize(width: 900, height: 700))
         window.contentView = NSHostingView(
-            rootView: SSHForwardingView(controller: empty, connected: true)
+            rootView: SSHForwardingView(controller: SSHForwardingController(rules: []), connected: true)
                 .modelContainer(container).preferredColorScheme(.dark))
         settle()
-        try snapshot("live-tunnels-empty")
-        let populated = SSHForwardingController(rules: [
-            SSHForwardingRule(kind: .socks), SSHForwardingRule(destinationPort: 80),
-        ])
-        window.contentView = NSHostingView(
-            rootView: SSHForwardingView(controller: populated, connected: true, server: "fixture.invalid")
-                .modelContainer(container).preferredColorScheme(.dark))
-        settle()
-        try snapshot("live-tunnels-cards")
-        print("PASS native empty/populated tunnel hosts render in wide owned windows")
+        // Open each actual template button and verify the preselected type in its editor.
+        for kind in SSHForwardingKind.allCases {
+            press(kind.title)
+            guard let sheet = window.attachedSheet else { preconditionFailure("Template must open editor") }
+            let sheetNodes = nodes(sheet)
+            let values = sheetNodes.compactMap { attribute($0, "accessibilityValue") as? String }
+            precondition(values.contains(kind.title), "Template must preselect its tunnel kind")
+            window.endSheet(sheet)
+            sheet.close()
+            // Recreate the host so dismissal is not dependent on the test's AppKit sheet teardown.
+            window.contentView = NSHostingView(
+                rootView: SSHForwardingView(controller: SSHForwardingController(rules: []), connected: true)
+                    .modelContainer(container))
+            settle()
+        }
+        let session = RemoteSession(profile: savedDraft, workspace: workspace)
+        session.state = .connected
+        workspace.sessions = [session]
+        workspace.selectedSessionID = session.id
+        for mode in SSHWorkspaceMode.allCases {
+            session.sshMode = mode
+            precondition(session.showsTerminalTools == (mode == .terminal || mode == .split))
+        }
+        session.sshMode = .tunnels
+        precondition(NSImage(systemSymbolName: "macwindow.on.rectangle", accessibilityDescription: nil) != nil)
+        for scheme in [ColorScheme.light, .dark] {
+            for width in [CGFloat(900), 1280] {
+                window.close()
+                window = NSWindow(
+                    contentViewController: NSHostingController(
+                        rootView: WorkspaceView(workspace: workspace).modelContainer(container)
+                            .defaultAppStorage(defaults).preferredColorScheme(scheme)))
+                window.styleMask = [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView]
+                window.isReleasedWhenClosed = false
+                window.setContentSize(NSSize(width: width, height: 700))
+                window.center()
+                window.makeKeyAndOrderFront(nil)
+                app.activate()
+                settle()
+                try snapshot("workspace-\(scheme)-\(Int(width))")
+            }
+        }
+        workspace.requestDisconnectAll()
+        precondition(
+            workspace.pendingSessionAction == nil && !session.state.active,
+            "Idle sessions disconnect without a confirmation")
+        print("PASS templates preselect type; terminal tools follow visible surface; idle Disconnect All is immediate")
     }
 }

@@ -44,7 +44,11 @@ struct WorkspaceView: View {
                     .padding(.bottom, 12)
                 List(selection: $selectedProfileID) {
                     if !filtered.filter(\.favorite).isEmpty {
-                        Section("Favorites") { ForEach(filtered.filter(\.favorite)) { connectionRow($0) } }
+                        Section {
+                            ForEach(filtered.filter(\.favorite)) { connectionRow($0) }
+                        } header: {
+                            Text("Favorites").foregroundStyle(.primary)
+                        }
                     }
                     ForEach(folders) { folder in
                         Section {
@@ -54,7 +58,7 @@ struct WorkspaceView: View {
                                     .tertiary)
                             }
                         } header: {
-                            Label(folder.name, systemImage: "folder").contextMenu {
+                            Label(folder.name, systemImage: "folder").foregroundStyle(.primary).contextMenu {
                                 Button("Rename Folder…") {
                                     editingFolder = folder
                                     folderName = folder.name
@@ -64,12 +68,14 @@ struct WorkspaceView: View {
                             }
                         }.dropDestination(for: String.self) { values, _ in return move(values, to: folder.id) }
                     }
-                    Section("Connections") {
+                    Section {
                         ForEach(
                             filtered.filter { connection in
                                 connection.folderID == nil || !folders.contains(where: { $0.id == connection.folderID })
                             }
                         ) { connectionRow($0) }
+                    } header: {
+                        Text("Connections").foregroundStyle(.primary)
                     }
                     .dropDestination(for: String.self) { values, _ in return move(values, to: nil) }
                 }.listStyle(.sidebar)
@@ -109,7 +115,7 @@ struct WorkspaceView: View {
                 if !workspace.attachedSessions.isEmpty {
                     ScrollView(.horizontal) {
                         Group {
-                            HStack(spacing: 10) {
+                            HStack(spacing: 4) {
                                 ForEach(workspace.attachedSessions) { session in
                                     SessionTab(session: session, workspace: workspace)
                                         .draggable(session.id.uuidString)
@@ -121,7 +127,7 @@ struct WorkspaceView: View {
                                             return true
                                         }
                                 }
-                            }.padding(.horizontal, ConnectionFormLayout.inset)
+                            }.padding(.horizontal, ConnectionFormLayout.inset).padding(.top, 6)
                         }
                     }.scrollIndicators(.hidden)
                     Divider()
@@ -143,7 +149,7 @@ struct WorkspaceView: View {
                         Button {
                             workspace.editor = EditorRequest(draft: ConnectionDraft(), mode: .quick)
                         } label: {
-                            Label("Quick Connect", systemImage: "bolt").labelStyle(.titleAndIcon)
+                            Label("Quick Connect", systemImage: "bolt.fill").labelStyle(.titleAndIcon)
                         }.help("Quick Connect (⌘K)").accessibilityLabel("Quick Connect")
                     }
                     ToolbarSpacer(.fixed, placement: .primaryAction)
@@ -154,6 +160,7 @@ struct WorkspaceView: View {
                             } label: {
                                 Label("Reconnect", systemImage: "arrow.clockwise").labelStyle(.iconOnly)
                             }.help("Reconnect (⇧⌘R)").accessibilityLabel("Reconnect")
+                            SessionDisconnectButton(session: session, workspace: workspace)
                         }
                     }
                     ToolbarSpacer(.fixed, placement: .primaryAction)
@@ -179,23 +186,18 @@ struct WorkspaceView: View {
                                     NSHostingView(rootView: DetachedSessionView(workspace: workspace, slot: slot))
                                 }
                             } label: {
-                                Label("Pop Out Session", systemImage: "rectangle.portrait.and.arrow.right").labelStyle(
+                                Label("Pop Out Session", systemImage: "macwindow.on.rectangle").labelStyle(
                                     .iconOnly)
                             }.help("Pop Out Session (⇧⌘O)").accessibilityLabel("Pop Out Session")
                         }
                     }
-                    ToolbarSpacer(.fixed, placement: .primaryAction)
-                    ToolbarItem(placement: .primaryAction) {
-                        if let session = workspace.selectedSession {
-                            SessionDisconnectButton(session: session, workspace: workspace)
-                        }
-                    }
                 }
         }
+        .background(WorkspaceWindowRegistration(workspace: workspace))
         .modifier(SessionActionConfirmation(workspace: workspace))
         .buttonStyle(.automatic)
-        .controlSize(.regular)
-        .frame(minWidth: 1000, minHeight: 660)
+        .navigationTitle(workspace.selectedSession?.profile.name ?? "Workspace")
+        .frame(minWidth: 900, minHeight: 660)
         .sheet(item: $workspace.testServerImport) { request in
             TestServerImportView(workspace: workspace, document: request.document)
         }
@@ -301,9 +303,10 @@ struct WorkspaceView: View {
             }.draggable(connection.id.uuidString)
     }
     private func destinationDescription(_ connection: SavedConnection) -> String {
-        guard let tunnelID = connection.wireGuardID else { return connection.host }
+        let destination = connection.username.isEmpty ? connection.host : "\(connection.username)@\(connection.host)"
+        guard let tunnelID = connection.wireGuardID else { return destination }
         let name = tunnels.first(where: { $0.id == tunnelID })?.name ?? "Unavailable WireGuard connection"
-        return "\(connection.host) via \(name)"
+        return "\(destination) via \(name)"
     }
     private var overview: some View {
         GeometryReader { geometry in
@@ -411,5 +414,27 @@ struct WorkspaceView: View {
         for connection in matches { connection.folderID = folder }
         save()
         return !matches.isEmpty
+    }
+}
+
+/// Window identity is independent of the user-visible connection title.
+private struct WorkspaceWindowRegistration: NSViewRepresentable {
+    let workspace: Workspace
+    func makeNSView(context: Context) -> WindowView {
+        let view = WindowView()
+        view.workspace = workspace
+        return view
+    }
+    func updateNSView(_ view: WindowView, context: Context) { view.workspace = workspace }
+    final class WindowView: NSView {
+        weak var workspace: Workspace?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            DispatchQueue.main.async { [weak self, weak window] in
+                guard let self, let window, self.window === window else { return }
+                self.workspace?.registerMainWindow(window)
+            }
+        }
     }
 }

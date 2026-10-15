@@ -17,7 +17,7 @@ stated scope; disabled live entries report SKIP.
 | RDP channels | TLS/NLA, frames, clipboard text/files, folder drives, Display Control PDUs, initial monitor attributes and pointer input | Synthetic peers; channel submission does not prove Windows acceptance |
 | RDP folder browsing | Packed directory formats, compatibility padding at enumeration end, Unicode pagination, trailing separators and nested files; direct/WireGuard fixtures | Signed app on one authorized Windows server with direct transport: complete visible root count and repeated browsing through two subfolder levels. Real writes and other server policies remain unverified |
 | RDP presentation | Cropped Metal uploads, inverse input mapping, letterbox/stale-frame rejection, full-screen startup/exit/re-entry and teardown | Marked frames and owned off-screen windows |
-| Workspace | Tab ordering/reconnect, detached surface ownership, focus/prompt routing, terminal menus, deferred connection/tunnel validation in light/dark hosts and AppKit shutdown | Synthetic sessions, private pasteboards and preferences |
+| Workspace | Tab ordering/reconnect, detached surface ownership, focus/prompt routing, terminal menus, deferred connection/tunnel validation, centered empty/stopped tunnel layouts at narrow/wide sizes in light/dark, template type selection, view-specific terminal tools, conditional Disconnect All and AppKit shutdown | Synthetic sessions, private pasteboards and preferences |
 | WireGuard | Encrypted loopback traffic, concurrent SSH/SFTP/RDP/VNC on one helper, independent disconnect/reconnect, DNS/route and host-key refusal, shared-helper failure/cleanup and schema migration | Generated keys and owned peers |
 | Packaging/signing | Platform, library closure, signatures, loader, sandboxed helper, certificate continuity, mounted bundle and SHA256 | Local development artifact; distribution is separate |
 | Maintenance | Cleanup boundaries, dependency rollback, signing policy, harness teardown and repository hygiene | Disposable files and mocked destructive operations |
@@ -36,6 +36,7 @@ stated scope; disabled live entries report SKIP.
   pointer moves coalesce; input queue overload disconnects explicitly. Folder redirection
   omits directory notifications, byte-range locking and ACL editing. Clipboard
   batches are temporary, copy-only and limited to 8 GiB / 20,000 entries.
+  Remote file offers are current-host-only, excluding Universal Clipboard sync.
   Copy advertises metadata only; delayed file-URL demand starts transfer and
   waits at most five minutes, servicing native events on the main thread. Only
   complete batches become usable URLs. Ownership loss cancels pending batches,
@@ -86,7 +87,8 @@ features, and [packaging](packaging.md) for signing requirements.
   cursor hotspots and two/three physical displays with mixed densities, portrait,
   changed primaries, mirroring and Spaces. Exercise full-screen exit/re-entry in
   attached and detached windows, restrictions and topology changes.
-- Text/file clipboard in both directions, Finder paste, Windows Explorer folder
+- Text/file clipboard in both directions, Finder paste, idle remote Copy with
+  Universal Clipboard enabled on paired devices, Windows Explorer folder
   drives, persistent selected-folder grants, audible remote sound and Unicode/IME.
 - SSH algorithms/key formats, terminal programs, SFTP subsystem policies, long
   transfers, large trees, concurrent writers and unusual filesystems. Synthetic

@@ -80,6 +80,11 @@ private final class DelayedClipboardBatch: FCRDPClipboardFileBatch, @unchecked S
         precondition(
             pasteboard.availableType(from: [.fileURL]) == .fileURL && !delayed.requested,
             "Copy, availability and focus changes must not materialize files")
+        // Service the publishing app's run loop without a consumer. Named
+        // pasteboards isolate this check from the user's real clipboard; actual
+        // cross-device Universal Clipboard behavior requires a live check.
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+        precondition(!delayed.requested, "An idle file offer must remain unmaterialized")
         var heartbeat = false
         Timer.scheduledTimer(withTimeInterval: 0.05, repeats: false) { _ in
             heartbeat = true

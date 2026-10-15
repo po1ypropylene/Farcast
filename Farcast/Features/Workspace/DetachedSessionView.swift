@@ -75,6 +75,7 @@ private struct DetachedSessionToolbar: View {
             IconActionButton(title: "Reconnect (⇧⌘R)", symbol: "arrow.clockwise") {
                 workspace.requestReconnect(session)
             }
+            SessionDisconnectButton(session: session, workspace: workspace, compact: true)
             Divider().frame(height: 16).padding(.horizontal, 4)
             if session.profile.kind != .ssh {
                 SessionFullScreenButton(session: session)
@@ -86,11 +87,9 @@ private struct DetachedSessionToolbar: View {
             IconActionButton(title: "Connection Details (⌥⌘I)", symbol: "sidebar.right") {
                 workspace.toggleInspector(slot: slot)
             }
-            IconActionButton(title: "Return to Workspace (⇧⌘O)", symbol: "rectangle.portrait.and.arrow.forward") {
+            IconActionButton(title: "Return to Workspace (⇧⌘O)", symbol: "macwindow") {
                 workspace.returnToWorkspace(slot: slot)
             }
-            Divider().frame(height: 16).padding(.horizontal, 4)
-            SessionDisconnectButton(session: session, workspace: workspace, compact: true)
         }.padding(.horizontal, 12).padding(.vertical, 4).background(.bar)
     }
 }

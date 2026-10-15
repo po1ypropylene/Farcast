@@ -7,13 +7,15 @@ struct SessionDisconnectButton: View {
     var body: some View {
         Group {
             if compact {
-                IconActionButton(title: "Disconnect (⇧⌘D)", symbol: "power") { workspace.requestDisconnect(session) }
+                IconActionButton(title: "Disconnect Session (⇧⌘D)", symbol: "power") {
+                    workspace.requestDisconnect(session)
+                }
             } else {
                 Button {
                     workspace.requestDisconnect(session)
                 } label: {
-                    Label("Disconnect", systemImage: "power").labelStyle(.iconOnly)
-                }.help("Disconnect (⇧⌘D)").accessibilityLabel("Disconnect")
+                    Label("Disconnect Session", systemImage: "power").labelStyle(.iconOnly)
+                }.help("Disconnect Session (⇧⌘D)").accessibilityLabel("Disconnect Session")
             }
         }.disabled(!session.state.active)
     }

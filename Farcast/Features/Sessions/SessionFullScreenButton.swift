@@ -5,17 +5,26 @@ struct SessionFullScreenButton: View {
     @ObservedObject var session: RemoteSession
 
     var body: some View {
-        IconActionButton(
-            title: session.fullScreenPresented
-                ? "Exit Remote Desktop Full Screen (⌃⌘F)" : "Enter Remote Desktop Full Screen (⌃⌘F)",
-            symbol: session.fullScreenPresented
-                ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right"
-        ) {
+        Button {
             if session.fullScreenPresented {
                 session.exitFullScreen()
             } else {
                 session.enterFullScreen()
             }
-        }.disabled(session.state != .connected)
+        } label: {
+            Label(
+                session.fullScreenPresented ? "Exit Remote Desktop Full Screen" : "Enter Remote Desktop Full Screen",
+                systemImage: session.fullScreenPresented
+                    ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right"
+            ).labelStyle(.iconOnly)
+        }
+        .help(
+            session.fullScreenPresented
+                ? "Exit Remote Desktop Full Screen (⌃⌘F)" : "Enter Remote Desktop Full Screen (⌃⌘F)"
+        )
+        .accessibilityLabel(
+            session.fullScreenPresented ? "Exit Remote Desktop Full Screen" : "Enter Remote Desktop Full Screen"
+        )
+        .disabled(session.state != .connected)
     }
 }
