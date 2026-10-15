@@ -255,6 +255,22 @@ int main(int argc, char **argv) {
                 closeFile(rw, handle);
             }
         }
+        // Windows brackets are literal, not POSIX bracket expressions. Check
+        // both exact and wildcard searches against a tempting nonliteral match.
+        for (NSString *name in @[ @"photo[1].bin", @"photo1.bin" ])
+            [payload writeToURL:[export URLByAppendingPathComponent:name] atomically:YES];
+        directory = create(rw, @"", GENERIC_READ, FILE_OPEN, FILE_DIRECTORY_FILE, shares);
+        for (NSString *pattern in @[ @"photo[1].bin", @"PHOTO[?].*" ]) {
+            queryDirectory(rw, directory, FileNamesInformation, YES, pattern);
+            NSString *name = output.length >= 16 ? [[NSString alloc] initWithBytes:(const BYTE *)output.bytes + 16
+                                                                            length:output.length - 16
+                                                                          encoding:NSUTF16LittleEndianStringEncoding]
+                                                 : nil;
+            check(result == STATUS_SUCCESS && [name isEqual:@"photo[1].bin"], "Windows literal brackets in search");
+            queryDirectory(rw, directory, FileNamesInformation, NO, nil);
+            check(result == STATUS_NO_MORE_FILES, "bracket pattern does not select unbracketed names");
+        }
+        closeFile(rw, directory);
         // Independent cursors must not share the root's seek position. A folder
         // larger than the former snapshot cap must enumerate completely.
         NSURL *many = [export URLByAppendingPathComponent:@"Many"];
@@ -462,6 +478,33 @@ int main(int argc, char **argv) {
         check(result == STATUS_CANCELLED, "disconnected directory retains the Windows response shape");
         h = create(rw, @"cancel.bin", fullAccess, FILE_CREATE, FILE_DELETE_ON_CLOSE, shares);
         check(h > 0, "pending delete setup");
+        // Freeze the worker with requests queued, then cancel from the calling
+        // thread just as deviceFree does. None may mutate files while draining.
+        FCRDPDrive *cancelled = [[FCRDPDrive alloc] initWithURL:export readOnly:NO];
+        UINT32 pending = create(cancelled, @"original.bin", fullAccess, FILE_OPEN,
+                                FILE_NON_DIRECTORY_FILE | FILE_DELETE_ON_CLOSE, shares);
+        check(pending != 0, "pending write/delete handle");
+        dispatch_queue_t queue = dispatch_queue_create("Farcast.Test.CancelDrive", DISPATCH_QUEUE_SERIAL);
+        dispatch_semaphore_t gate = dispatch_semaphore_create(0);
+        dispatch_async(queue, ^{
+          dispatch_semaphore_wait(gate, DISPATCH_TIME_FOREVER);
+          writeFile(cancelled, pending, 0, [@"changed" dataUsingEncoding:NSUTF8StringEncoding]);
+          check(result == STATUS_CANCELLED, "queued writes cancel before execution");
+          closeFile(cancelled, pending);
+          check(result == STATUS_CANCELLED, "queued close does not perform pending deletion");
+          check(create(cancelled, @"cancelled-create.bin", fullAccess, FILE_CREATE, FILE_NON_DIRECTORY_FILE, shares) ==
+                        0 &&
+                    result == STATUS_CANCELLED,
+                "queued creation cancels before execution");
+        });
+        [cancelled cancel];
+        dispatch_semaphore_signal(gate);
+        dispatch_sync(queue, ^{
+          [cancelled shutdown];
+        });
+        check([[NSData dataWithContentsOfURL:original] isEqual:payload], "cancelled queue preserves original bytes");
+        check(![fm fileExistsAtPath:[export URLByAppendingPathComponent:@"cancelled-create.bin"].path],
+              "cancelled queue creates no file");
         [rw shutdown];
         check([fm fileExistsAtPath:[export URLByAppendingPathComponent:@"cancel.bin"].path],
               "disconnect does not execute pending deletion");

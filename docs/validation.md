@@ -32,19 +32,22 @@ stated scope; disabled live entries report SKIP.
   authoritative. Multi-monitor presentation requires matching monitor confirmation.
   Live multi-monitor topology updates are unsupported; hotplug/rotation requires
   reconnecting. Dimension confirmation does not confirm Windows DPI appearance.
-- **RDP input and files:** physical scan codes use the US layout. Folder redirection
+- **RDP input and files:** physical scan codes use the US layout. Consecutive
+  pointer moves coalesce; input queue overload disconnects explicitly. Folder redirection
   omits directory notifications, byte-range locking and ACL editing. Clipboard
   batches are temporary, copy-only and limited to 8 GiB / 20,000 entries.
   Copy advertises metadata only; delayed file-URL demand starts transfer and
   waits at most five minutes, servicing native events on the main thread. Only
-  complete batches become usable URLs. Third-party clipboard consumers that request
+  complete batches become usable URLs. Ownership loss cancels pending batches,
+  including a stalled paste; completed batches retain their files. Third-party clipboard consumers that request
   file URLs can trigger fulfillment without a Finder Paste command. Eight-range
   pipelining is covered by synthetic 50 MB
   reordered/short/duplicate-response checks, not a production speed measurement.
   Drive names use terminated UTF-8 for interoperability. ASCII drive names and
   nested browsing have live Windows coverage; Unicode labels and real writes
   still need verification. Streamed listings above 20,000 entries and independent
-  cursors are covered locally; one-entry wire replies remain round-trip limited.
+  cursors, literal bracket filters and queued shutdown cancellation are covered
+  locally; one-entry wire replies remain round-trip limited.
   Comparative production directory throughput has not been measured.
 - **VNC:** classic password/no-auth has no desktop encryption or server identity;
   use WireGuard on untrusted networks. VeNCrypt requires supported X509 modes.

@@ -36,6 +36,9 @@ static UINT deviceFree(DEVICE *device) {
     FCDriveDevice *d = (void *)device;
     FCRDPDrive *backend = (__bridge_transfer FCRDPDrive *)d->backend;
     dispatch_queue_t queue = (__bridge_transfer dispatch_queue_t)d->queue;
+    // Reject queued IRPs before the barrier; draining first could execute
+    // writes or delete-on-close after the session has started shutting down.
+    [backend cancel];
     dispatch_sync(queue, ^{
       [backend shutdown];
     });

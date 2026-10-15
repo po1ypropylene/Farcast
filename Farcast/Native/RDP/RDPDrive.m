@@ -11,6 +11,7 @@
 #import <dirent.h>
 #import <fcntl.h>
 #import <fnmatch.h>
+#import <stdatomic.h>
 #import <sys/attr.h>
 #import <sys/mount.h>
 #import <sys/stat.h>
@@ -171,7 +172,7 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
     NSURL *_url;
     BOOL _scoped, _readOnly, _closed;
     int _root;
-    uint32_t _nextHandle;
+    atomic_bool _cancelled;
     NSMutableDictionary<NSNumber *, FCDriveHandle *> *_handles;
 }
 - (instancetype)initWithURL:(NSURL *)url readOnly:(BOOL)readOnly {
@@ -179,6 +180,7 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
         _url = url;
         _readOnly = readOnly;
         _root = -1;
+        atomic_init(&_cancelled, false);
         _scoped = [url startAccessingSecurityScopedResource];
         _root = open(url.fileSystemRepresentation, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
         _handles = [NSMutableDictionary new];
@@ -211,7 +213,11 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
     close(parent);
     return status;
 }
+- (void)cancel {
+    atomic_store(&_cancelled, true);
+}
 - (void)shutdown {
+    [self cancel];
     if (_closed)
         return;
     _closed = YES;
@@ -565,7 +571,11 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
         if (!dir)
             return statusForErrno();
         h.enumeration = dir;
-        h.pattern = h.pattern.lowercaseString;
+        // Windows search patterns use * and ?, but brackets are literal names.
+        // Escape POSIX bracket expressions before passing the pattern to fnmatch.
+        h.pattern = [[h.pattern.lowercaseString stringByReplacingOccurrencesOfString:@"[" withString:@"\\["]
+            stringByReplacingOccurrencesOfString:@"]"
+                                      withString:@"\\]"];
     }
     // Keep one packed entry per request, matching FreeRDP's directory contract.
     // Stream the native cursor instead of stat/sort/restat of the whole folder.
@@ -657,7 +667,7 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
         wStream *out = irp->output;
         size_t start = Stream_GetPosition(out);
         irp->IoStatus = STATUS_INVALID_PARAMETER;
-        if (_closed || irp->cancelled) {
+        if (_closed || atomic_load(&_cancelled) || irp->cancelled) {
             irp->IoStatus = STATUS_CANCELLED;
             emptyResponse(irp);
             irp->Complete(irp);

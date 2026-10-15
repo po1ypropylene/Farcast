@@ -4,7 +4,13 @@ private final class DelayedClipboardBatch: FCRDPClipboardFileBatch, @unchecked S
     var requested = false
     var completed = false
     var successful = true
+    var cancelled = false
     override func requestContents() { requested = true }
+    override func cancel() {
+        cancelled = true
+        completed = true
+        successful = false
+    }
     override var isFinished: Bool { completed }
     override func waitUntilReady(timeout: TimeInterval) -> Bool { completed && successful }
 }
@@ -65,7 +71,9 @@ private final class DelayedClipboardBatch: FCRDPClipboardFileBatch, @unchecked S
         precondition(urls == [stagedFile], "Materialized file provider survives session disconnect")
         precondition(FileManager.default.fileExists(atPath: stagedFile.path))
         bridge.remoteChanged()
-        let delayed = DelayedClipboardBatch(root: stage, files: [stagedFile])!
+        let secondFile = stage.appendingPathComponent("second.bin")
+        try! Data([4, 5]).write(to: secondFile)
+        let delayed = DelayedClipboardBatch(root: stage, files: [stagedFile, secondFile])!
         bridge.receive(batch: delayed)
         bridge.reset()
         bridge.synchronize(text: { text = $0 }, files: { files = $0 })
@@ -80,7 +88,7 @@ private final class DelayedClipboardBatch: FCRDPClipboardFileBatch, @unchecked S
         let delayedURLs =
             pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]
         precondition(
-            delayed.requested && heartbeat && delayedURLs == [stagedFile],
+            delayed.requested && heartbeat && delayedURLs == [stagedFile, secondFile],
             "Actual paste services UI timers while awaiting complete files")
         bridge.remoteChanged()
         let replaced = DelayedClipboardBatch(root: stage, files: [stagedFile])!
@@ -90,9 +98,15 @@ private final class DelayedClipboardBatch: FCRDPClipboardFileBatch, @unchecked S
             let pasteboard = NSPasteboard(name: .init(privateName))
             pasteboard.clearContents()
             pasteboard.setString("replacement during paste", forType: .string)
+        }
+        var watchdogFired = false
+        let watchdog = Timer.scheduledTimer(withTimeInterval: 1, repeats: false) { _ in
+            watchdogFired = true
             replaced.completed = true
         }
         _ = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
+        watchdog.invalidate()
+        precondition(replaced.cancelled && !watchdogFired, "Replacement cancels without waiting for the remote peer")
         precondition(
             pasteboard.string(forType: .string) == "replacement during paste",
             "A reentrant local copy survives pending fulfillment")
@@ -104,6 +118,13 @@ private final class DelayedClipboardBatch: FCRDPClipboardFileBatch, @unchecked S
         precondition(
             pasteboard.string(forType: .string) == "replacement during paste",
             "A batch cancelled before its main-actor callback must not replace the clipboard")
+        bridge.remoteChanged()
+        let abandoned = DelayedClipboardBatch(root: stage, files: [stagedFile, secondFile])!
+        bridge.receive(batch: abandoned)
+        pasteboard.clearContents()
+        pasteboard.setString("copy without consuming remote files", forType: .string)
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        precondition(abandoned.cancelled && !abandoned.requested, "Ownership loss cancels an unconsumed batch")
         print("PASS RDP private pasteboard ownership and fulfillment checks")
     }
 }

@@ -16,6 +16,8 @@ int main(int argc, char **argv) {
         __weak FCRDPClient *weakClient = client;
         dispatch_semaphore_t done = dispatch_semaphore_create(0);
         __block BOOL trusted = NO, connected = NO, failed = NO, frame = NO;
+        BOOL inputOverflowTest = [mode isEqualToString:@"input-overflow"];
+        __block BOOL overloadReported = NO;
         BOOL monitorTest = [mode isEqualToString:@"monitors"];
         BOOL retinaTest = [mode isEqualToString:@"retina"];
         __block BOOL monitorLayout = NO, finishing = NO;
@@ -174,22 +176,38 @@ int main(int argc, char **argv) {
               }
               return;
           }
-          if (frame && !driveTest && !fileTest && (!clipboardTest || clipboardCount == samples.count))
+          if (frame && !inputOverflowTest && !driveTest && !fileTest &&
+              (!clipboardTest || clipboardCount == samples.count))
               [weakClient disconnect];
         };
         client.onStatus = ^(NSString *state, NSString *message) {
           if ([state isEqualToString:@"connected"]) {
               connected = YES;
+              if (inputOverflowTest) {
+                  // This callback runs before the worker drains input. Saturate
+                  // the bounded queue deterministically without sending keys.
+                  for (NSUInteger i = 0; i < 4097; i++)
+                      [weakClient sendUnicode:0x61 pressed:NO];
+                  return;
+              }
+              if ([mode isEqualToString:@"pointer-burst"])
+                  for (NSUInteger i = 0; i < 10000; i++)
+                      [weakClient sendPointerFlags:0x0800 x:i % 1024 y:i % 768];
               [weakClient sendScanCode:0x1E pressed:YES extended:NO];
               [weakClient sendScanCode:0x1E pressed:NO extended:NO];
               [weakClient sendPointerFlags:0x0800 x:50 y:50];
-              if (monitorTest)
+              if (monitorTest) {
+                  // An input barrier makes both positions observable; adjacent
+                  // motion alone intentionally coalesces to the latest position.
+                  [weakClient sendScanCode:0x1E pressed:NO extended:NO];
                   [weakClient sendPointerFlags:0x0800 x:900 y:100];
+              }
               if ([mode isEqualToString:@"cancel"])
                   [weakClient disconnect];
           }
           if ([state isEqualToString:@"failed"]) {
               failed = YES;
+              overloadReported = [message containsString:@"RDP input could not keep up"];
               printf("  %s\n", message.UTF8String);
           }
           if ([state isEqualToString:@"failed"] || [state isEqualToString:@"disconnected"])
@@ -215,7 +233,9 @@ int main(int argc, char **argv) {
         }];
         BOOL drained = dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0;
         BOOL pass = !timeout && drained && trusted;
-        if ([mode isEqualToString:@"reject"] || [mode isEqualToString:@"bad-password"])
+        if (inputOverflowTest)
+            pass = pass && connected && failed && overloadReported;
+        else if ([mode isEqualToString:@"reject"] || [mode isEqualToString:@"bad-password"])
             pass = pass && failed && !connected;
         else
             pass = pass && connected && !failed && ([mode isEqualToString:@"cancel"] || frame);

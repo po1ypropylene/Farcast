@@ -38,12 +38,11 @@ import AppKit
         guard pasteboard.changeCount == remoteChange, !batch.files.isEmpty,
             !batch.isFinished || batch.waitUntilReady(timeout: 0)
         else { return }
-        let items = batch.files.map { url in
-            let item = NSPasteboardItem()
-            let provider = RDPClipboardFileProvider(batch: batch, url: url)
+        let items = (batch.files ?? []).map { _ in NSPasteboardItem() }
+        let provider = RDPClipboardFileProvider(batch: batch, items: items)
+        for item in items {
             item.setString("1", forType: Self.remoteFilesType)
             item.setDataProvider(provider, forTypes: [.fileURL])
-            return item
         }
         pasteboard.clearContents()
         pasteboard.writeObjects(items)
@@ -78,58 +77,73 @@ import AppKit
     }
 }
 
+// One provider owns the entire batch so AppKit's ownership-end callback cannot
+// retire a transfer merely because one of its items no longer needs a provider.
 private final class RDPClipboardFileProvider: NSObject, NSPasteboardItemDataProvider {
+    private static let fulfillmentTimeout: TimeInterval = 300
+    private static let pollingInterval: TimeInterval = 0.02
     private let batch: FCRDPClipboardFileBatch
-    private let url: URL
+    // Do not retain the items: each item retains its provider.
+    private let urls: [ObjectIdentifier: URL]
     private let fulfillmentLock = NSLock()
-    private var fulfilling = false
-    init(batch: FCRDPClipboardFileBatch, url: URL) {
+    private var fulfilling: Set<ObjectIdentifier> = []
+    private var retired = false
+
+    init(batch: FCRDPClipboardFileBatch, items: [NSPasteboardItem]) {
         self.batch = batch
-        self.url = url
+        urls = Dictionary(uniqueKeysWithValues: zip(items, batch.files).map { (ObjectIdentifier($0), $1) })
     }
+
+    func pasteboardFinishedWithDataProvider(_ pasteboard: NSPasteboard) {
+        fulfillmentLock.withLock { retired = true }
+        // Successful batches keep their staged files; cancel is terminal only
+        // for pending work and wakes background consumers immediately.
+        batch.cancel()
+    }
+
     func pasteboard(
         _ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType
     ) {
-        guard type == .fileURL else { return }
-        fulfillmentLock.lock()
-        let alreadyFulfilling = fulfilling
-        fulfilling = true
-        fulfillmentLock.unlock()
-        guard !alreadyFulfilling else { return }
-        defer {
-            fulfillmentLock.lock()
-            fulfilling = false
-            fulfillmentLock.unlock()
+        let identifier = ObjectIdentifier(item)
+        guard type == .fileURL, let url = urls[identifier] else { return }
+        let accepted = fulfillmentLock.withLock {
+            !retired && fulfilling.insert(identifier).inserted
         }
+        guard accepted else { return }
+        defer { _ = fulfillmentLock.withLock { fulfilling.remove(identifier) } }
         let change = pasteboard?.changeCount
         batch.requestContents()
-        let ready: Bool
-        if Thread.isMainThread {
-            // AppKit's provider contract is synchronous. Service the native event
-            // loop during an actual paste so progress, disconnect and cancellation
-            // still work. Never park the UI on the worker's condition variable.
-            ready = MainActor.assumeIsolated { fulfillOnMainThread() }
-        } else {
-            ready = batch.waitUntilReady(timeout: 300)
-        }
-        guard ready, pasteboard?.changeCount == change else {
+        guard waitForContents(pasteboard: pasteboard, change: change), pasteboard?.changeCount == change else {
             batch.cancel()
             return
         }
         item.setString(url.absoluteString, forType: type)
     }
 
-    @MainActor private func fulfillOnMainThread() -> Bool {
-        let deadline = ProcessInfo.processInfo.systemUptime + 300
+    private func waitForContents(pasteboard: NSPasteboard?, change: Int?) -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + Self.fulfillmentTimeout
         while !batch.isFinished && ProcessInfo.processInfo.systemUptime < deadline {
-            autoreleasepool {
-                if let event = NSApplication.shared.nextEvent(
-                    matching: .any, until: Date(timeIntervalSinceNow: 0.02), inMode: .default, dequeue: true)
-                {
-                    NSApplication.shared.sendEvent(event)
-                }
+            // Clipboard replacement cancels promptly, even if the peer never
+            // replies. A final check alone would keep the old transfer alive.
+            guard pasteboard?.changeCount == change else { return false }
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { serviceNextEvent() }
+            } else {
+                _ = batch.waitUntilReady(timeout: Self.pollingInterval)
             }
         }
         return batch.waitUntilReady(timeout: 0)
+    }
+
+    @MainActor private func serviceNextEvent() {
+        // AppKit requires synchronous URL fulfillment. Keep progress and cancel
+        // actions working during actual paste; all transport work stays native.
+        autoreleasepool {
+            if let event = NSApplication.shared.nextEvent(
+                matching: .any, until: Date(timeIntervalSinceNow: Self.pollingInterval), inMode: .default, dequeue: true
+            ) {
+                NSApplication.shared.sendEvent(event)
+            }
+        }
     }
 }

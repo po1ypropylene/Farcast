@@ -273,6 +273,10 @@ The worker retains clipboard updates before channel attachment and advertises af
 MonitorReady. The selected session synchronizes before paste and on its timer.
 Command+C/X/V/A map to Windows Control shortcuts after releasing forwarded Command;
 app shortcuts remain local. Text and file sharing are opt-in.
+The bounded native event queue coalesces consecutive pure pointer motion while
+preserving key/button/wheel ordering. Queue overload stops the session with an
+explicit reconnect error rather than dropping input or clipboard deactivation.
+Draining stops after cancellation; no pending resize is submitted after that check.
 The native clipboard adapter negotiates [MS-RDPECLIP](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpeclip/cbc851d3-4e68-45f4-9292-26872a9209f2) file streaming, relative file
 lists, locks and large-file ranges. Finder file URLs retain their security scopes;
 regular files and folders are traversed/read on the RDP worker with no-follow
@@ -294,14 +298,17 @@ RANGE requests or create the descendant tree. File-URL demand sets a thread-safe
 batch request, consumed once by the RDP worker's tick; only then does staging begin.
 Standard file URLs are supplied only after the entire batch completes. The main-actor
 pasteboard bridge preserves a newer local copy and suppresses remote-file echoes.
-AppKit file-URL data providers retain batches independently of the session.
+One AppKit file-URL data provider retains each batch independently of the session.
+It maps item identities to URLs without retaining items (which retain their provider).
+AppKit's ownership-end callback cancels unfinished work for the whole batch.
 A concrete private pasteboard type prevents self-consumption even after focus reset
 or when another session synchronizes. Availability checks never read delayed URLs.
 AppKit's file-URL fulfillment contract is synchronous, with a five-minute deadline.
 Background callers wait on a native condition; main-thread callbacks service a
 bounded nested AppKit event loop so progress and cancellation remain responsive.
-A reentrancy guard and final pasteboard-change check prevent recursive fulfillment
-and publishing into a newer local copy. The worker signals completion/cancellation
+Per-item reentrancy guards prevent recursive fulfillment. Both wait paths check
+pasteboard ownership throughout fulfillment, and a final check prevents publishing
+into a newer local copy. The worker signals completion/cancellation
 independently of UI callbacks; channel and disk work continue during fulfillment.
 Selection changes/disconnect cancel partial downloads; completed clipboard files survive
 disconnect while the app and pasteboard provider remain alive. After ownership
@@ -374,7 +381,10 @@ has a serial worker and a pinned root directory descriptor. Checked relative pat
 no-follow component opens and handle identity checks reject traversal, links and
 special files. Opens honor access/share modes; read-only denies every create,
 write, overwrite, truncate, rename, delete, attribute and mutating control request.
-Disconnect cancels work and does not execute pending delete-on-close operations.
+Device teardown atomically marks the backend cancelled before draining its serial
+queue. Queued requests complete as cancelled without mutations or delete-on-close;
+an already executing filesystem operation may finish. Handles and security scopes
+retire on the worker after queued completions drain.
 
 Supported requests cover create/open/close, 64-bit-offset reads/writes, directory
 pagination, basic/name/standard/all metadata, timestamps/attributes, rename,
@@ -390,6 +400,8 @@ record per request (as the FreeRDP drive implementation does), and obtains metad
 once for each returned entry. No full-folder snapshot, sorting or listing-count cap
 is needed. Search restarts reopen their own cursor; opening through dup alone would
 share offsets. Small metadata replies allocate only a small response buffer.
+Search treats square brackets as literal Windows filename characters instead of
+POSIX character classes, while retaining case-insensitive `*` and `?` matching.
 Listing requires FILE_LIST_DIRECTORY/read access. Network round trips still bound
 large-folder throughput; streaming is not a claim of comparative server speed.
 Windows policy may disable device redirection independently of clipboard sharing. Writable exports directly modify the selected Mac files.

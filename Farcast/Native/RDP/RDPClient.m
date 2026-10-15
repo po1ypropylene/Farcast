@@ -55,6 +55,7 @@ typedef struct {
     NSLock *_lock;
     NSMutableArray<NSDictionary *> *_events;
     NSDictionary *_pendingResize;
+    BOOL _eventQueueOverflowed;
     freerdp *_instance;
     atomic_bool _stopped;
     atomic_bool _clipboardActive;
@@ -553,6 +554,8 @@ static void destroyContext(rdpContext *context) {
         while (!atomic_load(&_stopped) && !freerdp_shall_disconnect_context(context)) {
             @autoreleasepool {
                 [self drainEvents:(FCContext *)context];
+                if (atomic_load(&_stopped))
+                    break;
                 [_clipboardBridge tick];
                 HANDLE handles[64];
                 DWORD count = freerdp_get_event_handles(context, handles, 64);
@@ -571,6 +574,9 @@ static void destroyContext(rdpContext *context) {
     }
     [_lock lock];
     _instance = NULL;
+    if (_eventQueueOverflowed)
+        failure =
+            @"RDP input could not keep up. The session was disconnected to avoid losing input. Reconnect to continue.";
     [_lock unlock];
     freerdp_disconnect(context->instance);
     destroyContext(context);
@@ -589,6 +595,16 @@ static void destroyContext(rdpContext *context) {
 }
 - (void)enqueue:(NSDictionary *)event {
     [_lock lock];
+    if (atomic_load(&_stopped)) {
+        [_lock unlock];
+        return;
+    }
+    // Only consecutive pure motion may be replaced. Buttons, wheel events and
+    // keys are ordering barriers and must never disappear under backpressure.
+    NSDictionary *last = _events.lastObject;
+    if ([event[@"type"] isEqualToString:@"pointer"] && [event[@"flags"] unsignedIntValue] == PTR_FLAGS_MOVE &&
+        [last[@"type"] isEqualToString:@"pointer"] && [last[@"flags"] unsignedIntValue] == PTR_FLAGS_MOVE)
+        [_events removeLastObject];
     if ([event[@"type"] isEqualToString:@"resize"]) {
         NSIndexSet *old = [_events indexesOfObjectsPassingTest:^BOOL(NSDictionary *item, NSUInteger index, BOOL *stop) {
           return [item[@"type"] isEqualToString:@"resize"];
@@ -597,6 +613,14 @@ static void destroyContext(rdpContext *context) {
     }
     if (_events.count < 4096)
         [_events addObject:event];
+    else {
+        // Silent loss could leave a key/button pressed or discard clipboard
+        // deactivation. Bound memory by terminating the session explicitly.
+        _eventQueueOverflowed = YES;
+        atomic_store(&_stopped, true);
+        if (_instance)
+            freerdp_abort_connect_context(_instance->context);
+    }
     [_lock unlock];
 }
 - (void)drainEvents:(FCContext *)ctx {
@@ -606,6 +630,8 @@ static void destroyContext(rdpContext *context) {
     [_lock unlock];
     rdpContext *context = (rdpContext *)ctx;
     for (NSDictionary *event in events) {
+        if (atomic_load(&_stopped))
+            break;
         NSString *type = event[@"type"];
         if ([type isEqualToString:@"key"])
             freerdp_input_send_keyboard_event_ex(
@@ -630,6 +656,8 @@ static void destroyContext(rdpContext *context) {
             [ctx->clipboardBridge setActive:[event[@"active"] boolValue]];
         }
     }
+    if (atomic_load(&_stopped))
+        return;
     if (_pendingResize && ctx->display && ctx->displayCapsReady) {
         NSDictionary *event = _pendingResize;
         _pendingResize = nil;

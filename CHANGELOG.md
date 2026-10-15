@@ -2,6 +2,14 @@
 
 Changes are recorded from version 1.7.0 onwards.
 
+## 2.3.2 — 15 October 2026
+
+- Cancel pending RDP clipboard transfers when clipboard ownership ends, including replacement during a stalled paste. Share one provider across each batch, preserve per-item reentrancy protection, and keep completed files available.
+- Cancel queued redirected-folder operations before draining the device worker at shutdown, preventing queued writes, creates and delete-on-close from running during teardown. An already executing filesystem operation may finish.
+- Coalesce consecutive RDP pointer moves and disconnect with an explicit error if the bounded input queue overloads, instead of silently dropping key releases, buttons or clipboard deactivation.
+- Match square brackets literally in redirected-folder searches while retaining case-insensitive `*` and `?` matching.
+- Cover clipboard replacement without a remote response, multi-item fulfillment, unconsumed ownership loss and queued filesystem cancellation with isolated regression tests. Production copy/paste and directory throughput still require live verification.
+
 ## 2.3.1 — 15 October 2026
 
 - License Farcast's original source under MIT, permitting free use, modification and redistribution with the license notice retained. Include LICENSE in the app and DMG; bundled dependencies keep their own licenses.
