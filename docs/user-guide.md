@@ -121,8 +121,10 @@ Keys follow the app’s existing credential storage policy. See
   Copy/search uses selected text, or the clicked output line when nothing is selected.
   Automatic mode copies a selection first; otherwise it pastes text on the live cursor
   line and copies a clicked output line elsewhere. Files/images are never pasted.
-  Paste is disabled for output, scrollback and disconnected sessions. Cut is always
-  disabled: a terminal selection cannot safely delete remote input. The cursor line
+  Menu Paste works anywhere in a connected terminal, including scrollback, and sends
+  text to the remote cursor like ⌘V. Paste is disabled when disconnected or when the
+  clipboard has no supported text. Cut is always disabled: a terminal selection cannot
+  safely delete remote input. For automatic mode, the cursor line
   approximates editable input; full-screen programs and wrapped prompts may differ.
   Mouse-aware programs receive right-click normally; hold Shift for local actions.
 - SFTP opens on demand over the same authenticated SSH connection. No local shell

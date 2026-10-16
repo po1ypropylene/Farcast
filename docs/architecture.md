@@ -422,10 +422,13 @@ Windows policy may disable device redirection independently of clipboard sharing
 
 The persistent SSH surface subclasses SwiftTerm's native view for local right-click
 actions. A live UserDefaults preference selects a native context menu (default) or
-automatic copy/paste. Selected text takes precedence; otherwise the clicked visible
-output line is copied, or text is pasted when clicking the connected terminal's
-cursor row at the live viewport. This is a cursor-line approximation, not remote
-editability detection. Scrollback and disconnected/file-only sessions cannot paste.
+automatic copy/paste. Copy uses selected text or the clicked visible output line.
+The context menu uses AppKit validation for its actions; explicit Paste shares the
+keyboard command and sends text to the remote cursor regardless of the clicked row
+or scrollback position. In automatic mode, selected text takes precedence; otherwise
+text is pasted only when clicking the connected terminal's cursor row at the live
+viewport, and other rows are copied. This is a cursor-line approximation, not remote
+editability detection. Disconnected/file-only sessions cannot paste.
 Cut stays disabled because local terminal selection has no safe remote deletion
 operation. Mouse-aware programs retain button reporting; Shift overrides it locally.
 Paste rejects file URL/legacy file-list representations even alongside text and uses

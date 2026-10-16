@@ -31,7 +31,7 @@ extension Workspace {
         let active = sessions.filter { $0.state.active }
         let reasons = Array(Set(active.compactMap(\.interruptionReason))).sorted()
         confirmSessionAction("Disconnect All", reason: reasons.isEmpty ? nil : reasons.joined(separator: " ")) {
-            active.forEach { $0.disconnect() }
+            for session in active { session.disconnect() }
         }
     }
     func requestReconnect(_ session: RemoteSession) {

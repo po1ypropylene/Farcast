@@ -8,7 +8,7 @@ import SwiftTerm
     var clipboard = NSPasteboard.general
     var openSearch: (URL) -> Void = { NSWorkspace.shared.open($0) }
     private var contextText = ""
-    private var contextAllowsPaste = false
+    private var automaticPasteAllowed = false
 
     // A terminal has a remote cursor, not a local editable text model. Never
     // emulate Cut by sending deletion keys for a local scrollback selection.
@@ -22,7 +22,7 @@ import SwiftTerm
         if preferences.string(forKey: Self.rightClickPreference) == "automatic" {
             if let selected = getSelection(), !selected.isEmpty {
                 writeClipboard(selected)
-            } else if contextAllowsPaste {
+            } else if automaticPasteAllowed {
                 paste(self)
             } else {
                 copyContext(self)
@@ -57,30 +57,33 @@ import SwiftTerm
         let point = convert(event.locationInWindow, from: nil)
         guard bounds.contains(point), snapshot.dimensions.cols > 0 else {
             contextText = ""
-            contextAllowsPaste = false
+            automaticPasteAllowed = false
             return
         }
         let row = characterIndex(for: event.locationInWindow) / snapshot.dimensions.cols
-        contextAllowsPaste = inputEnabled && (!canScroll || scrollPosition == 1) && row == snapshot.cursor.row
-        contextText = getSelection() ?? visibleRowsText(row..<(row + 1)).first ?? ""
+        automaticPasteAllowed = inputEnabled && (!canScroll || scrollPosition == 1) && row == snapshot.cursor.row
+        if let selected = getSelection(), !selected.isEmpty {
+            contextText = selected
+        } else {
+            contextText = visibleRowsText(row..<(row + 1)).first ?? ""
+        }
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         prepareContext(event)
         let menu = NSMenu()
-        menu.autoenablesItems = false
-        func add(_ title: String, _ action: Selector, enabled: Bool) {
+        func add(_ title: String, _ action: Selector) {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
-            item.isEnabled = enabled
             menu.addItem(item)
         }
-        add("Cut", #selector(cutContext(_:)), enabled: false)
-        add("Copy", #selector(copyContext(_:)), enabled: !contextText.isEmpty)
-        add("Paste", #selector(pasteContext(_:)), enabled: contextAllowsPaste && clipboardTextAvailable)
+        add("Cut", #selector(cutContext(_:)))
+        add("Copy", #selector(copyContext(_:)))
+        add("Paste", #selector(paste(_:)))
         menu.addItem(.separator())
-        add("Select All", #selector(selectAll(_:)), enabled: true)
-        add("Search with Google", #selector(searchContext(_:)), enabled: !contextText.isEmpty)
+        add("Select All", #selector(selectAll(_:)))
+        add("Search with Google", #selector(searchContext(_:)))
+        menu.update()
         return menu
     }
 
@@ -106,6 +109,7 @@ import SwiftTerm
         switch item.action {
         case #selector(paste(_:)): return inputEnabled && clipboardTextAvailable
         case #selector(copy(_:)): return !(getSelection() ?? "").isEmpty
+        case #selector(copyContext(_:)), #selector(searchContext(_:)): return !contextText.isEmpty
         case #selector(cutContext(_:)): return false
         default: return super.validateUserInterfaceItem(item)
         }
@@ -119,10 +123,6 @@ import SwiftTerm
 
     @objc private func cutContext(_ sender: Any?) {}
     @objc private func copyContext(_ sender: Any?) { writeClipboard(contextText) }
-    @objc private func pasteContext(_ sender: Any?) {
-        guard contextAllowsPaste else { return }
-        paste(self)
-    }
     @objc private func searchContext(_ sender: Any?) {
         guard !contextText.isEmpty else { return }
         var components = URLComponents(string: "https://www.google.com/search")!

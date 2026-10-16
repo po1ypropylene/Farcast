@@ -5,6 +5,9 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+## 1.1.0 — 2026-10-16
+
+- Fix SSH terminal context-menu action validation and allow explicit Paste anywhere in a connected terminal, matching ⌘V. Keep automatic right-click paste limited to the live cursor line and Cut unavailable.
 - Center the Tunnels page in a shared 720-point column with a persistent header, a full-width empty card and Local forward, SOCKS5 proxy and Remote forward quick starts. Show Edit saved tunnels only when saved rules exist; keep stopped rules visible and startable.
 - Use native toolbar controls grouped by session and view actions, clarify the pop-out window icon, and add Session → Disconnect All with conditional interruption confirmation.
 - Distinguish rounded session tabs from secondary view tabs, show the active connection in the window title, and improve sidebar section labels and username context without changing sidebar selection behavior.

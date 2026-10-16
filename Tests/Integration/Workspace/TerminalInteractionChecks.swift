@@ -40,6 +40,12 @@ import SwiftUI
                 clickCount: 1, pressure: 1)!
         }
         func item(_ menu: NSMenu, _ title: String) -> NSMenuItem { menu.items.first { $0.title == title }! }
+        func validate(_ menu: NSMenu) {
+            menu.update()
+            for item in menu.items where !item.isSeparatorItem {
+                precondition(item.isEnabled == view.validateUserInterfaceItem(item))
+            }
+        }
         func perform(_ item: NSMenuItem) {
             precondition(item.isEnabled)
             _ = (item.target as! NSObject).perform(item.action!, with: item)
@@ -51,7 +57,9 @@ import SwiftUI
         let outputEvent = event(row: 0)
         let inputEvent = event(row: 1)
         let outputMenu = view.menu(for: outputEvent)!
-        precondition(!item(outputMenu, "Cut").isEnabled && !item(outputMenu, "Paste").isEnabled)
+        validate(outputMenu)
+        precondition(view.validateUserInterfaceItem(item(outputMenu, "Copy")), "AppKit must validate context Copy")
+        precondition(!item(outputMenu, "Cut").isEnabled && item(outputMenu, "Paste").isEnabled)
         precondition(item(outputMenu, "Copy").isEnabled && item(outputMenu, "Search with Google").isEnabled)
         precondition(sent.isEmpty && clipboard.string(forType: .string) == "paste text")
         perform(item(outputMenu, "Copy"))
@@ -62,9 +70,10 @@ import SwiftUI
         precondition(
             URLComponents(url: searchURL!, resolvingAgainstBaseURL: false)?.queryItems?.first?.value
                 == "Synthetic output 繁體 😀")
-        print("PASS native menu output copy/search, disabled cut/paste, no automatic side effects")
+        print("PASS AppKit validates native menu copy/search/paste; cut stays disabled with no automatic side effects")
 
         let inputMenu = view.menu(for: inputEvent)!
+        validate(inputMenu)
         precondition(item(inputMenu, "Paste").isEnabled)
         view.feed(text: "\u{1b}[?2004h")
         settle()
@@ -73,6 +82,21 @@ import SwiftUI
         perform(item(inputMenu, "Paste"))
         precondition(String(data: sent, encoding: .utf8) == "\u{1b}[200~first\n第二\u{1b}[201~")
         print("PASS input menu paste preserves Unicode/multiline bracketed-paste encoding")
+
+        sent.removeAll()
+        let blankMenu = view.menu(for: event(row: 5))!
+        validate(blankMenu)
+        precondition(item(blankMenu, "Paste").isEnabled)
+        perform(item(blankMenu, "Paste"))
+        precondition(String(data: sent, encoding: .utf8) == "\u{1b}[200~first\n第二\u{1b}[201~")
+        view.selectAll(nil)
+        let selectedMenu = view.menu(for: event(row: 5))!
+        validate(selectedMenu)
+        precondition(item(selectedMenu, "Copy").isEnabled)
+        perform(item(selectedMenu, "Copy"))
+        precondition(clipboard.string(forType: .string) == view.getSelection())
+        view.selectNone()
+        print("PASS blank-area menu pastes at remote cursor and preserves selected-text copy")
 
         sent.removeAll()
         preferences.set("automatic", forKey: SSHInteractionView.rightClickPreference)
@@ -92,6 +116,8 @@ import SwiftUI
         clipboard.clearContents()
         clipboard.setString("file:///fixture.txt", forType: .fileURL)
         clipboard.setString("fixture.txt", forType: .string)
+        validate(inputMenu)
+        precondition(!item(inputMenu, "Paste").isEnabled)
         view.rightMouseDown(with: inputEvent)
         view.paste(view)
         settle()
@@ -105,7 +131,8 @@ import SwiftUI
         clipboard.setString("text", forType: .string)
         view.inputEnabled = false
         view.paste(view)
-        perform(item(inputMenu, "Paste"))
+        _ = view.perform(item(inputMenu, "Paste").action!, with: item(inputMenu, "Paste"))
+        validate(inputMenu)
         precondition(sent.isEmpty && !item(view.menu(for: inputEvent)!, "Paste").isEnabled)
         print("PASS files plus text, nontext clipboard, and disconnect during an open menu refuse paste")
 
@@ -115,10 +142,16 @@ import SwiftUI
         view.scroll(toPosition: 0)
         settle()
         let scrolled = event(row: view.terminalStateSnapshot().cursor.row)
-        precondition(!item(view.menu(for: scrolled)!, "Paste").isEnabled)
+        let scrollbackMenu = view.menu(for: scrolled)!
+        validate(scrollbackMenu)
+        precondition(item(scrollbackMenu, "Paste").isEnabled)
         view.rightMouseDown(with: scrolled)
         precondition(sent.isEmpty)
-        print("PASS scrollback cannot become an automatic paste target")
+        clipboard.clearContents()
+        clipboard.setString("explicit paste", forType: .string)
+        perform(item(scrollbackMenu, "Paste"))
+        precondition(String(data: sent, encoding: .utf8) == "\u{1b}[200~explicit paste\u{1b}[201~")
+        print("PASS scrollback permits explicit menu paste but cannot become an automatic paste target")
 
         view.scroll(toPosition: 1)
         view.feed(text: "\u{1b}[?1000h")

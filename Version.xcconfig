@@ -1,4 +1,4 @@
 // Single source for app and DMG versions. Advance only on explicit user request.
 // Ordinary changes are staged in CHANGELOG.md under Unreleased.
-MARKETING_VERSION = 1.0.0
+MARKETING_VERSION = 1.1.0
 CURRENT_PROJECT_VERSION = 1
