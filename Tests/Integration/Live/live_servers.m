@@ -130,7 +130,7 @@ int main(int argc, char **argv) {
                   if ([message containsString:@"ERRCONNECT_ACTIVATION_TIMEOUT"])
                       stage = @"desktop activation";
               }
-              if ([state isEqualToString:@"failed"] || [state isEqualToString:@"disconnected"])
+              if (ssh && ([state isEqualToString:@"failed"] || [state isEqualToString:@"disconnected"]))
                   dispatch_semaphore_signal(done);
             };
             if (ssh) {
@@ -181,6 +181,11 @@ int main(int argc, char **argv) {
                 }
                 rdpClient.onTrust = trust;
                 rdpClient.onStatus = status;
+                // RDP publishes loss before native cleanup so the UI can react
+                // promptly. The probe must wait for cleanup before exiting.
+                rdpClient.onStopped = ^(BOOL retryable) {
+                  dispatch_semaphore_signal(done);
+                };
                 rdpClient.onFrame = ^(NSData *pixels, NSInteger width, NSInteger height, NSInteger stride) {
                   frame = width > 0 && height > 0 && stride >= width * 4 && pixels.length == stride * height;
                   if (frame && fullScreen && (width != requestedWidth || height != requestedHeight)) {

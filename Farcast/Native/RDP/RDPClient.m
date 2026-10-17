@@ -25,6 +25,7 @@
 #import "RDPDisplay.h"
 #import <errno.h>
 #import <math.h>
+#import <netinet/tcp.h>
 #import <openssl/err.h>
 #import <openssl/pem.h>
 #import <openssl/x509.h>
@@ -59,9 +60,13 @@ typedef struct {
     freerdp *_instance;
     atomic_bool _stopped;
     atomic_bool _clipboardActive;
+    atomic_bool _running;
+    atomic_bool _stalled;
+    _Atomic(double) _lastWorkerTick;
+    int _interruptSocket;
 }
 @property(nonatomic, copy) NSString *tunnelFailure;
-- (void)runHost:(NSString *)host
+- (BOOL)runHost:(NSString *)host
              port:(NSInteger)port
          username:(NSString *)username
            domain:(NSString *)domain
@@ -72,6 +77,7 @@ typedef struct {
         clipboard:(BOOL)clipboard
     audioPlayback:(BOOL)audioPlayback;
 - (void)drainEvents:(FCContext *)context;
+- (BOOL)trackSocket:(int)fd;
 @end
 static dispatch_group_t workers(void) {
     static dispatch_group_t group;
@@ -84,9 +90,18 @@ static dispatch_group_t workers(void) {
 static FCRDPClient *owner(rdpContext *context) { return (__bridge FCRDPClient *)((FCContext *)context)->owner; }
 // Override only TCP dialing; FreeRDP retains the real hostname for TLS/NLA.
 // Any server redirection to another endpoint fails closed.
-static int tunnelTCPConnect(rdpContext *context, rdpSettings *settings, const char *hostname, int port, DWORD timeout) {
+static int monitoredTCPConnect(rdpContext *context, rdpSettings *settings, const char *hostname, int port,
+                               DWORD timeout) {
     FCContext *ctx = (FCContext *)context;
     FCRDPClient *client = owner(context);
+    if (client.tunnelPort == 0 && client.tunnelToken == nil) {
+        int fd = ctx->directTCPConnect(context, settings, hostname, port, timeout);
+        if (fd >= 0 && ![client trackSocket:fd]) {
+            close(fd);
+            return -1;
+        }
+        return fd;
+    }
     if (!hostname || !ctx->identityHost || strcasecmp(hostname, ctx->identityHost) || port != ctx->identityPort ||
         client.tunnelPort <= 0 || client.tunnelPort > 65535 || client.tunnelToken.length != 64)
         return -1;
@@ -100,7 +115,8 @@ static int tunnelTCPConnect(rdpContext *context, rdpSettings *settings, const ch
               return freerdp_shall_disconnect_context(context);
             },
             &failure))
-        return fd;
+        if ([client trackSocket:fd])
+            return fd;
     client.tunnelFailure = failure;
     close(fd);
     return -1;
@@ -373,6 +389,10 @@ static void destroyContext(rdpContext *context) {
         _events = [NSMutableArray new];
         atomic_init(&_stopped, false);
         atomic_init(&_clipboardActive, true);
+        atomic_init(&_running, false);
+        atomic_init(&_stalled, false);
+        atomic_init(&_lastWorkerTick, 0);
+        _interruptSocket = -1;
     }
     return self;
 }
@@ -393,21 +413,23 @@ static void destroyContext(rdpContext *context) {
     dispatch_group_enter(workers());
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
       @autoreleasepool {
-          [self runHost:host
-                       port:port
-                   username:username
-                     domain:domain
-                   password:password
-                      width:width
-                     height:height
-                      scale:scale
-                  clipboard:clipboard
-              audioPlayback:audioPlayback];
+          BOOL retryable = [self runHost:host
+                                    port:port
+                                username:username
+                                  domain:domain
+                                password:password
+                                   width:width
+                                  height:height
+                                   scale:scale
+                               clipboard:clipboard
+                           audioPlayback:audioPlayback];
+          if (self.onStopped)
+              self.onStopped(retryable);
       }
       dispatch_group_leave(workers());
     });
 }
-- (void)runHost:(NSString *)host
+- (BOOL)runHost:(NSString *)host
              port:(NSInteger)port
          username:(NSString *)username
            domain:(NSString *)domain
@@ -438,7 +460,7 @@ static void destroyContext(rdpContext *context) {
     }
     if (!context) {
         [self status:@"failed" message:@"Could not initialize RDP."];
-        return;
+        return NO;
     }
     ((FCContext *)context)->owner = (__bridge void *)self;
     _clipboardBridge = [FCRDPClipboard new];
@@ -467,18 +489,20 @@ static void destroyContext(rdpContext *context) {
           weakSelf.onClipboardProgress(message);
     };
     rdpSettings *s = context->settings;
-    if (self.tunnelPort != 0 || self.tunnelToken != nil) {
+    {
         FCContext *ctx = (FCContext *)context;
         ctx->identityHost = host.UTF8String;
         ctx->identityPort = (int)port;
         rdpTransportIo callbacks = *freerdp_get_io_callbacks(context);
         ctx->directTCPConnect = callbacks.TCPConnect;
-        callbacks.TCPConnect = tunnelTCPConnect;
+        callbacks.TCPConnect = monitoredTCPConnect;
         if (!freerdp_set_io_callbacks(context, &callbacks)) {
             destroyContext(context);
-            [self status:@"failed" message:@"Could not initialize the WireGuard RDP transport."];
-            return;
+            [self status:@"failed" message:@"Could not initialize the RDP transport."];
+            return NO;
         }
+    }
+    if (self.tunnelPort != 0 || self.tunnelToken != nil) {
         freerdp_settings_set_bool(s, FreeRDP_SupportMultitransport, FALSE);
         freerdp_settings_set_uint32(s, FreeRDP_MultitransportFlags, 0);
         freerdp_settings_set_bool(s, FreeRDP_GatewayEnabled, FALSE);
@@ -505,7 +529,7 @@ static void destroyContext(rdpContext *context) {
     if (!FCConfigureMonitorDefinitions(s, self.monitorDefinitions ?: @[])) {
         destroyContext(context);
         [self status:@"failed" message:@"The requested RDP monitor layout is invalid."];
-        return;
+        return NO;
     }
     freerdp_settings_set_uint32(s, FreeRDP_ColorDepth, 32);
     freerdp_settings_set_uint32(s, FreeRDP_KeyboardLayout, 0x00000409);
@@ -523,7 +547,7 @@ static void destroyContext(rdpContext *context) {
         destroyContext(context);
         [self status:@"failed"
              message:@"A redirected folder is unavailable. Edit the connection and choose the folder again."];
-        return;
+        return NO;
     }
     freerdp_settings_set_bool(s, FreeRDP_RedirectClipboard, clipboard);
     freerdp_settings_set_bool(s, FreeRDP_AudioPlayback, audioPlayback);
@@ -542,6 +566,10 @@ static void destroyContext(rdpContext *context) {
     freerdp_settings_set_bool(s, FreeRDP_GfxProgressive, FALSE);
     freerdp_settings_set_uint32(s, FreeRDP_TcpConnectTimeout, 20000);
     freerdp_settings_set_uint32(s, FreeRDP_TcpAckTimeout, 20000);
+    freerdp_settings_set_bool(s, FreeRDP_TcpKeepAlive, TRUE);
+    freerdp_settings_set_uint32(s, FreeRDP_TcpKeepAliveDelay, 15);
+    freerdp_settings_set_uint32(s, FreeRDP_TcpKeepAliveInterval, 5);
+    freerdp_settings_set_uint32(s, FreeRDP_TcpKeepAliveRetries, 3);
     freerdp_settings_set_uint32(s, FreeRDP_ThreadingFlags, THREADING_FLAGS_DISABLE_THREADS);
     [_lock lock];
     _instance = context->instance;
@@ -550,9 +578,12 @@ static void destroyContext(rdpContext *context) {
     BOOL connected = !stopped && freerdp_connect(context->instance);
     NSString *failure = nil;
     if (connected) {
+        atomic_store(&_lastWorkerTick, NSProcessInfo.processInfo.systemUptime);
+        atomic_store(&_running, true);
         [self status:@"connected" message:@"RDP connected"];
         while (!atomic_load(&_stopped) && !freerdp_shall_disconnect_context(context)) {
             @autoreleasepool {
+                atomic_store(&_lastWorkerTick, NSProcessInfo.processInfo.systemUptime);
                 [self drainEvents:(FCContext *)context];
                 if (atomic_load(&_stopped))
                     break;
@@ -566,6 +597,11 @@ static void destroyContext(rdpContext *context) {
         }
     }
     UINT32 error = freerdp_get_last_error(context);
+    atomic_store(&_running, false);
+    BOOL retryable = !atomic_load(&_stopped) &&
+                     (atomic_load(&_stalled) || (connected && error == FREERDP_ERROR_SUCCESS) ||
+                      error == FREERDP_ERROR_CONNECT_TRANSPORT_FAILED || error == FREERDP_ERROR_CONNECT_FAILED ||
+                      error == FREERDP_ERROR_DNS_ERROR || error == FREERDP_ERROR_DNS_NAME_NOT_FOUND);
     if (!atomic_load(&_stopped) && (!connected || error)) {
         failure = self.tunnelFailure
                       ?: [NSString stringWithFormat:@"RDP connection failed (%s). Check credentials, "
@@ -577,7 +613,19 @@ static void destroyContext(rdpContext *context) {
     if (_eventQueueOverflowed)
         failure =
             @"RDP input could not keep up. The session was disconnected to avoid losing input. Reconnect to continue.";
+    if (_interruptSocket >= 0) {
+        shutdown(_interruptSocket, SHUT_RDWR);
+        close(_interruptSocket);
+        _interruptSocket = -1;
+    }
     [_lock unlock];
+    // Publish loss before channel/drive teardown, which can take time.
+    if (atomic_load(&_stalled))
+        [self status:@"stale" message:@"The RDP connection stopped responding. Closing the old connection…"];
+    else if (failure)
+        [self status:@"failed" message:failure];
+    else
+        [self status:@"disconnected" message:@"RDP disconnected"];
     freerdp_disconnect(context->instance);
     destroyContext(context);
     [_driveManager close];
@@ -588,10 +636,38 @@ static void destroyContext(rdpContext *context) {
     [_events removeAllObjects];
     _pendingResize = nil;
     [_lock unlock];
-    if (failure)
-        [self status:@"failed" message:failure];
-    else
-        [self status:@"disconnected" message:@"RDP disconnected"];
+    return retryable;
+}
+- (BOOL)trackSocket:(int)fd {
+    // FreeRDP's TcpAckTimeout uses TCP_USER_TIMEOUT, which Darwin does not expose.
+    int seconds = 20;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_RXT_CONNDROPTIME, &seconds, sizeof(seconds)) != 0)
+        return NO;
+    [_lock lock];
+    if (_interruptSocket >= 0)
+        close(_interruptSocket);
+    _interruptSocket = dup(fd);
+    BOOL ready = _interruptSocket >= 0 && !atomic_load(&_stopped);
+    if (!ready && _interruptSocket >= 0) {
+        close(_interruptSocket);
+        _interruptSocket = -1;
+    }
+    [_lock unlock];
+    return ready;
+}
+- (BOOL)responsive {
+    return !atomic_load(&_running) || NSProcessInfo.processInfo.systemUptime - atomic_load(&_lastWorkerTick) < 30;
+}
+- (void)interruptStalledConnection {
+    [_lock lock];
+    if (atomic_load(&_running)) {
+        atomic_store(&_stalled, true);
+        if (_instance)
+            freerdp_abort_connect_context(_instance->context);
+        if (_interruptSocket >= 0)
+            shutdown(_interruptSocket, SHUT_RDWR);
+    }
+    [_lock unlock];
 }
 - (void)enqueue:(NSDictionary *)event {
     [_lock lock];
@@ -731,6 +807,8 @@ static void destroyContext(rdpContext *context) {
     [_lock lock];
     if (_instance)
         freerdp_abort_connect_context(_instance->context);
+    if (_interruptSocket >= 0)
+        shutdown(_interruptSocket, SHUT_RDWR);
     [_lock unlock];
 }
 @end

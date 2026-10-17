@@ -24,12 +24,14 @@ All three scripts preview their work by default. Python 3 is required; the updat
 also uses Git, Go and Xcode for the selected components. Run them from any directory.
 
 ```sh
-# Preview upstream releases; --latest stays in the current native/SwiftTerm major.
+# Preview upstream releases; libssh2 follows master, others stay in the current major.
 scripts/update-dependencies.py --latest
 # Apply pins/checksums and rebuild. Protocol verification is still required.
 scripts/update-dependencies.py --latest --apply --build
 # Or update just one component to a selected stable release:
 scripts/update-dependencies.py --freerdp 3.32.1 --apply --build
+# Refresh the patched libssh2 master snapshot (resolved to an immutable commit):
+scripts/update-dependencies.py --libssh2 master --apply --build
 
 # Preview/remove generated builds, dependency caches, logs and synthetic test outputs.
 scripts/clean-project.py
@@ -45,6 +47,11 @@ package lock, WireGuard's Go manifest/checksums, and the third-party version inv
 It resolves WireGuard's dependency graph without independently upgrading gVisor.
 Stable native/SwiftTerm versions are compared numerically by major, minor and patch;
 SwiftTerm tags with `v`/`V` prefixes are recognized. Downgrades are rejected.
+libssh2 is the exception: `--latest` and `--libssh2 master` resolve upstream master
+to an exact commit, retaining unreleased security fixes instead of selecting 1.11.1.
+Native builds record the preparation script hash, so changed pins or build flags
+cannot silently reuse an older installed library. An existing source checkout at
+a different revision is rejected; use the updater to invalidate generated caches.
 Pin/manifest resolution failures restore the original tracked file contents;
 downloaded caches may remain. Successfully applied pins remain if a subsequent
 build fails. Old native outputs and synthetic RDP builds are invalidated when

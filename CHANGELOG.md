@@ -5,6 +5,11 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+## 1.2.0 — 2026-10-17
+
+- Replace libssh2 1.11.1 with a pinned master snapshot containing the CVE-2026-55200 packet-length bounds fix and subsequent upstream fixes. Dependency refreshes keep following master through immutable commit pins.
+- Detect lost RDP transports and stalled protocol workers, show the connection state promptly, and retry established sessions up to three times in the same tab. Cancel stops recovery; authentication, trust and server-policy failures require manual action.
+
 ## 1.1.0 — 2026-10-16
 
 - Fix SSH terminal context-menu action validation and allow explicit Paste anywhere in a connected terminal, matching ⌘V. Keep automatic right-click paste limited to the live cursor line and Cut unavailable.

@@ -276,6 +276,12 @@ See [known limits](validation.md) for remaining interoperability checks.
 
 ### RDP
 
+- If an established connection is lost, Farcast shows its status and tries to
+  reconnect in the same tab up to three times, after 2, 5 and 10 seconds. A stalled
+  protocol worker shows **Stale** while it is stopped. **Cancel connection** stops
+  recovery; after the final failure, choose **Reconnect** when ready. Explicit
+  server logoff and sign-in/trust failures require manual action. Recovery cannot
+  detect a frozen Windows application while the connection itself remains healthy.
 - Embedded FreeRDP desktop, TLS, and Network Level Authentication (NLA).
 - Certificate chains and host names evaluated through macOS Security.framework.
   Untrusted certificates require explicit approval; trust exceptions are scoped

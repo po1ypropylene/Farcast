@@ -259,12 +259,19 @@ import SwiftData
         let children = helpers()
         precondition(children.count == 1)
         precondition(kill(children[0], SIGTERM) == 0)
-        try await waitUntil("Helper exit did not fail every mixed-protocol lease") {
-            reconnected.state == .failed && replacementDesktop.state == .failed && replacementVNC.state == .failed
+        try await waitUntil("Helper exit did not stop SSH/VNC and trigger RDP recovery") {
+            reconnected.state == .failed && replacementVNC.state == .failed
+                && replacementDesktop.logs.contains { $0.message.hasPrefix("Connection lost. Reconnecting in ") }
         }
         precondition(!reconnected.message.isEmpty && !replacementDesktop.message.isEmpty)
         precondition(reconnected.forwarding.statuses.values.allSatisfy { $0.state == "stopped" })
         precondition(workspace.prompts.isEmpty)
+        try await waitUntil("RDP did not automatically reacquire its WireGuard lease") {
+            replacementDesktop.state == .connected
+        }
+        precondition(workspace.sessions.contains { $0 === replacementDesktop })
+        precondition(helpers().count == 1 && workspace.prompts.isEmpty)
+        print("PASS shared helper loss stops SSH/VNC and automatically reconnects RDP in its existing session")
         let restartedSSH = make(.ssh)
         let restartedRDP = make(.rdp)
         let restartedVNC = make(.vnc)

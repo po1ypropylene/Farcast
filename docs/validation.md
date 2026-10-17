@@ -15,6 +15,7 @@ stated scope; disabled live entries report SKIP.
 | SSH forwarding | Local/remote/SOCKS byte equality, live add/edit/remove including initially empty sessions, concurrency, IPv6, server-only DNS, malformed/fragmented messages, backpressure and EOF, policy denial, ports, stop/restart, forwarding-only sessions, file conflicts/cancellation, WireGuard sharing/reconnect/failure and signed sandboxed listeners | Owned loopback/encrypted peers and native off-screen controls; production policy and throughput unverified |
 | VNC | RFB versions/security, DES challenge, TLS trust/refusal, raw/CopyRect/Hextile/Zlib/resize, Unicode key pairs, pointer, typing cancellation and malformed input | Owned synthetic peers; production interoperability is unverified |
 | RDP channels | TLS/NLA, frames, clipboard text/files, folder drives, Display Control PDUs, initial monitor attributes and pointer input | Synthetic peers; channel submission does not prove Windows acceptance |
+| RDP recovery | Idle worker health, stalled-worker interruption, abrupt peer loss, visible stale/failed/reconnecting state, three-attempt backoff, cancellation, teardown ordering, callback generations and same-tab TLS reauthentication | Owned TLS peer and controlled native callbacks; production long-session failure reproduction remains pending |
 | RDP folder browsing | Packed directory formats, compatibility padding at enumeration end, Unicode pagination, trailing separators and nested files; direct/WireGuard fixtures | Signed app on one authorized Windows server with direct transport: complete visible root count and repeated browsing through two subfolder levels. Real writes and other server policies remain unverified |
 | RDP presentation | Cropped Metal uploads, inverse input mapping, letterbox/stale-frame rejection, full-screen startup/exit/re-entry and teardown | Marked frames and owned off-screen windows |
 | Workspace | Tab ordering/reconnect, detached surface ownership, focus/prompt routing, terminal menus, deferred connection/tunnel validation, centered empty/stopped tunnel layouts at narrow/wide sizes in light/dark, template type selection, view-specific terminal tools, conditional Disconnect All and AppKit shutdown | Synthetic sessions, private pasteboards and preferences |
@@ -32,6 +33,15 @@ stated scope; disabled live entries report SKIP.
   authoritative. Multi-monitor presentation requires matching monitor confirmation.
   Live multi-monitor topology updates are unsupported; hotplug/rotation requires
   reconnecting. Dimension confirmation does not confirm Windows DPI appearance.
+- **RDP recovery:** liveness checks detect direct TCP failure and stalled client
+  workers, not a frozen remote application that still acknowledges TCP. An unchanged
+  desktop alone is not evidence of failure. WireGuard's local socket keepalives do
+  not probe the remote peer; recovery begins when its helper/transport reports loss
+  or the RDP worker stalls. Retries use fresh authentication and server policy controls
+  desktop resumption. Three retries are available after an established session;
+  one minute of stable connection resets the budget. OS scheduling and local I/O
+  can delay detection or cleanup. Real network blackholes and sleep/wake need live
+  validation; the original long-session hang has not been reproduced.
 - **RDP input and files:** physical scan codes use the US layout. Consecutive
   pointer moves coalesce; input queue overload disconnects explicitly. Folder redirection
   omits directory notifications, byte-range locking and ACL editing. Clipboard
@@ -62,6 +72,10 @@ stated scope; disabled live entries report SKIP.
   promises are unsupported; remote Open creates a snapshot without automatic upload.
   Cached folder views can lag external changes by up to 30 seconds; Refresh
   bypasses the cache. Cached metadata never substitutes for operation preflight.
+- **libssh2:** the app builds a pinned, unreleased master snapshot containing the
+  CVE-2026-55200 packet-length bounds fix. Commit ancestry establishes inclusion;
+  SSH/SFTP fixtures check app interoperability, not a complete security audit or
+  compatibility with every production server. See [dependency provenance](../ThirdParty/README.md).
 - **WireGuard:** endpoint DNS refreshes on manual reconnect, not periodically.
   Missing profiles, tunnel failures and uncovered destinations fail closed.
 - **SSH forwarding:** loopback-only local listeners, SOCKS5 CONNECT without proxy

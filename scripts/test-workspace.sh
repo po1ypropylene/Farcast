@@ -57,3 +57,6 @@ xcrun swiftc -parse-as-library -module-name Farcast -target arm64-apple-macos27.
   -L Vendor/Native/lib -lssh2 -lfreerdp3 -lfreerdp-client3 -lwinpr3 -lcrypto -lssl -lz \
   -Xlinker -rpath -Xlinker "$PWD/Vendor/Native/lib" -o "$fixture_root/terminal-client"
 "$fixture_root/terminal-client"
+
+# Bounded RDP recovery and native TLS reconnection use owned local fixtures.
+scripts/test-rdp-reconnect.sh

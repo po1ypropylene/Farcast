@@ -34,6 +34,12 @@ import SwiftTerm
     @Published private(set) var vncTyping = false
     private var vncPointerMask = 0
     private var rdp: FCRDPClient?
+    private let makeRDPClient: @MainActor () -> FCRDPClient
+    private var rdpCredential: ConnectionCredential?
+    private var rdpReconnect = RDPReconnectPolicy()
+    private var rdpReconnectTask: Task<Void, Never>?
+    private var rdpHealthTask: Task<Void, Never>?
+    private var rdpTunnelFailed = false
     private var fullScreen: RDPFullScreenPresentation?
     private var displayLayout: RDPDisplayLayout?
     private var displayScreens: [RDPDisplayScreen] = []
@@ -74,9 +80,12 @@ import SwiftTerm
 
     init(
         profile: ConnectionDraft, workspace: Workspace, persistent: Bool = true, files: SFTPController? = nil,
-        screenSnapshot: @escaping @MainActor (Bool, NSScreen?) -> [RDPDisplayScreen] = RDPFullScreenPresentation.screens
+        screenSnapshot: @escaping @MainActor (Bool, NSScreen?) -> [RDPDisplayScreen] = RDPFullScreenPresentation
+            .screens,
+        makeRDPClient: @escaping @MainActor () -> FCRDPClient = { FCRDPClient() }
     ) {
         self.profile = profile
+        self.makeRDPClient = makeRDPClient
         self.screenSnapshot = screenSnapshot
         self.workspace = workspace
         self.persistent = persistent
@@ -96,11 +105,13 @@ import SwiftTerm
     }
     func start(credential: ConnectionCredential) {
         guard workspace?.isShuttingDown != true else { return }
+        if profile.kind == .rdp { rdpCredential = credential }
         if profile.kind == .ssh, let error = profile.validationMessage {
             update("failed", message: error, attempt: generation)
             return
         }
         if profile.kind == .rdp && profile.redirectedFoldersUnavailable {
+            rdpCredential = nil
             update(
                 "failed",
                 message: "Saved folder settings are unavailable. Edit the connection and choose the folders again.",
@@ -113,8 +124,10 @@ import SwiftTerm
         }
         generation = UUID()
         let attempt = generation
-        state = .connecting
-        message = "Starting WireGuard…"
+        state = rdpReconnect.attempts > 0 ? .reconnecting : .connecting
+        message =
+            rdpReconnect.attempts > 0
+            ? "Reconnect attempt \(rdpReconnect.attempts) of 3 · Starting WireGuard…" : "Starting WireGuard…"
         do {
             guard let workspace else { throw WireGuardError.unavailable }
             let (configuration, keys) = try workspace.wireGuardSettings(for: tunnelID)
@@ -125,12 +138,19 @@ import SwiftTerm
             let reference = WeakRemoteSession(self)
             let onExit: @Sendable () -> Void = {
                 Task { @MainActor in
-                    guard let self = reference.value, self.generation == attempt, self.state.active else { return }
+                    guard let self = reference.value, self.generation == attempt, self.state.active,
+                        self.state != .stale
+                    else { return }
+                    self.rdpTunnelFailed = self.profile.kind == .rdp
                     self.ssh?.disconnect()
                     self.rdp?.disconnect()
                     self.vnc?.disconnect()
                     self.update("failed", message: WireGuardError.transport.localizedDescription, attempt: attempt)
-                    self.generation = UUID()
+                    if self.profile.kind == .rdp {
+                        if self.rdp == nil { self.rdpStopped(retryable: true, attempt: attempt) }
+                    } else {
+                        self.generation = UUID()
+                    }
                 }
             }
             tunnelTask = Task { [weak self] in
@@ -156,9 +176,13 @@ import SwiftTerm
                         "failed",
                         message: (error as? WireGuardError)?.localizedDescription
                             ?? WireGuardError.transport.localizedDescription, attempt: attempt)
+                    if self.profile.kind == .rdp {
+                        self.rdpStopped(retryable: true, attempt: attempt)
+                    }
                 }
             }
         } catch {
+            rdpCredential = nil
             update(
                 "failed",
                 message: (error as? WireGuardError)?.localizedDescription
@@ -171,8 +195,8 @@ import SwiftTerm
     ) {
         generation = previousAttempt ?? UUID()
         let attempt = generation
-        state = .connecting
-        message = "Connecting…"
+        state = rdpReconnect.attempts > 0 ? .reconnecting : .connecting
+        message = rdpReconnect.attempts > 0 ? "Reconnecting, attempt \(rdpReconnect.attempts) of 3…" : "Connecting…"
         if let terminal {
             terminalAvailable = true
             filesAvailable = true
@@ -271,11 +295,18 @@ import SwiftTerm
                     startupPresentationPending = true
                 }
             } catch {
+                rdpCredential = nil
                 update("failed", message: error.localizedDescription, attempt: attempt)
                 return
             }
-            let client = FCRDPClient()
+            resizeCoordinator = RDPResizeCoordinator()
+            lastSubmittedScale = nil
+            observedDesktopSize = nil
+            confirmedMonitors = false
+            displayMessage = ""
+            let client = makeRDPClient()
             rdp = client
+            rdpTunnelFailed = false
             client.monitorDefinitions =
                 displayLayout?.monitors.map { monitor in
                     let physical = monitor.physicalSize
@@ -337,6 +368,9 @@ import SwiftTerm
             client.tunnelToken = tunnelToken
             client.onStatus = { [weak self] status, message in
                 DispatchQueue.main.async { self?.update(status, message: message, attempt: attempt) }
+            }
+            client.onStopped = { [weak self] retryable in
+                DispatchQueue.main.async { self?.rdpStopped(retryable: retryable, attempt: attempt) }
             }
             client.onTrust = trustCallback(attempt: attempt)
             client.onFrame = { [weak desktop] data, width, height, stride in
@@ -667,9 +701,19 @@ import SwiftTerm
         guard generation == attempt else { return }
         state = SessionState(rawValue: status) ?? .failed
         self.message = message
+        if profile.kind == .rdp, rdpReconnect.attempts > 0,
+            [.connecting, .verifying, .authenticating].contains(state)
+        {
+            if state == .connecting { state = .reconnecting }
+            self.message = "Reconnect attempt \(rdpReconnect.attempts) of 3 · \(message)"
+        }
         logs.append(SessionLog(message: message))
         if logs.count > 200 { logs.removeFirst(logs.count - 200) }
         if state == .connected {
+            if profile.kind == .rdp {
+                rdpReconnect.connected(now: ProcessInfo.processInfo.systemUptime)
+                monitorRDP(attempt: attempt)
+            }
             if profile.kind == .ssh && filesAvailable && (sshMode == .files || sshMode == .split) { files.showFiles() }
             desktop?.inputEnabled = true
             presentStartupDesktopIfReady()
@@ -692,7 +736,9 @@ import SwiftTerm
                 self.focus()
             }
         }
-        if !state.active {
+        if !state.active || state == .stale {
+            rdpHealthTask?.cancel()
+            rdpHealthTask = nil
             vncTyping = false
             retireFullScreen()
             files.disconnected()
@@ -705,6 +751,54 @@ import SwiftTerm
             desktop?.cancelPendingDisplayWork()
             desktop?.releaseInput()
             desktop?.inputEnabled = false
+        }
+    }
+    private func monitorRDP(attempt: UUID) {
+        rdpHealthTask?.cancel()
+        rdpHealthTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(5)) } catch { return }
+                guard let self, self.generation == attempt, self.state == .connected else { return }
+                if self.rdp?.responsive == false {
+                    self.update(
+                        "stale", message: "The RDP connection stopped responding. Closing the old connection…",
+                        attempt: attempt)
+                    self.rdp?.interruptStalledConnection()
+                    return
+                }
+            }
+        }
+    }
+    private func rdpStopped(retryable: Bool, attempt: UUID) {
+        guard generation == attempt, workspace?.isShuttingDown != true else { return }
+        rdp = nil
+        rdpHealthTask?.cancel()
+        rdpHealthTask = nil
+        guard retryable || rdpTunnelFailed, rdpCredential != nil,
+            let delay = rdpReconnect.nextDelay(now: ProcessInfo.processInfo.systemUptime)
+        else {
+            if state == .stale { state = .failed }
+            if (retryable || rdpTunnelFailed) && rdpReconnect.attempts == 3 {
+                state = .failed
+                message = "Could not reconnect after 3 attempts. Check the network and reconnect when ready."
+                logs.append(SessionLog(message: message))
+            }
+            rdpCredential = nil
+            return
+        }
+        // Invalidate queued callbacks before scheduling a fresh native client and tunnel lease.
+        generation = UUID()
+        let retryGeneration = generation
+        state = .reconnecting
+        message = "Connection lost. Reconnecting in \(Int(delay)) seconds (attempt \(rdpReconnect.attempts) of 3)…"
+        logs.append(SessionLog(message: message))
+        rdpReconnectTask?.cancel()
+        rdpReconnectTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+            guard let self, self.generation == retryGeneration, self.state == .reconnecting,
+                let credential = self.rdpCredential, self.workspace?.isShuttingDown != true
+            else { return }
+            self.start(credential: credential)
         }
     }
     func askForCredentials() {
@@ -729,6 +823,12 @@ import SwiftTerm
         }
     }
     func disconnect() {
+        rdpReconnectTask?.cancel()
+        rdpReconnectTask = nil
+        rdpHealthTask?.cancel()
+        rdpHealthTask = nil
+        rdpCredential = nil
+        rdpReconnect = RDPReconnectPolicy()
         retireFullScreen()
         generation = UUID()
         tunnelTask?.cancel()

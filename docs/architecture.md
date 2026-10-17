@@ -11,6 +11,11 @@ Farcast's original source is MIT-licensed in LICENSE. Dependency pins, checksums
 and separate licenses live in the build scripts, Go manifests and ThirdParty.
 No runtime Homebrew, external protocol client or SSH agent is required.
 
+libssh2 uses an immutable upstream master snapshot for unreleased security fixes;
+the preparation script and third-party inventory record its full commit. Dependency
+refreshes resolve master explicitly, and installed native outputs carry a hash of
+the preparation script so changed pins or flags require rebuilding.
+
 ## Source map
 
 | Folder | Responsibility |
@@ -86,6 +91,27 @@ frames instead of building an unbounded UI queue. Trust/interactive callbacks wa
 single-use PromptWaiter responses while the main actor presents sheets. Cancellation
 resolves pending prompts, interrupts transport work, invalidates callbacks and stops
 clipboard timers. Never wait for workers/prompts on the main actor.
+
+RDP transport loss is published before native channel/drive cleanup. A per-client
+completion callback starts recovery only after that worker retires. Established
+sessions retain their credential in memory and retry with a fresh native client and
+WireGuard lease in the same tab after 2, 5 and 10 seconds. Generation guards reject
+retired callbacks; manual disconnect/close/quit cancels pending retries and releases
+the retained credential. Initial failures, rejected authentication/trust and explicit
+server logoff/policy termination do not automatically retry. A connection must remain
+established for 60 seconds to replenish the retry budget, preventing rapid flapping
+from retrying indefinitely. This is fresh authentication, not RDP reconnect-cookie
+resumption; server policy determines whether the existing desktop is restored.
+
+Direct RDP TCP sockets use a 15-second keepalive idle interval, three probes spaced
+five seconds apart, and Darwin's 20-second retransmission drop timeout. The latter
+supplements FreeRDP's TCP_USER_TIMEOUT setting, which is unavailable on macOS.
+A main-actor health task samples atomic worker progress every five seconds; 30 seconds
+without worker progress marks the session Stale, disables input/clipboard, exits full
+screen and interrupts the transport using a duplicate socket descriptor protected
+by the native lock. No frame-arrival deadline or synthetic keyboard/mouse input is
+used. Workers retain handle ownership and finish cleanup before a retry begins.
+An uninterruptible local file operation can delay cleanup and therefore recovery.
 
 A popped-out session retains its Workspace-owned RemoteSession, native surfaces and
 transport. A stable window slot follows replacement session IDs on reconnect. Only

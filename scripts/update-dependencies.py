@@ -37,6 +37,13 @@ def semantic_version(version):
     return tuple(map(int, version.split('.')))
 
 
+def master_pin(url):
+    lines = run(['git', 'ls-remote', url, 'refs/heads/master']).splitlines()
+    if len(lines) != 1 or not re.fullmatch(r'[0-9a-f]{40}\trefs/heads/master', lines[0]):
+        raise RuntimeError('Cannot resolve unique libssh2 master revision.')
+    return lines[0].split('\t')[0]
+
+
 def tag_pin(url, prefix, version, current):
     refs = {}
     for line in run(['git', 'ls-remote', '--tags', url]).splitlines():
@@ -70,7 +77,7 @@ def tag_pin(url, prefix, version, current):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--latest', action='store_true', help='Select current-major stable native/SwiftTerm releases and latest WireGuard.')
+    parser.add_argument('--latest', action='store_true', help='Select current-major stable releases, libssh2 master and latest WireGuard.')
     for name in (*NATIVE, 'swiftterm', 'wireguard'):
         parser.add_argument('--' + name, metavar='VERSION', help='Select only this dependency (or use latest).')
     parser.add_argument('--apply', action='store_true', help='Write pins, resolve Swift/Go checksums and invalidate generated libraries.')
@@ -106,12 +113,22 @@ def main():
         if not match:
             raise RuntimeError(f'Cannot locate unique {name} build pin.')
         old_version = match[1][len(prefix):]
-        version, revision = tag_pin(url, prefix, selected[key], old_version)
+        if key == 'libssh2':
+            if selected[key] not in ('latest', 'master'):
+                raise RuntimeError('libssh2 uses patched master; select --libssh2 master (or latest).')
+            version, revision = 'master', master_pin(url)
+            ref = version
+            display_version = f'master `{revision}`'
+            old_version = match[1]
+        else:
+            version, revision = tag_pin(url, prefix, selected[key], old_version)
+            ref = prefix + version
+            display_version = version
         print(f'{name}: {old_version} -> {version} ({revision})')
-        updated_native |= (prefix + version, revision) != match.groups()
-        prepare = prepare.replace(match[0], f'fetch {name} {url} {prefix}{version} {revision}', 1)
+        updated_native |= (ref, revision) != match.groups()
+        prepare = prepare.replace(match[0], f'fetch {name} {url} {ref} {revision}', 1)
         label = 'FreeRDP / WinPR' if key == 'freerdp' else name
-        notices = re.sub(rf'(\| {re.escape(label)} \| )[^|]+', rf'\g<1>{version} ', notices)
+        notices = re.sub(rf'(\| {re.escape(label)} \| )[^|]+', rf'\g<1>{display_version} ', notices)
     if selected['swiftterm']:
         pattern = r'(repositoryURL = "https://github.com/migueldeicaza/SwiftTerm"; requirement = \{kind = exactVersion; version = )(\d+\.\d+\.\d+)(; \};)'
         match = re.search(pattern, project)

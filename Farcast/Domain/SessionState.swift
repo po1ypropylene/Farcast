@@ -6,7 +6,9 @@ struct SessionLog: Identifiable {
     let message: String
 }
 enum SessionState: String {
-    case waiting, connecting, verifying, authenticating, connected, disconnected, failed
+    case waiting, connecting, verifying, authenticating, connected, stale, reconnecting, disconnected, failed
     var title: String { rawValue.capitalized }
-    var active: Bool { [.waiting, .connecting, .verifying, .authenticating, .connected].contains(self) }
+    var active: Bool {
+        [.waiting, .connecting, .verifying, .authenticating, .connected, .stale, .reconnecting].contains(self)
+    }
 }

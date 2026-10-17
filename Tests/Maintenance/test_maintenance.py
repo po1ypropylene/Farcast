@@ -130,6 +130,70 @@ exit {status}
         module.remove(self.root / '.build')
         self.assertFalse((self.root / '.build').exists())
 
+    def test_master_pin_requires_exact_upstream_branch(self):
+        module = load('update-dependencies')
+        revision = 'b' * 40
+        with patch.object(module, 'run', return_value=revision + '\trefs/heads/master'):
+            self.assertEqual(module.master_pin('url'), revision)
+        for response in ('', 'invalid\trefs/heads/master', revision + '\trefs/heads/other',
+                         (revision + '\trefs/heads/master\n') * 2):
+            with patch.object(module, 'run', return_value=response):
+                with self.assertRaisesRegex(RuntimeError, 'master revision'):
+                    module.master_pin('url')
+
+    def test_native_fetch_uses_pinned_commit_after_branch_moves(self):
+        self.git('init', '-q')
+        self.git('-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid',
+                 'commit', '--allow-empty', '-qm', 'pinned')
+        revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=self.root, text=True).strip()
+        self.git('-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid',
+                 'commit', '--allow-empty', '-qm', 'newer')
+        prepare = (ROOT / 'scripts/prepare-dependencies.sh').read_text()
+        fetch = 'fetch() {' + prepare.split('fetch() {', 1)[1].split('\n}\n', 1)[0] + '\n}\n'
+        source_root = self.root / 'sources'
+        source_root.mkdir()
+        command = 'set -euo pipefail\nsource_root="$1"\n' + fetch + '\nfetch synthetic "$2" master "$3"'
+        args = ['/bin/bash', '-c', command, 'fetch-test', str(source_root), str(self.root), revision]
+        result = subprocess.run(args, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=source_root / 'synthetic', text=True).strip()
+        self.assertEqual(actual, revision)
+        # A cached source at a different revision must fail rather than build it.
+        args[-1] = 'b' * 40
+        result = subprocess.run(args, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Unexpected revision', result.stderr)
+
+    def test_libssh2_latest_retains_master_and_invalidates_old_binaries(self):
+        module = load('update-dependencies')
+        for relative in ('scripts/clean-project.py', 'scripts/prepare-dependencies.sh',
+                         'Farcast.xcodeproj/project.pbxproj', 'ThirdParty/README.md'):
+            path = self.root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / relative, path)
+        module.ROOT = self.root
+        module.PREPARE = self.root / 'scripts/prepare-dependencies.sh'
+        module.PROJECT = self.root / 'Farcast.xcodeproj/project.pbxproj'
+        module.RESOLVED = self.root / 'Package.resolved'
+        module.GO = self.root / 'Networking/WireGuard'
+        self.git('init', '-q')
+        old_library = self.root / 'Vendor/Native/lib/old.dylib'
+        old_library.parent.mkdir(parents=True)
+        old_library.write_text('stale synthetic binary')
+        revision = 'b' * 40
+        with patch('sys.argv', ['update', '--libssh2', 'latest', '--apply']), \
+             patch.object(module, 'master_pin', return_value=revision), \
+             patch.object(module, 'tag_pin', side_effect=AssertionError('Must not select release tags')), \
+             contextlib.redirect_stdout(io.StringIO()):
+            module.main()
+        self.assertIn('master ' + revision, module.PREPARE.read_text())
+        self.assertIn('master `' + revision + '`', (self.root / 'ThirdParty/README.md').read_text())
+        self.assertFalse(old_library.exists())
+        with patch('sys.argv', ['update', '--libssh2', '1.11.1']), \
+             contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(RuntimeError, 'patched master'):
+                module.main()
+
     def test_read_only_cleanup_preserves_external_link_permissions(self):
         module = load('clean-project')
         cache = self.root / '.build/mod'

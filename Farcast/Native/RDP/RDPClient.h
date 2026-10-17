@@ -13,6 +13,11 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic) NSInteger tunnelPort;
 @property(nonatomic, copy, nullable) NSString *tunnelToken;
 @property(nonatomic, copy) void (^onStatus)(NSString *state, NSString *message);
+// Called on the worker only after native handles and channels have retired.
+@property(nonatomic, copy, nullable) void (^onStopped)(BOOL retryable);
+// Worker progress, independent of incoming frames (an idle desktop is healthy).
+@property(nonatomic, readonly) BOOL responsive;
+- (void)interruptStalledConnection;
 @property(nonatomic, copy) void (^onFrame)(NSData *pixels, NSInteger width, NSInteger height, NSInteger stride);
 @property(nonatomic, copy) BOOL (^onTrust)(NSString *fingerprint, NSString *details);
 @property(nonatomic, copy) void (^onClipboard)(NSString *text);

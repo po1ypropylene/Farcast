@@ -4,10 +4,10 @@ Farcast's original code is licensed under the [MIT License](../LICENSE). That gr
 does not replace the licenses, copyright notices or NOTICE files for the components
 below. Redistributed builds must retain both Farcast's license and these notices.
 
-| Component | Pinned release | License | Upstream |
+| Component | Pinned release/revision | License | Upstream |
 |---|---|---|---|
 | FreeRDP / WinPR | 3.32.1 | Apache-2.0 | https://github.com/FreeRDP/FreeRDP |
-| libssh2 | 1.11.1 | BSD-3-Clause | https://github.com/libssh2/libssh2 |
+| libssh2 | master `3209951db4e47ef902db047d12f9f464f835c27e` (1.11.2_DEV) | BSD-3-Clause | https://github.com/libssh2/libssh2 |
 | OpenSSL | 3.6.5 | Apache-2.0 | https://github.com/openssl/openssl |
 | SwiftTerm | 1.99.0 | MIT | https://github.com/migueldeicaza/SwiftTerm |
 
@@ -17,6 +17,11 @@ Swift Package Manager; the others are built from pinned source revisions by
 provided by macOS. The independently implemented VNC adapter uses the already
 bundled Apache-2.0 OpenSSL for DES/TLS and system zlib; no additional VNC library
 or external client is redistributed.
+
+libssh2 deliberately uses an immutable master snapshot until a patched release is
+available. It includes the packet-length bounds fix for CVE-2026-55200
+([upstream commit](https://github.com/libssh2/libssh2/commit/97acf3dfda80c91c3a8c9f2372546301d4a1a7a8)).
+Builds fetch the exact commit rather than following a moving branch.
 
 FreeRDP includes Google's CPU-feature detection code; its NOTICE and license
 are also included below. Test-only Paramiko is not included in the application.

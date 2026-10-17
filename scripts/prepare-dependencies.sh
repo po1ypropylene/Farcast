@@ -9,11 +9,17 @@ install_root="$PWD/Vendor/Native"
 mkdir -p "$source_root" "$install_root" .dependencies/build/openssl
 fetch() {
   local name="$1" url="$2" tag="$3" revision="$4"
-  if [[ ! -d "$source_root/$name/.git" ]]; then git clone --depth 1 --branch "$tag" "$url" "$source_root/$name"; fi
+  if [[ ! -d "$source_root/$name/.git" ]]; then
+    # Fetch the immutable revision, including unreleased master snapshots.
+    git init "$source_root/$name"
+    git -C "$source_root/$name" remote add origin "$url"
+    git -C "$source_root/$name" fetch --depth 1 origin "$revision"
+    git -C "$source_root/$name" checkout --detach FETCH_HEAD
+  fi
   [[ "$(git -C "$source_root/$name" rev-parse HEAD)" == "$revision" ]] || { echo "Unexpected revision for $name; remove its build checkout and retry." >&2; exit 1; }
 }
 fetch OpenSSL https://github.com/openssl/openssl.git openssl-3.6.5 c8bd5a57108599ac650bbae77fcabe3109dab2e8
-fetch libssh2 https://github.com/libssh2/libssh2.git libssh2-1.11.1 a312b43325e3383c865a87bb1d26cb52e3292641
+fetch libssh2 https://github.com/libssh2/libssh2.git master 3209951db4e47ef902db047d12f9f464f835c27e
 fetch FreeRDP https://github.com/FreeRDP/FreeRDP.git 3.32.1 bf217a504e54cc719880c228e82353382cd7d4fa
 jobs="$(sysctl -n hw.ncpu)"
 [[ "$(uname -m)" == arm64 ]] || { echo "Farcast requires Apple silicon." >&2; exit 1; }
@@ -47,3 +53,4 @@ printf 'Native dependencies are ready. Open Farcast.xcodeproj and build.\n'
 printf 'arm64-macos27-audio1\n' > "$install_root/.platform"
 
 scripts/prepare-wireguard.sh
+shasum -a 256 scripts/prepare-dependencies.sh > "$install_root/.build-inputs"
