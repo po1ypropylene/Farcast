@@ -13,7 +13,8 @@ struct OpenVPNImport {
         else { throw OpenVPNError.invalidImport }
         let blocks: Set<String> = ["ca", "cert", "key", "tls-auth", "tls-crypt", "tls-crypt-v2", "extra-certs"]
         let options: Set<String> = [
-            "client", "tls-client", "dev", "dev-type", "proto", "remote", "remote-random", "resolv-retry",
+            "comp-lzo", "setenv", "client", "tls-client", "dev", "dev-type", "proto", "remote", "remote-random",
+            "resolv-retry",
             "nobind", "persist-key", "persist-tun", "auth-user-pass", "auth-nocache", "remote-cert-tls",
             "verify-x509-name", "tls-version-min", "tls-version-max", "tls-cipher", "tls-ciphersuites",
             "cipher", "data-ciphers", "auth", "key-direction", "reneg-sec", "verb", "mute", "pull",
@@ -30,6 +31,8 @@ struct OpenVPNImport {
         var lines: [String] = []
         var remote: [String] = []
         var transport = "UDP"
+        var legacyCompression = false
+        var allowLegacyCompression = false
         for raw in text.components(separatedBy: .newlines) {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if let active = block {
@@ -53,12 +56,21 @@ struct OpenVPNImport {
             let words = try tokens(line)
             guard let option = words.first, options.contains(option) else { throw OpenVPNError.invalidImport }
             switch option {
+            case "comp-lzo":
+                guard words.count == 1 || (words.count == 2 && ["no", "yes", "adaptive"].contains(words[1])) else {
+                    throw OpenVPNError.invalidImport
+                }
+                legacyCompression = legacyCompression || words.count == 1 || words[1] != "no"
+            case "setenv":
+                guard words == ["setenv", "FARCAST_LEGACY_COMPRESSION", "1"] else { throw OpenVPNError.invalidImport }
+                allowLegacyCompression = true
             case "client", "tls-client": hasClient = true
             case "remote":
                 guard (2...4).contains(words.count) else { throw OpenVPNError.invalidImport }
                 hasRemote = true
                 if remote.isEmpty { remote = Array(words.dropFirst()) }
             case "dev", "dev-type":
+                if words.dropFirst().contains(where: { $0.hasPrefix("tap") }) { throw OpenVPNError.tapUnsupported }
                 guard words == [option, "tun"] else { throw OpenVPNError.invalidImport }
                 hasTUN = true
             case "auth-user-pass":
@@ -81,6 +93,7 @@ struct OpenVPNImport {
             seenBlocks.contains("cert") == seenBlocks.contains("key"),
             requiresPassword || seenBlocks.contains("cert")
         else { throw OpenVPNError.invalidImport }
+        if legacyCompression && !allowLegacyCompression { throw OpenVPNError.legacyCompressionRequired }
         // Always enforce the server certificate purpose; this is not an accept-all trust mode.
         if !lines.contains("remote-cert-tls server") { lines.append("remote-cert-tls server") }
         let profile = lines.joined(separator: "\n") + "\n"
@@ -91,7 +104,7 @@ struct OpenVPNImport {
         return Self(profile: profile, requiresPassword: requiresPassword, summary: summary)
     }
 
-    private static func tokens(_ line: String) throws -> [String] {
+    static func tokens(_ line: String) throws -> [String] {
         var result: [String] = []
         var token = ""
         var quote: Character?
@@ -128,12 +141,30 @@ struct OpenVPNImport {
 }
 
 enum OpenVPNError: LocalizedError {
-    case invalidImport, missingCredentials
+    case legacyCompressionRequired
+    case invalidImport, missingCredentials, invalidArchive, missingFiles, invalidCompanion, ambiguousBundle,
+        tapUnsupported
     var errorDescription: String? {
         switch self {
+        case .legacyCompressionRequired:
+            return
+                "This profile requests legacy LZO compression. Enable incoming compression in this import review only if required by your VPN server, or disable compression on the server and download a new export."
+        case .tapUnsupported:
+            return
+                "This configuration uses TAP Ethernet bridging, which Farcast’s OpenVPN engine does not support. On Orbi, open Advanced → Advanced Setup → VPN Service and download For Smart Phone (TUN). Import that export without changing its device type or port."
+        case .invalidArchive:
+            return
+                "Use a ZIP or folder containing one OpenVPN configuration and its certificates/keys. Encrypted archives, symbolic links, unsafe paths and oversized bundles are unsupported."
+        case .ambiguousBundle:
+            return
+                "This bundle contains more than one configuration. Choose the intended .ovpn or .conf file, then select its companion files."
+        case .missingFiles:
+            return "Select the missing certificate or key files before importing."
+        case .invalidCompanion:
+            return "The selected certificate or key is empty, oversized or not supported text. Choose its PEM file."
         case .invalidImport:
             return
-                "Import a self-contained OpenVPN client .ovpn file with a TUN device, inline CA and certificate/key or username/password authentication. External files, scripts, plugins, proxies, TAP, compression and interactive MFA are unsupported."
+                "Import a self-contained OpenVPN client .ovpn file with a TUN device, inline CA and certificate/key or username/password authentication. Use ZIP/folder import or select referenced certificates and keys. Scripts, plugins, proxies, TAP, non-LZO compression and interactive MFA are unsupported."
         case .missingCredentials:
             return "Import an OpenVPN profile and enter its required credentials in VPN Connections."
         }

@@ -254,6 +254,44 @@ import SwiftUI
             for title in ["General", "Terminal", "Security", "About"] { precondition(labels().contains(title)) }
             try capture("settings-\(scheme)")
         }
+        for scheme in [ColorScheme.light, .dark] {
+            let raw = "client\ndev tun\nremote example.invalid 1194\nca ca.crt\ncert client.crt\nkey client.key\n"
+            var document = try OpenVPNImportDocument(data: Data(raw.utf8))
+            window.setContentSize(NSSize(width: 560, height: 460))
+            window.contentView = NSHostingView(
+                rootView: OpenVPNImportReview(
+                    document: document, filename: "Synthetic configuration.conf", onImport: { _ in }
+                ).preferredColorScheme(scheme))
+            settle()
+            precondition(labels().contains("Choose CA certificate"))
+            precondition(labels().contains("Choose Private key"))
+            precondition(!enabled("Import"))
+            try capture("openvpn-companions-\(scheme)")
+            document.files = [
+                .ca: Data("synthetic CA".utf8), .cert: Data("synthetic certificate".utf8),
+                .key: Data("synthetic key".utf8),
+            ]
+            var accepted = false
+            window.contentView = NSHostingView(
+                rootView: OpenVPNImportReview(
+                    document: document, filename: "Synthetic bundle.zip", onImport: { _ in accepted = true }
+                ).preferredColorScheme(scheme))
+            settle()
+            precondition(enabled("Import"))
+            try capture("openvpn-bundle-\(scheme)")
+            press("Import")
+            precondition(accepted)
+            document.isTAP = true
+            window.contentView = NSHostingView(
+                rootView: OpenVPNImportReview(
+                    document: document, filename: "Synthetic TAP bundle.zip",
+                    onImport: { _ in preconditionFailure("TAP must be refused") }
+                ).preferredColorScheme(scheme))
+            settle()
+            precondition(!enabled("Import"))
+            try capture("openvpn-tap-\(scheme)")
+        }
+        print("PASS OpenVPN bundle review, explicit companion selection and actionable TAP refusal in both appearances")
         print("PASS saved OpenVPN import summary and grouped Settings in both appearances")
     }
 }

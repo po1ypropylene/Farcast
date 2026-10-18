@@ -68,4 +68,5 @@ the binary distribution. The independently written adapter in Networking/OpenVPN
 is Farcast MIT source. Core and the existing OpenSSL libraries are statically linked
 into the signed transport helper; no external OpenVPN executable is required.
 Asio copyright Christopher M. Kohlhoff. fmt retains its copyright notice in the
-adjacent license. No upstream compression library is enabled.
+adjacent license. Core’s built-in LZO decoder supports explicitly enabled incoming legacy compression;
+no additional compression library is bundled.

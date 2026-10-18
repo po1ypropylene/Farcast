@@ -468,9 +468,12 @@ with production VNC servers, remote keyboard layouts and IME still needs live te
 ## OpenVPN connections
 
 Open **File → VPN Connections…**, choose **New**, select **OpenVPN**, and import a
-self-contained `.ovpn` file. It must use `dev tun` and include its CA certificate
-inline. Supply a username/password when required, and a private-key passphrase if
-the inline client key is encrypted. Give the profile a name and Save. In a saved
+`.ovpn` / `.conf` file, a ZIP bundle, or its extracted folder. A bundle must contain
+one configuration; referenced certificates and keys are combined automatically.
+For a configuration selected alone, use the import review’s **Choose…** buttons to
+select each referenced certificate or key. Review then Import, or Cancel to leave
+the draft unchanged. Supply a username/password when required, and a private-key
+passphrase if the client key is encrypted. Give the profile a name and Save. In a saved
 SSH, RDP or VNC connection, choose that VPN under **Connect via**.
 
 Sessions using one VPN profile share its tunnel. Only Farcast traffic uses it;
@@ -479,8 +482,14 @@ configuration or credentials. A missing/deleted profile or failed VPN never caus
 a direct connection. Credentials and the imported profile use Keychain when available;
 the disclosed local-file fallback is unencrypted and owner-only.
 
-Supported profiles use UDP or TCP, inline certificates/keys, and certificate or
-username/password authentication. Profiles requiring external files, scripts,
-plugins, proxies, TAP, compression, interactive MFA or route exclusions are unsupported.
-Ask the VPN administrator for a compatible self-contained client profile. Server
+Supported profiles use TUN over UDP or TCP, certificates/keys, and certificate or
+username/password authentication. For NETGEAR Orbi, download **For Smart Phone**
+from the router’s VPN Service page. Its desktop “nonwindows” export uses TAP, which
+Farcast detects with instructions to obtain the TUN export. ZIP is a common delivery
+container, not a separate OpenVPN profile format. Bundled scripts are never run.
+
+Older servers using `comp-lzo` require explicit **Allow legacy incoming LZO compression**
+in the import review. Outgoing data remains uncompressed; disabling server compression
+is preferable. Legacy AES-CBC ciphers are supported. Scripts, plugins, proxies, TAP,
+other compression modes, interactive MFA and route exclusions remain unsupported. Server
 certificate verification remains enabled. WireGuard remains available in the same library.

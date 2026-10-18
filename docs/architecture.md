@@ -758,7 +758,14 @@ network stack. A transport reconnect requires a fresh lease/stack; Core cannot s
 change addresses underneath active protocol sockets. RDP retains its existing bounded
 recovery policy. TCP and UDP TUN profiles support inline CA/cert/key, tls-auth,
 tls-crypt and tls-crypt-v2, password authentication and encrypted private keys.
-Import enforces server certificate purpose and rejects scripts, plugins, external
-files, nested configs, proxies, TAP, compression and interactive MFA. Route exclusions
+Import accepts a bounded ZIP, selected folder or individual configuration with
+explicitly selected companion files. Certificates and keys are assembled inline in
+memory; archive paths, symlinks, duplicate names, CRCs and expanded sizes are checked.
+No archive extraction or bundled script execution occurs. The review changes only
+the draft until Save. TAP exports receive an actionable TUN-export explanation.
+Import enforces server certificate purpose and rejects scripts, plugins, unresolved
+files, nested configs, proxies, TAP and interactive MFA. Legacy incoming LZO
+decompression requires explicit import consent recorded in the protected profile;
+Core uses asymmetric compression mode and never compresses outgoing traffic. Route exclusions
 and unsupported pushed tunnel settings fail rather than silently changing policy.
 Native logs are discarded; helper responses contain fixed error categories only.

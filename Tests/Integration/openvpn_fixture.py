@@ -12,8 +12,8 @@ import time
 
 root, server_binary, helper_binary = map(Path, sys.argv[1:4])
 transport = sys.argv[4] if len(sys.argv) > 4 else "udp"
-server_transport = "udp" if transport == "udp" else "tcp-server"
-client_transport = "udp" if transport == "udp" else "tcp-client"
+server_transport = "udp" if transport != "tcp" else "tcp-server"
+client_transport = "udp" if transport != "tcp" else "tcp-client"
 processes = []
 
 def run(*args):
@@ -64,6 +64,8 @@ data-ciphers AES-256-GCM:AES-128-GCM
 remote-cert-tls client
 verb 6
 '''
+    if transport == 'legacy':
+        config = config.replace('data-ciphers AES-256-GCM:AES-128-GCM', 'data-ciphers AES-128-CBC\ncipher AES-128-CBC\ncomp-lzo no')
     (root / 'server.conf').write_text(config)
     log = open(root / 'server.log', 'wb')
     server = subprocess.Popen([str(server_binary), '--config', 'server.conf'], cwd=root, stdout=log, stderr=log)
@@ -75,6 +77,8 @@ verb 6
     profile = f'client\ndev tun\nproto {client_transport}\nremote 127.0.0.1 {port}\nremote-cert-tls server\n'
     for tag, file in [('ca', 'ca.crt'), ('cert', 'client.crt'), ('key', 'client.key')]:
         profile += f'<{tag}>\n{(root / file).read_text()}</{tag}>\n'
+    if transport == 'legacy':
+        profile += 'cipher AES-128-CBC\ncomp-lzo\nsetenv FARCAST_LEGACY_COMPRESSION 1\n'
     helper = subprocess.Popen([str(helper_binary)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=open(root / "client.log", "wb"))
     processes.append(helper)
     token = os.urandom(32)

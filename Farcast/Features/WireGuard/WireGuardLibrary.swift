@@ -23,6 +23,9 @@ struct WireGuardLibrary: View {
     @State private var pending: Navigation?
     @State private var confirmNavigation = false
     @State private var confirmProtocol = false
+    @State private var importDocument: OpenVPNImportDocument?
+    @State private var importFilename = ""
+    @State private var showImportReview = false
     @State private var dropTarget = false
     @FocusState private var focus: String?
 
@@ -128,6 +131,21 @@ struct WireGuardLibrary: View {
         .buttonStyle(.bordered).controlSize(.regular).frame(width: 820, height: 740)
         .background(Color(nsColor: .windowBackgroundColor))
         .interactiveDismissDisabled(dirty)
+        .sheet(isPresented: $showImportReview) {
+            if let importDocument {
+                OpenVPNImportReview(document: importDocument, filename: importFilename) { imported in
+                    draft.openVPNProfile = imported.profile
+                    draft.importedFilename = importFilename
+                    if draft.name.isEmpty || draft.name == "Untitled VPN" {
+                        draft.name = (importFilename as NSString).deletingPathExtension
+                    }
+                    fieldErrors["import"] = nil
+                    error = nil
+                    self.importDocument = nil
+                }
+            }
+        }
+        .onChange(of: showImportReview) { _, shown in if !shown { importDocument = nil } }
         .onAppear {
             guard !loaded else { return }
             if let first = profiles.first { load(first.id) }
@@ -255,7 +273,8 @@ struct WireGuardLibrary: View {
                         draft.importedFilename.map { "Imported from \($0)" }
                             ?? (imported
                                 ? "Saved OpenVPN configuration"
-                                : "Drop a \(draft.configuration.isOpenVPN ? ".ovpn" : ".conf") file here")
+                                : draft.configuration.isOpenVPN
+                                    ? "Drop an OpenVPN ZIP, folder, .ovpn or .conf here" : "Drop a .conf file here")
                     )
                     .lineLimit(2)
                     if draft.configuration.isOpenVPN,
@@ -354,7 +373,7 @@ struct WireGuardLibrary: View {
             }
             DisclosureGroup {
                 Text(
-                    "Supported: TUN over UDP or TCP, inline CA, certificate/key or username/password authentication.\nUnsupported: scripts, external files, TAP, compression, proxies, interactive MFA and route exclusions."
+                    "Supported: TUN over UDP or TCP, ZIP/folder or separate certificate/key files, certificate/key or username/password authentication.\nUnsupported: scripts, TAP, non-LZO compression, proxies, interactive MFA and route exclusions."
                 )
                 .font(.caption).foregroundStyle(.secondary).padding(.top, 6)
             } label: {
@@ -458,9 +477,11 @@ struct WireGuardLibrary: View {
         let panel = NSOpenPanel()
         panel.title = "Import \(draft.configuration.protocolName) Configuration"
         panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [
-            UTType(filenameExtension: draft.configuration.isOpenVPN ? "ovpn" : "conf") ?? .data
-        ]
+        panel.canChooseDirectories = draft.configuration.isOpenVPN
+        panel.allowedContentTypes =
+            draft.configuration.isOpenVPN
+            ? [.folder, .zip, UTType(filenameExtension: "ovpn") ?? .data, UTType(filenameExtension: "conf") ?? .data]
+            : [UTType(filenameExtension: "conf") ?? .data]
         guard panel.runModal() == .OK, let url = panel.url else { return }
         importFile(url)
     }
@@ -468,22 +489,25 @@ struct WireGuardLibrary: View {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         do {
-            guard url.isFileURL, url.pathExtension.lowercased() == (draft.configuration.isOpenVPN ? "ovpn" : "conf"),
+            if draft.configuration.isOpenVPN {
+                importDocument = try OpenVPNBundleReader.read(url)
+                importFilename = url.lastPathComponent
+                showImportReview = true
+                error = nil
+                return
+            }
+            guard url.isFileURL, url.pathExtension.lowercased() == "conf",
                 (try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
                 (try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? Int.max)
-                    <= (draft.configuration.isOpenVPN ? 262_144 : 65_536)
+                    <= 65_536
             else { throw WireGuardError.invalidImport }
             let data = try Data(contentsOf: url)
-            if draft.configuration.isOpenVPN {
-                draft.openVPNProfile = try OpenVPNImport.parse(data).profile
-            } else {
-                let imported = try WireGuardImport.parse(data)
-                draft.configuration = imported.configuration
-                draft.privateKey = imported.privateKey
-                draft.presharedKey = imported.presharedKey
-                draft.mtu = String(imported.configuration.mtu)
-                draft.keepalive = String(imported.configuration.keepalive)
-            }
+            let imported = try WireGuardImport.parse(data)
+            draft.configuration = imported.configuration
+            draft.privateKey = imported.privateKey
+            draft.presharedKey = imported.presharedKey
+            draft.mtu = String(imported.configuration.mtu)
+            draft.keepalive = String(imported.configuration.keepalive)
             draft.importedFilename = url.lastPathComponent
             if draft.name.isEmpty || draft.name == "Untitled VPN" {
                 draft.name = url.deletingPathExtension().lastPathComponent
@@ -492,7 +516,8 @@ struct WireGuardLibrary: View {
         } catch {
             self.error =
                 draft.configuration.isOpenVPN
-                ? OpenVPNError.invalidImport.localizedDescription : WireGuardError.invalidImport.localizedDescription
+                ? ((error as? OpenVPNError)?.localizedDescription ?? OpenVPNError.invalidImport.localizedDescription)
+                : WireGuardError.invalidImport.localizedDescription
         }
     }
     @discardableResult private func save() -> Bool {

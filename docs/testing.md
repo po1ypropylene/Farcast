@@ -157,13 +157,16 @@ The remaining limits are maintained in [validation](validation.md).
 ### OpenVPN
 
 Run `scripts/test-openvpn.sh` for an owned loopback OpenVPN 2.6.14 peer with disposable
-certificates and a null device over UDP and TCP. A test-only fixed marker in the
+certificates and a null device over UDP and TCP, plus legacy AES-128-CBC/LZO
+framing. The test-only server requires Homebrew `lzo` at `/opt/homebrew/opt/lzo`;
+this library is not linked into or bundled with Farcast. A test-only fixed marker in the
 disposable peer confirms authenticated, decrypted synthetic TCP SYN delivery before
 the null device discards it. Certificate-identity rejection and startup cancellation
 are checked separately. The fixture does not change system interfaces/routes
 or use private input. The server source is checksum-pinned and cached separately;
 it is never bundled with the app. Core tests cover safe import, credential coding
-and legacy WireGuard metadata. Run `scripts/test-wireguard.sh`,
+and legacy WireGuard metadata, bounded stored/deflated ZIP parsing, folder symlink
+rejection, explicit companion selection, TAP refusal and compression consent. Run `scripts/test-wireguard.sh`,
 `scripts/test-wireguard-sessions.sh` and `scripts/test-workspace.sh` after transport
 changes. Live OpenVPN interoperability and production throughput remain unverified.
 
@@ -172,7 +175,8 @@ changes. Live OpenVPN interoperability and production throughput remain unverifi
 Run `scripts/test-vpn-ui.sh` after building the app. It uses in-memory metadata,
 injected synthetic credential storage and owned native windows to check initial
 selection, dirty state, Cancel/Revert/Save, secure-field controls, inline errors,
-OpenVPN summaries and Settings grouping in light/dark appearance. An optional
+OpenVPN summaries, missing/included companion review, TAP guidance and Settings
+grouping in light/dark appearance. An optional
 output directory receives synthetic view captures. It never reads the user’s
 clipboard, credentials or profile library. Full VoiceOver workflows and Finder
 configuration-file drops still require manual verification.

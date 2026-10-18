@@ -104,7 +104,8 @@ void *farcast_ovpn_create(const char *profile, const char *username, const char 
         config.disableClientCert = config.content.find("<cert>") == std::string::npos;
         config.connTimeout = 30;
         config.clockTickMS = 100;
-        config.compressionMode = "no";
+        config.compressionMode =
+            config.content.find("setenv FARCAST_LEGACY_COMPRESSION 1") != std::string::npos ? "asym" : "no";
         config.privateKeyPassword = passphrase;
         config.allowUnusedAddrFamilies = "no";
         const auto evaluated = client->eval_config(config);
