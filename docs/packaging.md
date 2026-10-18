@@ -24,7 +24,8 @@ Install/renew the development certificate in Xcode → Settings → Accounts →
 Certificates. `security find-identity -v -p codesigning` lists public fingerprints.
 Codex's restricted shell may report no identities; use the approved build environment
 before interpreting that as a missing certificate.
-When renewing, run `FARCAST_SIGNING_IDENTITY=<SHA1> scripts/build-dmg.sh`; the new
+When renewing, run `FARCAST_SIGNING_IDENTITY=<SHA1> scripts/build.sh`, verify
+the app, then run `scripts/build-dmg.sh`; the new
 certificate must still produce the recorded app requirement. Changing signing teams
 or channels requires a separately reviewed transition, not deleting the pin to bypass
 verification. Keep `.local-signing` across ordinary build/cache cleanup; it contains
@@ -86,7 +87,11 @@ IPv4/IPv6 loopback listener code in the signed sandboxed parent. It uses disposa
 sockets before UI/storage initialization and supplies no SSH credentials. Protocol
 forwarding is verified separately against owned SSH fixtures.
 
-`build-dmg.sh` stages the verified app, LICENSE, CHANGELOG.md and an Applications shortcut, creates a
+`build-dmg.sh` never builds the app or changes its build number. Run `build.sh`
+once and complete app testing first; packaging verifies that existing Release
+bundle and checks its version/build against Version.xcconfig before staging.
+Rebuild after changing app inputs; packaging does not detect source changes.
+The DMG script stages the verified app, LICENSE, CHANGELOG.md and an Applications shortcut, creates a
 compressed read-only image, verifies the mounted app and ejects that exact volume.
 Temporary staging is cleaned on exit; failed detach preserves the staging directory
 to avoid deleting a mounted volume. It emits a version/build-named DMG and SHA256

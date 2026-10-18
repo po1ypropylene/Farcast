@@ -42,6 +42,8 @@ Use `scripts/build.sh` and the built app for implementation, UI/flow testing and
 regression checks. Do not use DMG packaging as an intermediate build or test step.
 For an ordinary app-change request, finish all edits, app builds, tests and UI
 verification before running `scripts/build-dmg.sh` once as the final delivery step.
+DMG creation packages the existing verified Release app; it must never invoke an
+app build or advance the build number. Build once, test that bundle, then package it.
 Do not package separately for individual fixes or logical changes within the request.
 Keep the current marketing version unless a separate release prompt authorizes advancing
 it. Advance the build number for each new app build; reset it to `1` when the marketing

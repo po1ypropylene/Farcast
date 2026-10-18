@@ -84,7 +84,9 @@ version and positive integer build number. Both Debug and Release read it. The
 current baseline was explicitly reset to **1.0.0 build 1**; earlier changelog history
 was removed. Do not restore the old history or versions from older artifacts.
 
-Ordinary work does **not** advance either number. Stage completed user-visible
+Ordinary work keeps the marketing version unchanged. Increment the build number
+in Version.xcconfig before each new app build; packaging an existing app does not
+advance either number. Stage completed user-visible
 changes, fixes and material limitations under **Unreleased** in
 [CHANGELOG.md](../CHANGELOG.md). This is documentation staging, not Git staging.
 Keep the notes current as the implementation changes.
@@ -95,20 +97,25 @@ category across the full staged scope: patch for compatible fixes, minor for
 compatible features/deprecations, major for incompatible supported behavior or data
 formats. An explicit version overrides that calculation. Set the new version in
 Version.xcconfig and reset its build to 1, leaving an empty Unreleased section.
-Advance only the build when explicitly requested for a numbered rebuild.
+The first app build of that version uses build 1. Further app builds increment
+the build number; creating the DMG reuses the tested build unchanged.
 
-Every completed logical app code change still requires a verified DMG, using the
-current version/build. Building a DMG does not promote notes or authorize a bump;
-ordinary rebuilds replace the matching generated artifact. Documentation-only
-changes do not require an app artifact. See [agent rules](../AGENTS.md).
+Finish all app changes, builds, tests and UI verification before creating one
+final DMG for the request. Packaging does not promote notes or authorize a version
+bump. Documentation-only changes do not require an app artifact. See [agent rules](../AGENTS.md).
 
-To build the app and required DMG, run:
+Build once, verify and test that app, then package it:
 
 ```sh
+scripts/build.sh
+# Complete tests and UI verification using the built Release app.
 scripts/build-dmg.sh
 ```
 
-The script builds and verifies the Release app, copies it into a compressed,
+The DMG script verifies the existing Release app without invoking Xcode or
+changing Version.xcconfig. A missing app or version/build mismatch stops packaging
+and asks for a build. After source changes, rebuild and test before packaging.
+It copies the app into a compressed,
 read-only DMG alongside an Applications shortcut and CHANGELOG.md, mounts the image to verify the
 packaged app's signatures/libraries/loader, then ejects it. It writes:
 
@@ -117,8 +124,8 @@ packaged app's signatures/libraries/loader, then ejects it. It writes:
 .build/releases/Farcast-<version>-build-<build>-arm64.dmg.sha256
 ```
 
-The filename comes from the built app's version fields. Rebuilding the same
-version/build replaces those generated files after verification; earlier versions
+The filename comes from the built app's version fields. Repackaging the same
+app replaces those generated files after verification; earlier versions
 remain. Both outputs are ignored by Git. The script does not read test credentials,
 connect to servers, make commits/tags, upload files or create GitHub releases.
 Upload the DMG as a GitHub release asset when ready; the SHA256 file is optional.

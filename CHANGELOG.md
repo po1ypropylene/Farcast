@@ -5,6 +5,8 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Package the tested Release app without rebuilding it or advancing its build number; reject missing apps and version/build mismatches before creating a DMG.
+
 ## 1.4.0 — 2026-10-19
 
 - Move RDP Resize with window out of the Display menu into its own always-editable checkbox alongside full-screen and Retina options, off by default for new connections.
