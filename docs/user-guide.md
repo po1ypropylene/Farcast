@@ -299,9 +299,11 @@ See [known limits](validation.md) for remaining interoperability checks.
   Untrusted certificates require explicit approval; trust exceptions are scoped
   to host, port, and protocol. No accept-all certificate setting is enabled.
 - BGRA framebuffer rendered through Metal. In **Display**,
-  choose **Fit to window**, **Resize with window**, **100% with scrolling**, or
-  **Match window at connection**. Fit scales the entire desktop; Resize with window
-  also requests server resizing, falling back to scaling when unsupported. 100% uses
+  choose **Fit to window**, **100% with scrolling**, or **Match window at connection**.
+  Fit scales the entire desktop. The separate **Resize with window** checkbox
+  requests server resizing in windowed Fit mode, falling back to scaling when
+  unsupported. It is off by default for new connections and always editable; other
+  display modes retain the choice without applying it. 100% uses
   one remote pixel per Mac point, with your chosen desktop dimensions. Choose a
   preset in **Resolution / Initial resolution**, or **Custom…** to enter width and
   height (200–8192 pixels each); existing custom sizes remain editable. Match window

@@ -229,9 +229,11 @@ state includes active/failed sessions and uptime, and duplication preserves all
 raw optional metadata while assigning a fresh credential identity. Destructive
 session actions ask for confirmation when file work or tunnels are active.
 
-Display labels map to existing stored modes: Resize with window is Fit plus
-`dynamicResolution=true`; Fit to window is Fit plus false. 100% with scrolling
-and Match window at connection retain their modes. Explicit preset selection
+The Display picker maps directly to existing stored modes. A separate Resize with
+window checkbox edits `dynamicResolution`; new drafts default to false, while saved
+choices are preserved. The checkbox is always editable; resizing applies only in
+windowed Fit mode. 100% with scrolling and Match window at
+connection retain their modes. Explicit preset selection
 writes only width/height; unmatched dimensions use Custom and survive tab changes.
 Startup full screen disables windowed mode/resolution controls while preserving
 their values. Opening the editor never rewrites settings. Security can forget an

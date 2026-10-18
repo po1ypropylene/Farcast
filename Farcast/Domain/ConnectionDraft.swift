@@ -17,7 +17,7 @@ struct ConnectionDraft: Identifiable {
     var desktopWidth = 1440
     var desktopHeight = 900
     var displayMode = RDPDisplayMode.fit
-    var dynamicResolution = true
+    var dynamicResolution = false
     var launchFullScreen = false
     var useAllMonitors = false
     var retinaDisplay = false

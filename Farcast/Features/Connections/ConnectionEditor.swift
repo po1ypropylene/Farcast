@@ -427,6 +427,10 @@ struct ConnectionEditor: View {
                     "Full screen uses the selected displays’ sizes. Window options are kept for windowed connections.")
             }
             Divider().padding(.vertical, 4)
+            row("") {
+                Toggle("Resize with window", isOn: $draft.dynamicResolution)
+            }
+            caption("Resize in Fit to window mode when supported; otherwise scale to fit.")
             row("") { Toggle("Open in full screen", isOn: $draft.launchFullScreen) }
             row("") {
                 Toggle("Use all monitors", isOn: $draft.useAllMonitors).disabled(!draft.launchFullScreen)
@@ -442,14 +446,13 @@ struct ConnectionEditor: View {
     private var windowedDisplayOptions: some View {
         VStack(spacing: 10) {
             row("Display") {
-                Picker("Display", selection: displaySelection) {
-                    Text("Fit to window").tag("fit")
-                    Text("Resize with window").tag("resize")
-                    Text("100% with scrolling").tag("actualSize")
-                    Text("Match window at connection").tag("matchWindow")
+                Picker("Display", selection: $draft.displayMode) {
+                    Text("Fit to window").tag(RDPDisplayMode.fit)
+                    Text("100% with scrolling").tag(RDPDisplayMode.actualSize)
+                    Text("Match window at connection").tag(RDPDisplayMode.matchWindow)
                 }.labelsHidden().accessibilityLabel("Display")
             }
-            caption(displayCaption).help(displayExplanation)
+            caption(displayCaption).help(draft.displayMode.explanation)
             if draft.displayMode != .matchWindow {
                 row(
                     draft.retinaDisplay
@@ -501,34 +504,14 @@ struct ConnectionEditor: View {
             })
     }
     private var displayCaption: String {
-        switch displaySelection.wrappedValue {
-        case "resize": return "Resize with the window when supported; otherwise scale to fit."
-        case "actualSize":
+        switch draft.displayMode {
+        case .actualSize:
             return draft.retinaDisplay
                 ? "Match backing pixels; scroll to see the full desktop."
                 : "One remote pixel per Mac point; scroll to see the full desktop."
-        case "matchWindow": return "Use the window’s initial size until you reconnect."
-        default: return "Scale the desktop to fit the window."
+        case .matchWindow: return "Use the window’s initial size until you reconnect."
+        case .fit: return "Scale the desktop to fit the window."
         }
-    }
-    private var displayExplanation: String {
-        displaySelection.wrappedValue == "resize"
-            ? "Resize the remote desktop with the window when supported; otherwise scale to fit."
-            : draft.displayMode.explanation
-    }
-    // Presentation only: retain all existing stored display modes and resolution controls.
-    private var displaySelection: Binding<String> {
-        Binding(
-            get: { draft.displayMode == .fit && draft.dynamicResolution ? "resize" : draft.displayMode.rawValue },
-            set: { value in
-                if value == "resize" {
-                    draft.displayMode = .fit
-                    draft.dynamicResolution = true
-                } else {
-                    draft.displayMode = RDPDisplayMode(rawValue: value) ?? .fit
-                    if value == "fit" { draft.dynamicResolution = false }
-                }
-            })
     }
     private var devices: some View {
         VStack(alignment: .leading, spacing: 10) {
