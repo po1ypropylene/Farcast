@@ -99,7 +99,12 @@ before the app exits.
 ### WireGuard for private servers
 
 Open **File → VPN Connections…** to import or create named WireGuard
-profiles. In an SSH or RDP connection’s editor, choose a profile under
+profiles. The first profile opens selected; New starts an Untitled VPN draft.
+Import or drop a `.conf` file, or enter Interface and Peer settings. Optional DNS,
+MTU, preshared key and keepalive are under Advanced. Secrets start masked; the
+adjacent controls reveal, paste or clear them. Save applies edits, Revert restores
+the saved values, and Done asks how to handle unsaved changes. Changing profiles
+or creating another also protects unsaved edits. In an SSH or RDP connection’s editor, choose a profile under
 **General → Network → Connect via** and enter the private server address. The tunnel
 starts automatically and closes when its last session disconnects. SSH and RDP
 tabs using the same saved profile share one tunnel. This embedded userspace transport needs no separate

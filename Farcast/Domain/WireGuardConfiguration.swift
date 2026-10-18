@@ -22,7 +22,7 @@ struct WireGuardConfiguration: Codable, Equatable {
         var v6 = in6_addr()
         return value.withCString { inet_pton(AF_INET, $0, &v4) == 1 || inet_pton(AF_INET6, $0, &v6) == 1 }
     }
-    private static func validList(_ value: String, prefix: Bool, optional: Bool = false) -> Bool {
+    static func validList(_ value: String, prefix: Bool, optional: Bool = false) -> Bool {
         if optional && value.trimmingCharacters(in: .whitespaces).isEmpty { return true }
         return value.split(separator: ",", omittingEmptySubsequences: false).allSatisfy { part in
             let parts = part.trimmingCharacters(in: .whitespaces).split(
@@ -33,6 +33,12 @@ struct WireGuardConfiguration: Codable, Equatable {
             return (0...(first.contains(":") ? 128 : 32)).contains(bits)
         }
     }
+    static func validEndpoint(_ endpoint: String) -> Bool {
+        let url = URLComponents(string: "udp://" + endpoint)
+        return !endpoint.contains(where: { $0.isWhitespace }) && url?.host?.isEmpty == false
+            && url?.user == nil && url?.password == nil && url?.path.isEmpty == true
+            && url?.query == nil && url?.fragment == nil && (1...65535).contains(url?.port ?? 0)
+    }
     var validationMessage: String? {
         if isOpenVPN { return nil }
         if !Self.validList(addresses, prefix: true) {
@@ -40,11 +46,7 @@ struct WireGuardConfiguration: Codable, Equatable {
         }
         if !Self.validList(dns, prefix: false, optional: true) { return "Enter DNS IP addresses separated by commas." }
         if !Self.validKey(publicKey) { return "Enter the peer’s 32-byte base64 public key." }
-        let url = URLComponents(string: "udp://" + endpoint)
-        if endpoint.contains(where: { $0.isWhitespace }) || url?.host?.isEmpty != false || url?.user != nil
-            || url?.password != nil || !(url?.path.isEmpty ?? false) || url?.query != nil || url?.fragment != nil
-            || !(1...65535).contains(url?.port ?? 0)
-        {
+        if !Self.validEndpoint(endpoint) {
             return "Enter the WireGuard endpoint as host:port (use [address]:port for IPv6)."
         }
         if !Self.validList(allowedIPs, prefix: true) { return "Enter the peer’s AllowedIPs as CIDR prefixes." }

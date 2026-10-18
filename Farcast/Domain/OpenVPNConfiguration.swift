@@ -5,6 +5,7 @@ import Foundation
 struct OpenVPNImport {
     let profile: String
     let requiresPassword: Bool
+    let summary: String
 
     static func parse(_ data: Data) throws -> Self {
         guard data.count <= 262_144, let text = String(data: data, encoding: .utf8),
@@ -27,6 +28,8 @@ struct OpenVPNImport {
         var hasTUN = false
         var requiresPassword = false
         var lines: [String] = []
+        var remote: [String] = []
+        var transport = "UDP"
         for raw in text.components(separatedBy: .newlines) {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if let active = block {
@@ -54,6 +57,7 @@ struct OpenVPNImport {
             case "remote":
                 guard (2...4).contains(words.count) else { throw OpenVPNError.invalidImport }
                 hasRemote = true
+                if remote.isEmpty { remote = Array(words.dropFirst()) }
             case "dev", "dev-type":
                 guard words == [option, "tun"] else { throw OpenVPNError.invalidImport }
                 hasTUN = true
@@ -68,6 +72,7 @@ struct OpenVPNImport {
                 guard words.count == 2,
                     ["udp", "udp4", "udp6", "tcp-client", "tcp4-client", "tcp6-client"].contains(words[1])
                 else { throw OpenVPNError.invalidImport }
+                transport = words[1].hasPrefix("tcp") ? "TCP" : "UDP"
             default: break
             }
             lines.append(line)
@@ -80,7 +85,10 @@ struct OpenVPNImport {
         if !lines.contains("remote-cert-tls server") { lines.append("remote-cert-tls server") }
         let profile = lines.joined(separator: "\n") + "\n"
         guard profile.utf8.count <= 262_144 else { throw OpenVPNError.invalidImport }
-        return Self(profile: profile, requiresPassword: requiresPassword)
+        let protocolLabel = remote.count > 2 ? (remote[2].hasPrefix("tcp") ? "TCP" : "UDP") : transport
+        let summary = [protocolLabel, remote.count > 1 ? remote[1] : "1194", remote.first ?? ""].joined(
+            separator: " · ")
+        return Self(profile: profile, requiresPassword: requiresPassword, summary: summary)
     }
 
     private static func tokens(_ line: String) throws -> [String] {

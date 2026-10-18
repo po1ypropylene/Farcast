@@ -5,6 +5,9 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Make VPN profile fields visibly editable, group essential and advanced settings, add secure-field controls and import status/drop zones, and protect unsaved edits with Save, Revert and discard confirmation. Show field validation and keep the selected profile name in sync.
+- Group Settings into General, Terminal, Security and About with contextual help and content-sized layout; separate VPN management from library imports in the File menu.
+
 - Add OpenVPN alongside WireGuard in VPN Connections, with self-contained profile import, protected credential storage and shared app-private tunnels for SSH/SFTP, RDP and VNC. Unsupported scripts, external files, TAP, proxies, compression and interactive MFA are refused; production OpenVPN compatibility remains unverified.
 
 ## 1.2.0 — 2026-10-17

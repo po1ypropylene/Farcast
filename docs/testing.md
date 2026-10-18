@@ -166,3 +166,13 @@ it is never bundled with the app. Core tests cover safe import, credential codin
 and legacy WireGuard metadata. Run `scripts/test-wireguard.sh`,
 `scripts/test-wireguard-sessions.sh` and `scripts/test-workspace.sh` after transport
 changes. Live OpenVPN interoperability and production throughput remain unverified.
+
+### VPN and Settings UI
+
+Run `scripts/test-vpn-ui.sh` after building the app. It uses in-memory metadata,
+injected synthetic credential storage and owned native windows to check initial
+selection, dirty state, Cancel/Revert/Save, secure-field controls, inline errors,
+OpenVPN summaries and Settings grouping in light/dark appearance. An optional
+output directory receives synthetic view captures. It never reads the user’s
+clipboard, credentials or profile library. Full VoiceOver workflows and Finder
+configuration-file drops still require manual verification.

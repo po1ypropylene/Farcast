@@ -38,11 +38,17 @@ Xcode uses a synchronized source folder. A file under Farcast is automatically i
 8. python3 scripts/check-repository-hygiene.py
 9. scripts/test-live-servers.sh only when enabled entries are supplied; SKIP is not a real-server pass.
 
-For every completed logical code change, build a new DMG with `scripts/build-dmg.sh`
-after the final edits, using the current version/build unless a separate release prompt
-authorizes advancing them. Verify the mounted final bundle and SHA256;
-deliver the versioned DMG path. Intermediate edits/test builds do not each need a DMG.
-Documentation/instruction-only changes do not require a new app artifact.
+Use `scripts/build.sh` and the built app for implementation, UI/flow testing and
+regression checks. Do not use DMG packaging as an intermediate build or test step.
+For an ordinary app-change request, finish all edits, app builds, tests and UI
+verification before running `scripts/build-dmg.sh` once as the final delivery step.
+Do not package separately for individual fixes or logical changes within the request.
+Keep the current version/build unless a separate release prompt authorizes advancing
+them; verify the mounted final bundle and SHA256 and deliver the versioned DMG path.
+If final packaging exposes a failure, fix it and repeat only the necessary packaging
+checks. Requests specifically about DMG creation, packaging or mounted-image behavior
+may require intermediate DMGs. Documentation/instruction-only changes require no app
+build or DMG.
 
 Use a real Developer ID identity and ENABLE_HARDENED_RUNTIME=YES for distribution; notarization remains pending. Never combine ad-hoc signing with hardened runtime: macOS library validation rejects the bundled ad-hoc dylibs before Swift starts. Do not add disable-library-validation as a workaround. Verify final bundles, not just loose library signatures.
 

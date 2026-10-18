@@ -188,6 +188,15 @@ Terminal/Split background fills respect safe-area edges; the sidebar retains its
 own native material. Sidebar destinations resolve WireGuard names from live metadata,
 show missing references explicitly and expose full labels in tooltips.
 
+The VPN library uses an 820-point sheet with a 210-point sidebar and compact,
+bordered form cards. An in-memory draft and baseline include secrets without
+encoding them into metadata. Selection, New and Done protect dirty edits with
+Save/Discard/Cancel; protocol changes explicitly clear the protocol-specific draft.
+Validation runs on field blur and Save, revealing advanced fields when necessary.
+Imported filenames remain transient; OpenVPN summaries use only parsed remote and
+transport directives outside secret blocks. Secure-field Paste is an explicit
+system paste action. Settings shares card/row layout and sizes to its content.
+
 The editor is a 540 × 600-point sheet capped to its presenting window, with a
 128-point label column and 12-point gaps. General, Display, Devices & audio,
 Terminal and Security tabs appear as applicable. Header/tabs/actions stay fixed;
