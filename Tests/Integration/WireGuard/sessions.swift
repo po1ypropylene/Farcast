@@ -184,7 +184,7 @@ import SwiftData
         for host in ["127.0.0.1", "unresolved.invalid"] {
             let refused = make(.ssh, host: host)
             try await waitUntil("Unsafe tunneled destination did not fail closed") { refused.state == .failed }
-            precondition(refused.message.contains(host == "127.0.0.1" ? "AllowedIPs" : "DNS servers"))
+            precondition(refused.message.contains(host == "127.0.0.1" ? "routes" : "DNS servers"))
             precondition(!refused.credentialsRejected && workspace.prompts.isEmpty)
             precondition([first, second, desktop, vnc].allSatisfy { $0.state == .connected })
         }
@@ -204,7 +204,7 @@ import SwiftData
         for host in ["127.0.0.1", "unresolved.invalid"] {
             let refused = make(.vnc, host: host)
             try await waitUntil("Unsafe tunneled VNC destination did not fail closed") { refused.state == .failed }
-            precondition(refused.message.contains(host == "127.0.0.1" ? "AllowedIPs" : "DNS servers"))
+            precondition(refused.message.contains(host == "127.0.0.1" ? "routes" : "DNS servers"))
             precondition([first, second, desktop, vnc].allSatisfy { $0.state == .connected })
         }
         try await waitUntil("VNC did not render through WireGuard") { vnc.desktop?.mailbox.snapshot()?.1.width == 40 }

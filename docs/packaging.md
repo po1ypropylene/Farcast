@@ -63,9 +63,11 @@ is added. Xcode merges this file with generated sandbox/network entitlements.
 Final bundle verification checks both selected-file and bookmark rights.
 See Apple's [security-scoped access guidance](https://developer.apple.com/documentation/professional-video-applications/enabling-security-scoped-bookmark-and-url-access).
 
-## Sandboxed WireGuard helper
+## Sandboxed VPN helper
 
-The child must be signed with exactly App Sandbox and sandbox-inherit entitlements.
+The same helper embeds WireGuard and OpenVPN Core; its existing executable/signing
+identity remains stable. OpenVPN Core, Asio and fmt licenses and pinned source links
+ship under ThirdParty. The child must be signed with exactly App Sandbox and sandbox-inherit entitlements.
 The parent needs both incoming and outgoing network rights for UDP reception and
 loopback TCP listeners. Unsandboxed command-line fixtures cannot establish packaged
 helper startup; use the real signed parent probe. No system VPN, TUN, route or DNS

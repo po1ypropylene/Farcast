@@ -52,3 +52,20 @@ not substituted.
 Upstreams: https://github.com/WireGuard/wireguard-go and
 https://github.com/google/gvisor. Dependency pinning/checksum verification is
 not a completed vulnerability or distribution/legal review.
+
+## OpenVPN transport
+
+| Component | Pinned revision/version | License | Source |
+|---|---|---|---|
+| OpenVPN 3 Core | `1b4db00849bfb27e05c226cd13f6985527b6bb79` | MPL-2.0 (selected from upstream dual license) | https://github.com/OpenVPN/openvpn3/tree/1b4db00849bfb27e05c226cd13f6985527b6bb79 |
+| Asio | 1.30.2 | BSL-1.0 | https://github.com/chriskohlhoff/asio/tree/asio-1-30-2 |
+| fmt | 11.1.4 | MIT | https://github.com/fmtlib/fmt/tree/11.1.4 |
+
+OpenVPN Core copyright OpenVPN Inc. Its unmodified MPL-covered source is available
+at the exact source link above; `scripts/prepare-openvpn.sh` downloads and verifies
+the corresponding archive. These source links and adjacent license texts accompany
+the binary distribution. The independently written adapter in Networking/OpenVPN
+is Farcast MIT source. Core and the existing OpenSSL libraries are statically linked
+into the signed transport helper; no external OpenVPN executable is required.
+Asio copyright Christopher M. Kohlhoff. fmt retains its copyright notice in the
+adjacent license. No upstream compression library is enabled.

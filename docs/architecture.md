@@ -6,7 +6,7 @@ Farcast is a native SwiftUI app for macOS 27+ and arm64 only. Xcode,
 Package.swift and native builds share that minimum. SwiftData stores metadata;
 Security.framework provides Keychain and certificate trust. SwiftTerm handles
 terminal emulation, libssh2 SSH/SFTP, FreeRDP/WinPR RDP/NLA/channels, OpenSSL native
-cryptography, Metal desktop frames, and wireguard-go/gVisor private session transport.
+cryptography, Metal desktop frames, and WireGuard/OpenVPN with gVisor private session transport.
 Farcast's original source is MIT-licensed in LICENSE. Dependency pins, checksums
 and separate licenses live in the build scripts, Go manifests and ThirdParty.
 No runtime Homebrew, external protocol client or SSH agent is required.
@@ -30,12 +30,13 @@ the preparation script so changed pins or flags require rebuilding.
 | Features/Connections | Profile editor, explicit key picker, import preview |
 | Features/Sessions | Lifecycle, prompts, panes, diagnostics and SFTP controller |
 | Features/Settings | Appearance and tab restoration |
-| Features/WireGuard | Profile library, transport leases and packaged helper probe |
+| Features/WireGuard | Shared VPN profile library, transport leases and packaged helper probe |
 | Protocols/SSH | Persistent terminal view/delegate |
 | Protocols/RDP | Metal view, scrolling, input and latest-frame mailbox |
 | Native/SSH, Native/RDP, Native/VNC | Independently written Objective-C protocol adapters |
 | Native/Transport | Shared authenticated WireGuard socket handshake and redacted diagnostics |
-| Networking/WireGuard | Independently written Go helper using pinned upstream modules |
+| Networking/WireGuard | Shared Go helper and gVisor stack with WireGuard and OpenVPN engines |
+| Networking/OpenVPN | Independently written C++ OpenVPN Core adapter and private packet bridge |
 | Tests/CoreTests, Integration, Maintenance | Core, protocol/UI coordination and disposable script checks |
 | Tests/Fixtures | Blank disabled server-document example required by setup/import |
 
@@ -722,3 +723,33 @@ SCP/WebDAV; SFTP resume/Finder download promises; SSH config/agent/jump hosts/
 certificates/hardware keys, SOCKS BIND/UDP, HTTP proxy and streamlocal forwarding;
 RDP Gateway/RemoteApp/microphone/other devices/
 hardware video; nested folders/cloud sync/updater. [Validation](validation.md) tracks remaining interoperability/release work.
+
+## OpenVPN session transport
+
+The VPN library supports WireGuard and OpenVPN in the same Connect via workflow.
+Existing `SavedWireGuard`, `WireGuardConfiguration` and `wireGuardID` identities are
+retained for storage/migration compatibility. An optional `openVPN` flag in encoded
+metadata selects the engine; absent means WireGuard. OpenVPN profile contents,
+username, password and private-key passphrase live only in CredentialStore. The
+SwiftData record contains the name and engine selection, never imported PEM data.
+
+The existing certificate-signed helper embeds pinned OpenVPN 3 Core (MPL-2.0),
+Asio and fmt. An independently written C++ adapter supplies an in-process datagram
+socketpair as Core's TUN; Go connects it to the existing gVisor stack. No OS TUN,
+Network Extension, privileged service, system route/DNS update or external protocol
+executable is used. The Darwin four-byte packet-family header is confined to this
+bridge. OpenVPN negotiates addresses, routes and DNS before a session listener is
+published. Destinations outside negotiated routes fail closed. Pushed DNS servers
+receive tunnel-only host routes; destination DNS never falls back to the Mac's
+resolver. Endpoint hostname lookup necessarily uses the Mac's normal resolver.
+
+One authenticated OpenVPN client is shared by leases for the same saved VPN profile.
+Helper failure ends all leases; final release/EOF stops the client, packet pumps and
+network stack. A transport reconnect requires a fresh lease/stack; Core cannot silently
+change addresses underneath active protocol sockets. RDP retains its existing bounded
+recovery policy. TCP and UDP TUN profiles support inline CA/cert/key, tls-auth,
+tls-crypt and tls-crypt-v2, password authentication and encrypted private keys.
+Import enforces server certificate purpose and rejects scripts, plugins, external
+files, nested configs, proxies, TAP, compression and interactive MFA. Route exclusions
+and unsupported pushed tunnel settings fail rather than silently changing policy.
+Native logs are discarded; helper responses contain fixed error categories only.

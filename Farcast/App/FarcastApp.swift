@@ -58,7 +58,7 @@ import SwiftUI
                     }.keyboardShortcut("k")
                 }
                 CommandGroup(replacing: .saveItem) {
-                    Button("WireGuard Connections…") { workspace.showWireGuard = true }
+                    Button("VPN Connections…") { workspace.showWireGuard = true }
                     Button("Import Test Servers…") { workspace.chooseTestServerFile() }
                     Button("Import Existing Library…") { workspace.showLibraryImport = true }
                         .disabled(!workspace.sessions.isEmpty)

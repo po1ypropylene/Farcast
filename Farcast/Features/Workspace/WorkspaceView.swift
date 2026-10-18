@@ -93,7 +93,7 @@ struct WorkspaceView: View {
                         Button("New RDP Connection") { create(.rdp) }
                         Button("New VNC Connection") { create(.vnc) }
                         Divider()
-                        Button("WireGuard Connections…") { workspace.showWireGuard = true }
+                        Button("VPN Connections…") { workspace.showWireGuard = true }
                         Button("Import Test Servers…") { workspace.chooseTestServerFile() }
                         Button("Import Existing Library…") { workspace.showLibraryImport = true }
                             .disabled(!workspace.sessions.isEmpty)
@@ -305,7 +305,7 @@ struct WorkspaceView: View {
     private func destinationDescription(_ connection: SavedConnection) -> String {
         let destination = connection.username.isEmpty ? connection.host : "\(connection.username)@\(connection.host)"
         guard let tunnelID = connection.wireGuardID else { return destination }
-        let name = tunnels.first(where: { $0.id == tunnelID })?.name ?? "Unavailable WireGuard connection"
+        let name = tunnels.first(where: { $0.id == tunnelID })?.name ?? "Unavailable VPN connection"
         return "\(destination) via \(name)"
     }
     private var overview: some View {

@@ -12,7 +12,14 @@ final class WireGuardTransport: @unchecked Sendable {
     private static var shuttingDown = false
     private static let processes = DispatchGroup()
 
+    private struct OpenVPNSecret: Encodable {
+        let profile: String
+        let username: String
+        let password: String
+        let passphrase: String
+    }
     private struct Request: Encodable {
+        var openVPN: OpenVPNSecret? = nil
         var command = "open"
         let configuration: WireGuardConfiguration
         let privateKey: String
@@ -28,10 +35,12 @@ final class WireGuardTransport: @unchecked Sendable {
         let configuration: WireGuardConfiguration
         let privateKey: String
         let presharedKey: String
+        let credential: ConnectionCredential
         var callbacks: [String: @Sendable () -> Void] = [:]
         private let shutdownLock = NSLock()
         private var shutdownStarted = false
         init(configuration: WireGuardConfiguration, credential: ConnectionCredential) throws {
+            self.credential = credential
             self.configuration = configuration
             privateKey = credential.wireGuardPrivateKey ?? ""
             presharedKey = credential.wireGuardPresharedKey ?? ""
@@ -58,14 +67,15 @@ final class WireGuardTransport: @unchecked Sendable {
             cancellation.resume()
             defer { cancellation.cancel() }
             let watchdog = DispatchWorkItem { [weak self] in self?.shutdown() }
-            DispatchQueue.global().asyncAfter(deadline: .now() + 15, execute: watchdog)
+            let timeout: Double = configuration.isOpenVPN ? 40 : 15
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
             defer { watchdog.cancel() }
             let started = ProcessInfo.processInfo.systemUptime
             var response = Data()
             while response.count < 256 {
                 guard let byte = try stdout.fileHandleForReading.read(upToCount: 1), !byte.isEmpty else {
                     if isCancelled() { throw CancellationError() }
-                    throw ProcessInfo.processInfo.systemUptime - started >= 14
+                    throw ProcessInfo.processInfo.systemUptime - started >= timeout - 1
                         ? WireGuardError.startupTimeout : WireGuardError.initialization
                 }
                 if byte.first == 10 { break }
@@ -96,7 +106,15 @@ final class WireGuardTransport: @unchecked Sendable {
         id: UUID, configuration: WireGuardConfiguration, credential: ConnectionCredential, host: String, port: Int,
         onExit: @escaping @Sendable () -> Void
     ) throws -> (port: Int, token: String) {
-        guard let privateKey = credential.wireGuardPrivateKey, WireGuardConfiguration.validKey(privateKey) else {
+        let privateKey = credential.wireGuardPrivateKey ?? ""
+        if configuration.isOpenVPN {
+            guard let profile = credential.openVPNProfile,
+                let imported = try? OpenVPNImport.parse(Data(profile.utf8)),
+                !imported.requiresPassword
+                    || (!(credential.openVPNUsername ?? "").isEmpty && !credential.password.isEmpty)
+            else { throw OpenVPNError.missingCredentials }
+        }
+        guard configuration.isOpenVPN || WireGuardConfiguration.validKey(privateKey) else {
             throw WireGuardError.missingKeys
         }
         guard configuration.validationMessage == nil else { throw WireGuardError.invalidConfiguration }
@@ -118,7 +136,12 @@ final class WireGuardTransport: @unchecked Sendable {
         let helper: Helper
         if let active = Self.helpers[id] {
             guard active.configuration == configuration, active.privateKey == privateKey,
-                active.presharedKey == credential.wireGuardPresharedKey ?? ""
+                active.presharedKey == credential.wireGuardPresharedKey ?? "",
+                !configuration.isOpenVPN
+                    || (active.credential.openVPNProfile == credential.openVPNProfile
+                        && active.credential.openVPNUsername == credential.openVPNUsername
+                        && active.credential.password == credential.password
+                        && active.credential.openVPNPassphrase == credential.openVPNPassphrase)
             else { throw WireGuardError.profileInUse }
             helper = active
         } else {
@@ -143,6 +166,10 @@ final class WireGuardTransport: @unchecked Sendable {
         }
         helper.callbacks[token] = onExit
         let request = Request(
+            openVPN: configuration.isOpenVPN
+                ? OpenVPNSecret(
+                    profile: credential.openVPNProfile ?? "", username: credential.openVPNUsername ?? "",
+                    password: credential.password, passphrase: credential.openVPNPassphrase ?? "") : nil,
             configuration: configuration, privateKey: privateKey,
             presharedKey: credential.wireGuardPresharedKey ?? "", host: host, port: port, token: token)
         var receivedReady = false

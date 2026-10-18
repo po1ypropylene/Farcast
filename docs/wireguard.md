@@ -2,7 +2,7 @@
 
 ## Set up
 
-1. Open **File → WireGuard Connections…**, or **Add → WireGuard Connections…**.
+1. Open **File → VPN Connections…**, or **Add → WireGuard Connections…**.
    The connection editor also has **Manage WireGuard Connections…**.
 2. Choose **New**. Import your WireGuard `.conf` file, or enter a name, interface
    address/prefix, private key, peer public key, endpoint, and Allowed IPs. Add a

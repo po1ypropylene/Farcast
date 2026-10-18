@@ -2,6 +2,10 @@ import Darwin
 import Foundation
 
 struct WireGuardConfiguration: Codable, Equatable {
+    // Legacy type name retained for existing saved profile compatibility.
+    var openVPN: Bool?
+    var isOpenVPN: Bool { openVPN == true }
+    var protocolName: String { isOpenVPN ? "OpenVPN" : "WireGuard" }
     var addresses = ""
     var dns = ""
     var publicKey = ""
@@ -30,6 +34,7 @@ struct WireGuardConfiguration: Codable, Equatable {
         }
     }
     var validationMessage: String? {
+        if isOpenVPN { return nil }
         if !Self.validList(addresses, prefix: true) {
             return "Enter tunnel addresses with CIDR prefixes, separated by commas."
         }
@@ -113,31 +118,31 @@ enum WireGuardError: LocalizedError {
             return
                 "Use a WireGuard .conf with one Interface and one Peer, valid keys, addresses and endpoint. Scripts and extra settings are unsupported."
         case .unavailable:
-            return "The selected WireGuard connection is unavailable. Choose an existing profile before connecting."
-        case .missingKeys: return "WireGuard keys are missing. Edit the WireGuard profile and save its keys again."
+            return "The selected VPN connection is unavailable. Choose an existing profile before connecting."
+        case .missingKeys: return "VPN credentials are missing. Edit the VPN profile and save its credentials again."
         case .profileInUse:
-            return "Disconnect sessions using this WireGuard profile before applying changed tunnel settings or keys."
+            return "Disconnect sessions using this VPN profile before applying changed tunnel settings or keys."
         case .helperUnavailable:
-            return "The embedded WireGuard helper is missing. Open the updated Farcast app or rebuild it."
+            return "The embedded VPN helper is missing. Open the updated Farcast app or rebuild it."
         case .helperLaunch:
-            return "macOS could not launch the embedded WireGuard helper. Rebuild or reinstall the complete app."
+            return "macOS could not launch the embedded VPN helper. Rebuild or reinstall the complete app."
         case .initialization:
             return
-                "The embedded WireGuard helper stopped during initialization, before a server connection was attempted."
+                "The VPN stopped before the session could connect. For OpenVPN, check certificates, authentication and server settings."
         case .endpointResolution:
             return
-                "The WireGuard endpoint hostname could not be resolved. Check the endpoint and this Mac’s network connection."
+                "The VPN endpoint hostname could not be resolved. Check the endpoint and this Mac’s network connection."
         case .invalidConfiguration:
             return
-                "WireGuard could not initialize this configuration. Check the interface addresses, keys, endpoint, MTU and AllowedIPs. No server connection was attempted."
+                "The VPN could not initialize this configuration. Check the imported VPN configuration and credentials. No server connection was attempted."
         case .startupTimeout:
             return
-                "WireGuard initialization timed out before a server connection was attempted. Check this Mac’s network connection and the endpoint."
+                "VPN initialization timed out. Check this Mac’s network connection and the endpoint."
         case .listener:
-            return "WireGuard could not create its private local listener. No server connection was attempted."
+            return "The VPN could not create its private local listener. No server connection was attempted."
         case .transport:
             return
-                "WireGuard could not reach the private server. Check the endpoint, keys, AllowedIPs, DNS and server firewall. No direct connection was attempted."
+                "The VPN could not reach the private server. Check the VPN configuration, credentials, routes, DNS and server firewall. No direct connection was attempted."
         }
     }
 }

@@ -19,6 +19,7 @@ stated scope; disabled live entries report SKIP.
 | RDP folder browsing | Packed directory formats, compatibility padding at enumeration end, Unicode pagination, trailing separators and nested files; direct/WireGuard fixtures | Signed app on one authorized Windows server with direct transport: complete visible root count and repeated browsing through two subfolder levels. Real writes and other server policies remain unverified |
 | RDP presentation | Cropped Metal uploads, inverse input mapping, letterbox/stale-frame rejection, full-screen startup/exit/re-entry and teardown | Marked frames and owned off-screen windows |
 | Workspace | Tab ordering/reconnect, detached surface ownership, focus/prompt routing, terminal menus, deferred connection/tunnel validation, centered empty/stopped tunnel layouts at narrow/wide sizes in light/dark, template type selection, view-specific terminal tools, conditional Disconnect All and AppKit shutdown | Synthetic sessions, private pasteboards and preferences |
+| OpenVPN | Safe profile import, credential coding, UDP/TCP TLS negotiation, encrypted outbound IP delivery, certificate rejection, shared leases, route refusal and cancellation against an owned null-device peer | Synthetic certificates only; production interoperability and full desktop/file traffic remain unverified |
 | WireGuard | Encrypted loopback traffic, concurrent SSH/SFTP/RDP/VNC on one helper, independent disconnect/reconnect, DNS/route and host-key refusal, shared-helper failure/cleanup and schema migration | Generated keys and owned peers |
 | Packaging/signing | Platform, library closure, signatures, loader, sandboxed helper, certificate continuity, mounted bundle and SHA256 | Local development artifact; distribution is separate |
 | Maintenance | Cleanup boundaries, dependency rollback, signing policy, harness teardown and repository hygiene | Disposable files and mocked destructive operations |
@@ -76,6 +77,7 @@ stated scope; disabled live entries report SKIP.
   CVE-2026-55200 packet-length bounds fix. Commit ancestry establishes inclusion;
   SSH/SFTP fixtures check app interoperability, not a complete security audit or
   compatibility with every production server. See [dependency provenance](../ThirdParty/README.md).
+- **OpenVPN:** supports self-contained TUN profiles with inline CA and certificate/key or password authentication. Scripts, external files, TAP, proxies, compression, interactive MFA and route exclusions are unsupported. Negotiation failures are redacted. Real VPN services, roaming, sleep/wake, throughput and complete SSH/RDP/VNC traffic over OpenVPN need live validation.
 - **WireGuard:** endpoint DNS refreshes on manual reconnect, not periodically.
   Missing profiles, tunnel failures and uncovered destinations fail closed.
 - **SSH forwarding:** loopback-only local listeners, SOCKS5 CONNECT without proxy

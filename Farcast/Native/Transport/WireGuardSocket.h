@@ -10,16 +10,17 @@
 static inline NSString *FCWireGuardSocketFailure(unsigned char code) {
     switch (code) {
     case 2:
-        return @"Enter DNS servers in the WireGuard profile or use the private server IP address. No direct "
+        return @"Enter DNS servers in the VPN profile or use the private server IP address. No direct "
                @"connection was attempted.";
     case 3:
-        return @"The configured WireGuard DNS servers could not resolve the server. Check DNS or use the private "
+        return @"The configured VPN DNS servers could not resolve the server. Check DNS or use the private "
                @"server IP address. No direct connection was attempted.";
     case 4:
-        return @"The destination is outside the WireGuard profile’s AllowedIPs. Check the private server address "
+        return @"The destination is outside the VPN profile’s routes. Check the private server address "
                @"and tunnel routes. No direct connection was attempted.";
     default:
-        return @"WireGuard could not reach the private server. Check the peer, keys, server routing and firewall. "
+        return @"The VPN could not reach the private server. Check the VPN configuration, credentials, server routing "
+               @"and firewall. "
                @"No direct connection was attempted.";
     }
 }

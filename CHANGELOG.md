@@ -5,6 +5,8 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Add OpenVPN alongside WireGuard in VPN Connections, with self-contained profile import, protected credential storage and shared app-private tunnels for SSH/SFTP, RDP and VNC. Unsupported scripts, external files, TAP, proxies, compression and interactive MFA are refused; production OpenVPN compatibility remains unverified.
+
 ## 1.2.0 — 2026-10-17
 
 - Replace libssh2 1.11.1 with a pinned master snapshot containing the CVE-2026-55200 packet-length bounds fix and subsequent upstream fixes. Dependency refreshes keep following master through immutable commit pins.

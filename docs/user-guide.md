@@ -93,12 +93,12 @@ terminate their sessions. The toolbar provides reconnect, disconnect, full scree
 and connection details. Closing a session disconnects it. Restored tabs remain
 disconnected until you choose Reconnect; ad hoc connections are not restored.
 Closing the last app window quits Farcast. Closing the window or choosing
-Quit disconnects SSH/SFTP and RDP sessions and stops all embedded WireGuard tunnels
+Quit disconnects SSH/SFTP and RDP sessions and stops all embedded VPN tunnels
 before the app exits.
 
 ### WireGuard for private servers
 
-Open **File → WireGuard Connections…** to import or create named WireGuard
+Open **File → VPN Connections…** to import or create named WireGuard
 profiles. In an SSH or RDP connection’s editor, choose a profile under
 **General → Network → Connect via** and enter the private server address. The tunnel
 starts automatically and closes when its last session disconnects. SSH and RDP
@@ -179,7 +179,7 @@ other local programs can also access it. BIND, UDP, HTTP CONNECT and automatic
 system-proxy configuration are unsupported. SSH protects the Mac-to-server hop;
 use the destination application's encryption where required beyond that server.
 
-Terminal, SFTP and tunnels share authentication and the selected WireGuard
+Terminal, SFTP and tunnels share authentication and the selected VPN
 transport. Forwarding remains serviced during file transfers and overwrite
 prompts, and active rules use the smaller interactive file-transfer budget.
 **Stop** closes that rule's listener and current connections. Other rules and
@@ -459,3 +459,23 @@ Standard RFB can support clipboard text, but Farcast’s VNC workflow uses expli
 keyboard typing. VNC file transfer, audio, server cursor images, remote resolution
 requests and multiple local full-screen monitors are unsupported. Compatibility
 with production VNC servers, remote keyboard layouts and IME still needs live testing.
+
+## OpenVPN connections
+
+Open **File → VPN Connections…**, choose **New**, select **OpenVPN**, and import a
+self-contained `.ovpn` file. It must use `dev tun` and include its CA certificate
+inline. Supply a username/password when required, and a private-key passphrase if
+the inline client key is encrypted. Give the profile a name and Save. In a saved
+SSH, RDP or VNC connection, choose that VPN under **Connect via**.
+
+Sessions using one VPN profile share its tunnel. Only Farcast traffic uses it;
+macOS networking stays unchanged. Disconnect its sessions before changing the
+configuration or credentials. A missing/deleted profile or failed VPN never causes
+a direct connection. Credentials and the imported profile use Keychain when available;
+the disclosed local-file fallback is unencrypted and owner-only.
+
+Supported profiles use UDP or TCP, inline certificates/keys, and certificate or
+username/password authentication. Profiles requiring external files, scripts,
+plugins, proxies, TAP, compression, interactive MFA or route exclusions are unsupported.
+Ask the VPN administrator for a compatible self-contained client profile. Server
+certificate verification remains enabled. WireGuard remains available in the same library.

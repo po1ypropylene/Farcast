@@ -5,6 +5,9 @@ struct ConnectionCredential: Codable {
     var password = ""
     var privateKey: Data?
     var keyName: String?
+    var openVPNProfile: String?
+    var openVPNUsername: String?
+    var openVPNPassphrase: String?
     var wireGuardPrivateKey: String?
     var wireGuardPresharedKey: String?
 }

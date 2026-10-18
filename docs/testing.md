@@ -153,3 +153,16 @@ options. Disabled entries are SKIP, never a real-server pass.
 Physical displays/Spaces, Finder interaction, audible remote sound, DPI/IME,
 production peers, network recovery and full accessibility need manual validation.
 The remaining limits are maintained in [validation](validation.md).
+
+### OpenVPN
+
+Run `scripts/test-openvpn.sh` for an owned loopback OpenVPN 2.6.14 peer with disposable
+certificates and a null device over UDP and TCP. A test-only fixed marker in the
+disposable peer confirms authenticated, decrypted synthetic TCP SYN delivery before
+the null device discards it. Certificate-identity rejection and startup cancellation
+are checked separately. The fixture does not change system interfaces/routes
+or use private input. The server source is checksum-pinned and cached separately;
+it is never bundled with the app. Core tests cover safe import, credential coding
+and legacy WireGuard metadata. Run `scripts/test-wireguard.sh`,
+`scripts/test-wireguard-sessions.sh` and `scripts/test-workspace.sh` after transport
+changes. Live OpenVPN interoperability and production throughput remain unverified.

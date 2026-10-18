@@ -127,7 +127,7 @@ import SwiftTerm
         state = rdpReconnect.attempts > 0 ? .reconnecting : .connecting
         message =
             rdpReconnect.attempts > 0
-            ? "Reconnect attempt \(rdpReconnect.attempts) of 3 · Starting WireGuard…" : "Starting WireGuard…"
+            ? "Reconnect attempt \(rdpReconnect.attempts) of 3 · Starting VPN…" : "Starting VPN…"
         do {
             guard let workspace else { throw WireGuardError.unavailable }
             let (configuration, keys) = try workspace.wireGuardSettings(for: tunnelID)
@@ -145,7 +145,11 @@ import SwiftTerm
                     self.ssh?.disconnect()
                     self.rdp?.disconnect()
                     self.vnc?.disconnect()
-                    self.update("failed", message: WireGuardError.transport.localizedDescription, attempt: attempt)
+                    self.update(
+                        "failed",
+                        message:
+                            WireGuardError.transport.localizedDescription,
+                        attempt: attempt)
                     if self.profile.kind == .rdp {
                         if self.rdp == nil { self.rdpStopped(retryable: true, attempt: attempt) }
                     } else {
@@ -174,8 +178,10 @@ import SwiftTerm
                     }
                     self.update(
                         "failed",
-                        message: (error as? WireGuardError)?.localizedDescription
-                            ?? WireGuardError.transport.localizedDescription, attempt: attempt)
+                        message: (error as? OpenVPNError)?.errorDescription ?? (error as? WireGuardError)?
+                            .errorDescription
+                            ?? WireGuardError.transport.localizedDescription,
+                        attempt: attempt)
                     if self.profile.kind == .rdp {
                         self.rdpStopped(retryable: true, attempt: attempt)
                     }
@@ -185,7 +191,7 @@ import SwiftTerm
             rdpCredential = nil
             update(
                 "failed",
-                message: (error as? WireGuardError)?.localizedDescription
+                message: (error as? OpenVPNError)?.errorDescription ?? (error as? WireGuardError)?.errorDescription
                     ?? WireGuardError.unavailable.localizedDescription, attempt: attempt)
         }
     }

@@ -177,15 +177,18 @@ struct ConnectionEditor: View {
                 row("Connect via") {
                     Picker("Connect via", selection: tunnelSelection) {
                         Text("Direct").tag("direct")
-                        ForEach(tunnels) { Text($0.name).tag($0.id.uuidString) }
+                        ForEach(tunnels) { profile in
+                            Text("\(profile.name) · \((try? profile.configuration().protocolName) ?? "Unavailable")")
+                                .tag(profile.id.uuidString)
+                        }
                         if let id = draft.wireGuardID, !tunnels.contains(where: { $0.id == id }) {
                             Text("Unavailable profile").tag(id.uuidString)
                         }
                         Divider()
-                        Text("Manage WireGuard Connections…").tag("manage")
+                        Text("Manage VPN Connections…").tag("manage")
                     }.labelsHidden().accessibilityLabel("Connect via")
                         .help(
-                            "Sessions using this WireGuard profile share its tunnel. The address must be reachable inside it."
+                            "Sessions using this VPN profile share its tunnel. The address must be reachable inside it."
                         )
                 }
             }

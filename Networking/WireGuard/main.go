@@ -35,13 +35,14 @@ type configuration struct {
 	MTU        int    `json:"mtu"`
 }
 type request struct {
-	Command       string        `json:"command"`
-	Configuration configuration `json:"configuration"`
-	PrivateKey    string        `json:"privateKey"`
-	PresharedKey  string        `json:"presharedKey"`
-	Host          string        `json:"host"`
-	Port          int           `json:"port"`
-	Token         string        `json:"token"`
+	OpenVPN       *openVPNCredentials `json:"openVPN,omitempty"`
+	Command       string              `json:"command"`
+	Configuration configuration       `json:"configuration"`
+	PrivateKey    string              `json:"privateKey"`
+	PresharedKey  string              `json:"presharedKey"`
+	Host          string              `json:"host"`
+	Port          int                 `json:"port"`
+	Token         string              `json:"token"`
 }
 
 func key(value string) (string, error) {
@@ -246,7 +247,7 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 	scanner := bufio.NewScanner(os.Stdin)
-	scanner.Buffer(make([]byte, 4096), 131072)
+	scanner.Buffer(make([]byte, 4096), 1048576)
 	lines := make(chan []byte)
 	go func() {
 		defer close(lines)
@@ -273,15 +274,31 @@ func run() error {
 	if err := json.Unmarshal(first, &r); err != nil {
 		return errors.New("invalid request")
 	}
-	timeout, stop := context.WithTimeout(ctx, 10*time.Second)
-	dev, stack, allowed, err := start(timeout, r)
-	stop()
+	var stack *netstack.Net
+	var allowed []netip.Prefix
+	var closeTransport func()
+	var err error
+	if r.OpenVPN != nil {
+		timeout, stop := context.WithTimeout(ctx, 35*time.Second)
+		closeTransport, stack, allowed, err = startOpenVPN(timeout, &r, cancel)
+		stop()
+	} else {
+		timeout, stop := context.WithTimeout(ctx, 10*time.Second)
+		var dev *device.Device
+		dev, stack, allowed, err = start(timeout, r)
+		stop()
+		if err == nil {
+			closeTransport = dev.Close
+		}
+	}
 	if err != nil {
 		return err
 	}
-	defer dev.Close()
+	defer closeTransport()
+	tunnelDNS := r.Configuration.DNS
 	sessions := make(map[string]context.CancelFunc)
 	open := func(r request) error {
+		r.Configuration.DNS = tunnelDNS
 		token, err := hex.DecodeString(r.Token)
 		if err != nil || len(token) != 32 || r.Port < 1 || r.Port > 65535 || r.Host == "" {
 			return errors.New("invalid session")
