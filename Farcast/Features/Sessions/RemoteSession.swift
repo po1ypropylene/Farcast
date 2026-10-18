@@ -14,6 +14,7 @@ import SwiftTerm
             terminal?.view.inputEnabled = state == .connected && terminalAvailable
             if state == .connected && oldValue != .connected { connectedAt = Date() }
             if state != .connected { connectedAt = nil }
+            if state == .disconnected { vpnState = .disconnected }
         }
     }
     @Published var message = "Waiting for credentials"
@@ -52,6 +53,7 @@ import SwiftTerm
     private var lastSubmittedScale: Int?
     @Published private(set) var fullScreenPresented = false
     @Published private(set) var displayMessage = ""
+    @Published private(set) var vpnState = SessionState.waiting
     private var tunnel: WireGuardTransport?
     private var tunnelTask: Task<Void, Never>?
     private var pendingWaiters: [PromptWaiter] = []
@@ -125,6 +127,7 @@ import SwiftTerm
         generation = UUID()
         let attempt = generation
         state = rdpReconnect.attempts > 0 ? .reconnecting : .connecting
+        vpnState = .connecting
         message =
             rdpReconnect.attempts > 0
             ? "Reconnect attempt \(rdpReconnect.attempts) of 3 · Starting VPN…" : "Starting VPN…"
@@ -141,6 +144,7 @@ import SwiftTerm
                     guard let self = reference.value, self.generation == attempt, self.state.active,
                         self.state != .stale
                     else { return }
+                    self.vpnState = .failed
                     self.rdpTunnelFailed = self.profile.kind == .rdp
                     self.ssh?.disconnect()
                     self.rdp?.disconnect()
@@ -168,6 +172,7 @@ import SwiftTerm
                         transport.stop()
                         return
                     }
+                    self.vpnState = .connected
                     self.startProtocol(
                         credential: credential, attempt: attempt, tunnelPort: endpoint.port, tunnelToken: endpoint.token
                     )
@@ -176,6 +181,7 @@ import SwiftTerm
                         transport.stop()
                         return
                     }
+                    self.vpnState = .failed
                     self.update(
                         "failed",
                         message: (error as? OpenVPNError)?.errorDescription ?? (error as? WireGuardError)?
@@ -189,6 +195,7 @@ import SwiftTerm
             }
         } catch {
             rdpCredential = nil
+            vpnState = .failed
             update(
                 "failed",
                 message: (error as? OpenVPNError)?.errorDescription ?? (error as? WireGuardError)?.errorDescription
@@ -752,6 +759,7 @@ import SwiftTerm
             tunnelTask?.cancel()
             tunnel?.stop()
             tunnel = nil
+            if vpnState != .failed { vpnState = .disconnected }
             cancelPrompts()
             stopClipboard()
             desktop?.cancelPendingDisplayWork()
@@ -841,6 +849,7 @@ import SwiftTerm
         tunnelTask = nil
         tunnel?.stop()
         tunnel = nil
+        vpnState = .disconnected
         cancelPrompts()
         stopClipboard()
         desktop?.cancelPendingDisplayWork()

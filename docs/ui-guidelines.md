@@ -14,6 +14,12 @@ future design task; do not apply a 44-point touch baseline to the Mac interface.
   underline style; keep a divider between the session and tool rows. Keep the independent 22-point close target
   visible, with its session name in help and accessibility. Announce protocol/state
   and selection; status never relies on colour alone.
+- Use `SessionState.color` for connection indicators in the sidebar, tabs and
+  session status bar: orange for waiting, connecting, verifying, authenticating,
+  reconnecting and stale; green for connected; red for failed; grey for disconnected.
+  A saved profile with no open session has no status dot. When several sessions
+  share a profile, the sidebar represents a connected session first, then an active
+  session, then the latest failure or disconnected session.
 - Keep sizing and contentShape within custom labels so their visible region is
   clickable. Preserve keyboard focus, shortcuts and native accessibility behavior.
   Avoid overlapping hit regions, hidden measuring labels and forced shrinking.

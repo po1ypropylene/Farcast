@@ -145,6 +145,7 @@ import SwiftData
 
         let missing = make(.ssh, tunnelID: UUID())
         precondition(missing.state == .failed && missing.message == WireGuardError.unavailable.localizedDescription)
+        precondition(missing.vpnState == .failed)
         keysAvailable = false
         let noKeys = make(.ssh)
         precondition(noKeys.state == .failed && noKeys.message == WireGuardError.missingKeys.localizedDescription)
@@ -158,12 +159,14 @@ import SwiftData
         print("PASS SSH refuses missing WireGuard profiles and keys before protocol startup")
 
         let first = make(.ssh)
+        precondition(first.vpnState == .connecting)
         let second = make(.ssh)
         let desktop = make(.rdp)
         let vnc = make(.vnc)
         try await waitUntil("Mixed encrypted sessions did not connect") {
             [first, second, desktop, vnc].allSatisfy { $0.state == .connected }
         }
+        precondition([first, second, desktop, vnc].allSatisfy { $0.vpnState == .connected })
         try await listFiles(first)
         try await listFiles(second)
         try await checkForwarding(first)
@@ -197,6 +200,7 @@ import SwiftData
         precondition(prompt.kind == .trust && prompt.fingerprint == sshPin)
         workspace.answer(prompt, value: nil)
         try await waitUntil("Rejected host key did not fail SSH") { rejected.state == .failed }
+        precondition(rejected.vpnState == .disconnected)
         workspace.trust.remember(sshPin, for: first.profile.endpointKey)
         precondition(helpers().count == 1)
         print("PASS tunneled SSH DNS/route refusal and host-key rejection leave other protocols connected")
@@ -231,6 +235,7 @@ import SwiftData
         print("PASS VNC encrypted frames/input, DNS/route refusal and independent reconnect")
 
         first.disconnect()
+        precondition(first.vpnState == .disconnected && second.vpnState == .connected)
         try await listFiles(second)
         precondition(desktop.state == .connected && (helpers().count) == 1)
         desktop.disconnect()
@@ -264,12 +269,15 @@ import SwiftData
                 && replacementDesktop.logs.contains { $0.message.hasPrefix("Connection lost. Reconnecting in ") }
         }
         precondition(!reconnected.message.isEmpty && !replacementDesktop.message.isEmpty)
+        // Native transport loss can release a lease before the helper-exit callback arrives.
+        precondition([reconnected, replacementVNC].allSatisfy { [.failed, .disconnected].contains($0.vpnState) })
         precondition(reconnected.forwarding.statuses.values.allSatisfy { $0.state == "stopped" })
         precondition(workspace.prompts.isEmpty)
         try await waitUntil("RDP did not automatically reacquire its WireGuard lease") {
             replacementDesktop.state == .connected
         }
         precondition(workspace.sessions.contains { $0 === replacementDesktop })
+        precondition(replacementDesktop.vpnState == .connected)
         precondition(helpers().count == 1 && workspace.prompts.isEmpty)
         print("PASS shared helper loss stops SSH/VNC and automatically reconnects RDP in its existing session")
         let restartedSSH = make(.ssh)
@@ -282,6 +290,7 @@ import SwiftData
         await withCheckedContinuation { continuation in workspace.shutdown { continuation.resume() } }
         precondition(helpers().isEmpty)
         precondition(workspace.sessions.allSatisfy { $0.state == .disconnected })
+        precondition(workspace.sessions.allSatisfy { $0.vpnState == .disconnected })
         print(
             "PASS shared helper failure reaches SSH, RDP and VNC, recovery works, and shutdown drains all workers/helpers"
         )

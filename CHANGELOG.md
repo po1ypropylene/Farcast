@@ -5,6 +5,9 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Keep connection status colours consistent in the sidebar, session tabs and status bar: orange while connecting or stale, green when connected, red on failure and grey when disconnected.
+- Show the VPN profile and transport status in the bottom bar for sessions using a VPN, including startup, readiness, failure and disconnection.
+
 ## 1.3.0 — 2026-10-18
 
 - Make VPN profile fields visibly editable, group essential and advanced settings, add secure-field controls and import status/drop zones, and protect unsaved edits with Save, Revert and discard confirmation. Show field validation and keep the selected profile name in sync.

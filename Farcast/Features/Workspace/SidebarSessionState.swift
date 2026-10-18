@@ -8,14 +8,14 @@ struct SidebarSessionState: View {
             let sessions = workspace.sessions.filter { $0.profile.id == profileID }
             let session =
                 sessions.first { $0.state == .connected } ?? sessions.first { $0.state.active }
-                ?? sessions.last { $0.state == .failed }
+                ?? sessions.last { $0.state == .failed } ?? sessions.last
             if let session {
                 let uptime =
                     session.connectedAt.map {
                         SessionUptime.string(since: $0, now: timeline.date)
                     } ?? ""
                 let label = "\(session.state.title)\(uptime.isEmpty ? "" : " " + uptime)"
-                Circle().fill(session.state == .connected ? Color.green : session.state == .failed ? .red : .orange)
+                Circle().fill(session.state.color)
                     .frame(width: 6, height: 6)
                     .opacity(
                         session.state.active && session.state != .connected

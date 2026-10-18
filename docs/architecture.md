@@ -689,6 +689,14 @@ SSH, RDP and VNC acquire independent destination/token leases on one helper/devi
 Disconnect releases only that lease; the final lease stops the helper. Helper exit
 fails every active lease and interrupts all adapters. Generation guards reject
 late startup/status callbacks, and app shutdown drains native workers and helpers.
+The session status bar observes a separate VPN lease state: waiting, connecting,
+ready, failed or disconnected. Ready means the helper supplied a destination lease,
+not a continuous peer-health probe. Protocol failure releases the lease; VPN failure
+remains visible until manual disconnect or a new attempt. The profile name comes from
+live metadata; direct sessions omit the VPN indicator. Shared helper activity does not
+keep a disconnected session’s VPN indicator green.
+Native transport loss can release the lease before the helper-exit callback;
+that session shows Disconnected rather than attributing the loss to the VPN.
 
 `Native/Transport/WireGuardSocket.h` implements the common token/acknowledgement
 exchange, finite worker deadline, cancellation and redacted DNS/route diagnostics.

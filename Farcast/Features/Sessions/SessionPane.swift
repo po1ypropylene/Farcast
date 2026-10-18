@@ -106,6 +106,10 @@ struct SessionPane: View {
                 Text("·").foregroundStyle(.secondary)
                 Text("\(session.profile.username)@\(session.profile.host):\(String(session.profile.port))").lineLimit(1)
                     .textSelection(.enabled)
+                if session.profile.wireGuardID != nil {
+                    Text("·").foregroundStyle(.secondary)
+                    SessionVPNStatus(session: session)
+                }
                 Spacer()
                 if session.state == .connected, !session.clipboardMessage.isEmpty {
                     Text(session.clipboardMessage).lineLimit(1).truncationMode(.tail)

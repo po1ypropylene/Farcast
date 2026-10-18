@@ -43,8 +43,9 @@ regression checks. Do not use DMG packaging as an intermediate build or test ste
 For an ordinary app-change request, finish all edits, app builds, tests and UI
 verification before running `scripts/build-dmg.sh` once as the final delivery step.
 Do not package separately for individual fixes or logical changes within the request.
-Keep the current version/build unless a separate release prompt authorizes advancing
-them; verify the mounted final bundle and SHA256 and deliver the versioned DMG path.
+Keep the current marketing version unless a separate release prompt authorizes advancing
+it. Advance the build number for each new app build; reset it to `1` when the marketing
+version advances. Verify the mounted final bundle and SHA256 and deliver the versioned DMG path.
 If final packaging exposes a failure, fix it and repeat only the necessary packaging
 checks. Requests specifically about DMG creation, packaging or mounted-image behavior
 may require intermediate DMGs. Documentation/instruction-only changes require no app
@@ -65,12 +66,12 @@ Run swift-format using .swift-format for owned Swift sources. Objective-C adapte
 
 ## Staged changes and explicit releases
 
-- Do not automatically advance the marketing version or build number for app changes, fixes, dependency updates, packaging work or ordinary rebuilds. Keep `Version.xcconfig` unchanged unless the user explicitly requests a version/build change or asks for a release in a separate prompt.
+- Do not automatically advance the marketing version for app changes, fixes, dependency updates, packaging work or ordinary rebuilds. Unless a new marketing version is explicitly requested, keep it unchanged and increment the build number for each new app build, including ordinary rebuilds. Documentation/instruction-only changes that produce no app build require no version or build-number change.
 - Record completed changes under `## Unreleased` in `CHANGELOG.md`. Keep concise user-visible changes, fixes and material limitations current as scope changes. Staging here means changelog notes, not `git add`, a commit, a tag or publication.
 - Only when the user asks in a separate prompt to release/version the staged changes: review the entire Unreleased section, determine the highest applicable Semantic Versioning category, advance the version once, and move all staged changes into a dated version section. Leave an empty Unreleased section for future work. Explain the chosen version in delivery. An explicit user-supplied version takes precedence.
 - Use PATCH for backward-compatible fixes, MINOR for backward-compatible features or deprecations, and MAJOR for incompatible supported workflows, interfaces, import/export formats or persistence. Internal refactoring or a compatible migration alone is not a major change. Preserve user data in all cases.
-- Edit only `Version.xcconfig`, the single source for `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`. A new marketing version starts at build `1`; advance the build alone only when explicitly asked for a separately numbered rebuild. Keep Settings and artifact names derived from the built bundle.
-- The user explicitly reset the baseline to **1.0.0 build 1** and removed earlier release history. Do not restore old changelog entries or infer a higher version from Git history or older artifacts. Ordinary requested DMGs retain the current version/build and may replace the matching generated artifact; creating a DMG does not authorize a version bump or promote staged notes.
+- Edit only `Version.xcconfig`, the single source for `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`. Reset the build number to `1` whenever the marketing version advances; otherwise increment the build number for each new app build without requiring a separate request. Keep Settings and artifact names derived from the built bundle.
+- The user explicitly reset the baseline to **1.0.0 build 1** and removed earlier release history. Do not restore old changelog entries or infer a higher version from Git history or older artifacts. Ordinary requested DMGs retain the current marketing version and use the build number of the app being packaged. Repackaging an existing app bundle alone does not advance its build number; creating a DMG does not authorize a marketing-version bump or promote staged notes.
 
 ## Documentation and delivery
 

@@ -82,6 +82,13 @@ Create folders from Add, and drag connection
 rows into folders. Folders have one level. Search matches
 names, hosts, users, protocols, and notes.
 
+Connection dots use the same colours in the sidebar, tabs and bottom status bar:
+orange while connecting or stale, green when connected, red on failure and grey
+when disconnected. Sessions configured to use a VPN also show its profile name
+and transport status in the bottom bar. Ready means the session’s VPN destination
+lease is available; it does not continuously verify the remote peer’s health.
+Direct sessions show no VPN indicator.
+
 The window title shows the active connection. Rounded session tabs sit above the
 lighter SSH view tabs; desktop sessions show no SSH view tabs. Terminal/Split View
 show zoom controls in minus/percentage/plus order (click the percentage to reset)
