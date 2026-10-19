@@ -25,6 +25,25 @@ import SwiftData
             let favorite: Bool
             let files: Bool?
         }
+        struct SFTP: Decodable {
+            struct Pane: Decodable {
+                struct Entry: Decodable {
+                    let name: String
+                    let directory: Bool
+                    let size: UInt64
+                }
+                let path: String
+                let folders: [String: [Entry]]
+                func files(at path: String) -> [TransferFile] {
+                    (folders[path] ?? []).map {
+                        TransferFile(name: $0.name, directory: $0.directory, regular: !$0.directory, size: $0.size)
+                    }
+                }
+            }
+            let local: Pane
+            let remote: Pane
+        }
+        let sftp: SFTP
         let vpns: [VPN]
         let connections: [Connection]
     }
@@ -63,15 +82,30 @@ import SwiftData
                 session.state == .connected && workspace.prompts.isEmpty,
                 "Demo session did not connect without prompts.")
             if saved.kind == .ssh {
-                try require(
-                    session.files.remoteFiles.count == SFTPController.showcaseFiles.count,
-                    "Demo remote file listing is missing.")
-                session.files.navigateRemote(path: "/home/research/Reports")
-                try require(
-                    session.files.remotePath == "/home/research/Reports", "Demo remote folder navigation failed.")
-                try require(
-                    session.files.localFiles.count == SFTPController.showcaseFiles.count,
-                    "Demo local file listing is missing.")
+                let localPath = sftp.local.path
+                let remotePath = sftp.remote.path
+                let expectedLocal = sftp.local.files(at: localPath)
+                let expectedRemote = sftp.remote.files(at: remotePath)
+                try require(session.files.remotePath == remotePath, "Demo remote starting path is incorrect.")
+                try require(session.files.remoteFiles == expectedRemote, "Demo remote listing differs from catalog.")
+                try require(session.files.localURL?.path == localPath, "Demo local starting path is incorrect.")
+                try require(session.files.localFiles == expectedLocal, "Demo local listing differs from catalog.")
+                for path in sftp.remote.folders.keys.sorted() {
+                    session.files.navigateRemote(path: path)
+                    try require(session.files.remotePath == path, "Demo remote navigation failed.")
+                    try require(
+                        session.files.remoteFiles == sftp.remote.files(at: path),
+                        "Demo remote folder differs from catalog.")
+                    try require(
+                        session.files.localFiles == expectedLocal, "Demo remote navigation changed local content.")
+                }
+                for path in sftp.local.folders.keys.sorted() {
+                    session.files.localURL = URL(fileURLWithPath: path, isDirectory: true)
+                    session.files.refreshLocal()
+                    try require(
+                        session.files.localFiles == sftp.local.files(at: path),
+                        "Demo local folder differs from catalog.")
+                }
             } else {
                 try require(session.desktop?.mailbox.snapshot()?.1.width == 1440, "Demo desktop frame is missing.")
                 try require(
@@ -93,6 +127,7 @@ import SwiftData
             "PASS showcase: \(connections.count) catalog connections and \(vpns.count) VPN profiles; seeded sessions, file/desktop content, reconnect and disconnect"
         )
     }
+    static var sftp: Catalog.SFTP!
     static var fileProfiles = Set<UUID>()
     static func loadCatalog() throws -> Catalog {
         guard let url = Bundle.main.url(forResource: "catalog", withExtension: "json") else {
@@ -110,6 +145,7 @@ import SwiftData
     }
     static func seed(_ container: ModelContainer) throws {
         let catalog = try loadCatalog()
+        sftp = catalog.sftp
         let context = container.mainContext
         var folders: [String: UUID] = [:]
         for connection in catalog.connections where folders[connection.folder] == nil {
@@ -131,7 +167,7 @@ import SwiftData
             vpnIDs.append(saved.id)
             var credential = ConnectionCredential()
             credential.wireGuardPrivateKey = Data(repeating: 24, count: 32).base64EncodedString()
-            credential.openVPNUsername = "barry.allen"
+            credential.openVPNUsername = "barry"
             try CredentialStore.save(credential, for: saved.id)
         }
         for connection in catalog.connections {

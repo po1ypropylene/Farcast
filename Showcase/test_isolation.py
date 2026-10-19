@@ -41,6 +41,37 @@ class ShowcaseIsolation(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.validate({'connections': [], 'vpns': []})
 
+    def test_sftp_panes_allow_independent_content_at_same_path(self):
+        catalog = json.loads((ROOT / 'Showcase/catalog.json').read_text())
+        catalog['sftp'] = {
+            'local': {'path': '/same', 'folders': {'/same': []}},
+            'remote': {'path': '/same', 'folders': {'/same': [
+                {'name': 'server-only.txt', 'directory': False, 'size': 43}]}}}
+        result = self.validate(catalog)['sftp']
+        self.assertEqual(result['local']['folders']['/same'], [])
+        self.assertEqual(result['remote']['folders']['/same'][0]['size'], 43)
+
+    def test_sftp_rejects_invalid_folder_content(self):
+        original = json.loads((ROOT / 'Showcase/catalog.json').read_text())
+        for side in ['local', 'remote']:
+            for change in ['relative', 'missing', 'negative', 'boolean_size', 'duplicate']:
+                with self.subTest(side=side, change=change):
+                    catalog = json.loads(json.dumps(original))
+                    pane = catalog['sftp'][side]
+                    entries = pane['folders'][pane['path']]
+                    if change == 'relative':
+                        pane['path'] = 'relative'
+                    elif change == 'missing':
+                        pane['folders'] = {}
+                    elif change == 'negative':
+                        entries[0]['size'] = -1
+                    elif change == 'boolean_size':
+                        entries[0]['size'] = True
+                    else:
+                        entries.append(entries[0].copy())
+                    with self.assertRaises(ValueError):
+                        self.validate(catalog)
+
     def test_catalog_rejects_trailing_comma(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'catalog.json'

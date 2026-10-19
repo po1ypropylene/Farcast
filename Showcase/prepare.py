@@ -33,6 +33,26 @@ def validate_catalog(path):
         vpn = connection.get('vpn')
         if vpn is not None and (type(vpn) is not int or not 0 <= vpn < len(vpns)):
             raise ValueError('connection VPN index is outside the vpns array')
+    sftp = catalog.get('sftp')
+    if not isinstance(sftp, dict):
+        raise ValueError('sftp needs independent local and remote panes')
+    for side in ['local', 'remote']:
+        pane = sftp.get(side)
+        if (not isinstance(pane, dict) or not isinstance(pane.get('path'), str) or
+                not pane['path'].startswith('/') or not isinstance(pane.get('folders'), dict) or
+                pane['path'] not in pane['folders']):
+            raise ValueError('each SFTP pane needs an absolute starting path and matching folders entry')
+        for path, entries in pane['folders'].items():
+            if not path.startswith('/') or not isinstance(entries, list):
+                raise ValueError('SFTP folders need absolute paths and entry arrays')
+            names = set()
+            for entry in entries:
+                if (not isinstance(entry, dict) or not isinstance(entry.get('name'), str) or
+                        entry['name'] in ['', '.', '..'] or '/' in entry['name'] or
+                        entry['name'] in names or not isinstance(entry.get('directory'), bool) or
+                        type(entry.get('size')) is not int or not 0 <= entry['size'] <= 2**64 - 1):
+                    raise ValueError('SFTP entries need unique filenames, boolean directory and UInt64 byte size')
+                names.add(entry['name'])
     return catalog
 
 
@@ -107,7 +127,7 @@ def prepare():
         values.removeValue(forKey: id)
     }''')
     files = 'Farcast/Features/Sessions/SFTPController.swift'
-    region(files, '        let realHome = getpwuid', '    private func saveHomeAccess', '''        self.homeURL = URL(fileURLWithPath: "/Users/barry.allen", isDirectory: true)
+    region(files, '        let realHome = getpwuid', '    private func saveHomeAccess', '''        self.homeURL = URL(fileURLWithPath: ShowcaseLibrary.sftp.local.path, isDirectory: true)
         localURL = self.homeURL
         needsLocalAccess = false
         refreshLocal()
@@ -121,7 +141,9 @@ def prepare():
         localURL = homeURL
         refreshLocal()
     }
-    func refreshLocal() { localFiles = Self.showcaseFiles }
+    func refreshLocal() {
+        localFiles = ShowcaseLibrary.sftp.local.files(at: localURL?.path ?? ShowcaseLibrary.sftp.local.path)
+    }
 ''')
     region(files, '    func open(_ file:', '    func openLocal(_ file:', '''    func open(_ file: TransferFile, local: Bool) {
         if file.directory {

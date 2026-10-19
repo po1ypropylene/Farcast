@@ -5,6 +5,8 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Match Showcase SSH and SFTP mock content to the existing screenshots; configure local and server folder paths/listings independently in the demo catalog.
+
 - Fix demo build verification after editing the sample connection count; report catalog/session errors clearly and verify the demo uses the current version and build.
 
 ## 1.6.0 — 2026-10-19

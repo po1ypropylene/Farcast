@@ -36,10 +36,28 @@ open .build/Xcode/Build/Products/Release/Farcast-demo.app --args --showcase-view
 # Also: files, rdp, vnc, vpn
 ```
 
-Edit `catalog.json` for connections and VPN metadata, `Session.swift` for terminal
-content, `Files.swift` for directory listings, and `ShowcaseDesktop.swift` for the
-original desktop artwork. Use reserved `.example` hosts. No external artwork is
-required. README screenshots are not modified by the build.
+Edit `catalog.json` for connections, VPN metadata and SFTP content. The SSH text
+in `Session.swift` and default SFTP entries reproduce the mock data in the existing
+README screenshots; connection metadata remains independently editable.
+
+Configure `sftp.local` and `sftp.remote` separately. Each pane has an absolute
+starting `path` and a `folders` object mapping absolute folder paths to entry arrays.
+Each entry has `name`, `directory` (boolean) and `size` (bytes). For example:
+
+```json
+{"path": "/research", "folders": {"/research": [
+  {"name": "archives", "directory": true, "size": 0},
+  {"name": "gideon-status.log", "directory": false, "size": 43}
+], "/research/archives": []}}
+```
+
+The starting path must have a listing. Use an empty array for an empty folder;
+unlisted folders also display empty. Local and remote navigation/refresh read only
+their own configured listings, including when both panes use the same path. No real
+folders are read or created. Rebuild the demo after editing the catalog.
+`Files.swift` adapts these listings, and `ShowcaseDesktop.swift` provides the original
+desktop artwork. Use fictional connection metadata. README screenshots are not
+modified by the build.
 
 `prepare.py` copies app sources/project into ignored `.build/showcase-source`, then
 applies checked source replacements and adds these support files there. Production

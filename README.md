@@ -26,7 +26,7 @@ owner-only, **unencrypted local files**.
 
 ![Local and remote SFTP file panels](docs/images/Farcast-SFTP.png)
 
-**Remote desktop display settings**
+**Remote desktop**
 
 <img src="docs/images/Farcast-RDP.png" alt="Remote desktop resolution and Retina settings" width="540">
 
