@@ -5,6 +5,9 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Restore SSH/RDP/VNC badges on connection rows, move favorite stars to the left, and offer the Add menu when right-clicking empty sidebar space.
+- Preview SSH terminal themes and font sizes using the screenshot app’s fictional terminal sample.
+
 - Match Showcase SSH and SFTP mock content to the existing screenshots; configure local and server folder paths/listings independently in the demo catalog.
 
 - Fix demo build verification after editing the sample connection count; report catalog/session errors clearly and verify the demo uses the current version and build.

@@ -83,6 +83,7 @@ struct WorkspaceView: View {
                             let bottom = anchors.map { geometry[$0].maxY }.max() ?? 0
                             let top = min(geometry.size.height, max(0, bottom))
                             SidebarRootDropTarget { move($0, to: nil) }
+                                .contextMenu { addMenuItems }
                                 .frame(height: geometry.size.height - top)
                                 .offset(y: top)
                         }
@@ -98,22 +99,7 @@ struct WorkspaceView: View {
                 Divider()
                 HStack {
                     Menu {
-                        Button("New SSH Connection") { create(.ssh) }
-                        Button("New RDP Connection") { create(.rdp) }
-                        Button("New VNC Connection") { create(.vnc) }
-                        Divider()
-                        Button("VPN Connections…") { workspace.showWireGuard = true }
-                        Button("Import from ~/.ssh/config…") { chooseSSHConfig() }
-                        Button("Import Test Servers…") { workspace.chooseTestServerFile() }
-                        Button("Import Existing Library…") { workspace.showLibraryImport = true }
-                            .disabled(!workspace.sessions.isEmpty)
-                        Divider()
-                        Button("New Folder…") {
-                            editingFolder = nil
-                            newFolderParentID = nil
-                            folderName = ""
-                            showFolderEditor = true
-                        }
+                        addMenuItems
                     } label: {
                         Label("Add", systemImage: "plus").frame(minWidth: 70, minHeight: 24).contentShape(Rectangle())
                     }.menuStyle(.borderlessButton).controlSize(.regular).frame(minWidth: 70, minHeight: 24)
@@ -398,6 +384,24 @@ struct WorkspaceView: View {
                     .animation(.easeInOut(duration: 0.15), value: expanded.wrappedValue)
                 }
             })
+    }
+    @ViewBuilder private var addMenuItems: some View {
+        Button("New SSH Connection") { create(.ssh) }
+        Button("New RDP Connection") { create(.rdp) }
+        Button("New VNC Connection") { create(.vnc) }
+        Divider()
+        Button("VPN Connections…") { workspace.showWireGuard = true }
+        Button("Import from ~/.ssh/config…") { chooseSSHConfig() }
+        Button("Import Test Servers…") { workspace.chooseTestServerFile() }
+        Button("Import Existing Library…") { workspace.showLibraryImport = true }
+            .disabled(!workspace.sessions.isEmpty)
+        Divider()
+        Button("New Folder…") {
+            editingFolder = nil
+            newFolderParentID = nil
+            folderName = ""
+            showFolderEditor = true
+        }
     }
     private func connectionRow(_ connection: SavedConnection, showsFolder: Bool) -> some View {
         SidebarConnectionRow(

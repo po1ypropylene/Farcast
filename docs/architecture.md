@@ -203,7 +203,9 @@ parent ID and collapse state live in SwiftData; legacy folders default to expand
 Favorite shortcuts share their saved connection identity and retain an independent optional
 sort order. Search includes ancestor folder names and temporarily reveals matching branches
 without changing saved collapse state. Removing a folder reparents its children and profiles
-without deleting credentials. Native List selection retains system accent and inactive styling. The unused sidebar area below
+without deleting credentials. Native List selection retains system accent and inactive styling. Protocol text badges remain on the trailing edge, with favorite stars on the leading edge.
+The Add button and empty-sidebar context menu share their creation/import actions.
+The unused sidebar area below
 visible content accepts connection drops to the root; measured row bounds keep this target
 separate from folder labels and favorite shortcuts.
 SSH output sets a per-session unread flag for background tabs, cleared on session selection;
@@ -226,7 +228,8 @@ The editor is a 540 × 600-point sheet capped to its presenting window, with a
 128-point label column and 12-point gaps. General, Display, Devices & audio,
 Terminal and Security tabs appear as applicable. Header/tabs/actions stay fixed;
 one body scroll view handles short windows and long folder lists. Tab state starts
-on General and falls back there if a tab becomes unavailable. All tabs share the
+on General and falls back there if a tab becomes unavailable. The Terminal tab previews its theme and font size through the local terminal renderer
+using fictional sample output shared with the screenshot app. All tabs share the
 draft/credentials; switching tabs never reloads values. Validation appears after
 leaving a required field or attempting Save; new tunnels defer field errors until
 edited fields lose focus or Save is attempted. Errors appear inline once, with

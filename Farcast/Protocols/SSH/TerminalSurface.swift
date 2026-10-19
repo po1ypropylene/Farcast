@@ -14,7 +14,11 @@ import SwiftUI
             options: TerminalOptions(scrollback: 10_000))
         super.init()
         view.terminalDelegate = self
-        switch profile.terminalTheme {
+        applyAppearance(theme: profile.terminalTheme, fontSize: profile.fontSize)
+    }
+    func applyAppearance(theme: String, fontSize: Double) {
+        view.font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        switch theme {
         case "Paper":
             view.nativeBackgroundColor = NSColor(calibratedWhite: 0.97, alpha: 1)
             view.nativeForegroundColor = NSColor(calibratedWhite: 0.12, alpha: 1)

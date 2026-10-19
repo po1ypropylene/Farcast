@@ -417,6 +417,11 @@ struct ConnectionEditor: View {
                     Spacer(minLength: 0)
                 }
             }
+            TerminalThemePreview(theme: draft.terminalTheme, fontSize: draft.fontSize)
+                .frame(height: 300)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.quaternary))
+                .accessibilityLabel("Terminal preview, \(draft.terminalTheme), \(Int(draft.fontSize)) points")
         }
     }
     private var display: some View {

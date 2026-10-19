@@ -72,6 +72,22 @@ private final class InspectorRDPClient: FCRDPClient {
         }
         settle()
         try snapshot("home", window: window)
+        for theme in ["Midnight", "Solarized", "Paper"] {
+            for size in [13.0, 24.0] {
+                var previewDraft = ConnectionDraft()
+                previewDraft.terminalTheme = theme
+                previewDraft.fontSize = size
+                window.contentView = NSHostingView(
+                    rootView: ConnectionEditor(
+                        workspace: workspace,
+                        request: EditorRequest(draft: previewDraft, mode: .create, initialTab: .terminal),
+                        loadCredential: { _ in nil }
+                    ).modelContainer(container))
+                settle()
+                try snapshot("terminal-preview-\(theme)-\(Int(size))", window: window)
+            }
+        }
+        print("PASS native SSH appearance editor renders all themes at normal and enlarged font sizes")
         // Review every protocol with native selected/unselected rows and compact tabs.
         let iconWorkspace = Workspace(loadCredential: { _ in ConnectionCredential() }, defaults: defaults)
         let iconProfiles = RemoteProtocol.allCases.map { kind in

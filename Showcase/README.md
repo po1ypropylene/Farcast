@@ -36,8 +36,8 @@ open .build/Xcode/Build/Products/Release/Farcast-demo.app --args --showcase-view
 # Also: files, rdp, vnc, vpn
 ```
 
-Edit `catalog.json` for connections, VPN metadata and SFTP content. The SSH text
-in `Session.swift` and default SFTP entries reproduce the mock data in the existing
+Edit `catalog.json` for connections, VPN metadata and SFTP content. The shared SSH preview text
+in `Farcast/Protocols/SSH/TerminalSample.swift` and default SFTP entries reproduce the mock data in the existing
 README screenshots; connection metadata remains independently editable.
 
 Configure `sftp.local` and `sftp.remote` separately. Each pane has an absolute

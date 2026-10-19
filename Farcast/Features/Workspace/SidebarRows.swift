@@ -188,6 +188,16 @@ struct SidebarConnectionRow: View {
     }
     var body: some View {
         HStack(spacing: 10) {
+            Group {
+                Button(action: toggleFavorite) {
+                    Image(systemName: connection.favorite ? "star.fill" : "star")
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                }.buttonStyle(.borderless)
+                    .opacity(connection.favorite || hovering ? 1 : 0)
+                    .accessibilityHidden(!connection.favorite && !hovering)
+                    .help(connection.favorite ? "Remove from Favorites" : "Add to Favorites")
+                    .accessibilityLabel(connection.favorite ? "Remove from Favorites" : "Add to Favorites")
+            }
             TimelineView(.periodic(from: .now, by: 1)) { _ in
                 let session = workspace.sidebarSession(for: connection.id)
                 ConnectionProtocolIcon(
@@ -219,14 +229,10 @@ struct SidebarConnectionRow: View {
                 }.font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
-            if connection.favorite || hovering {
-                Button(action: toggleFavorite) {
-                    Image(systemName: connection.favorite ? "star.fill" : "star")
-                        .font(.system(size: 10)).foregroundStyle(.secondary)
-                }.buttonStyle(.borderless)
-                    .help(connection.favorite ? "Remove from Favorites" : "Add to Favorites")
-                    .accessibilityLabel(connection.favorite ? "Remove from Favorites" : "Add to Favorites")
-            }
+            Text(connection.kind.rawValue)
+                .font(.system(size: 9, weight: .semibold))
+                .padding(.horizontal, 5).padding(.vertical, 2)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
             SidebarSessionState(workspace: workspace, profileID: connection.id)
         }.padding(.vertical, 3).contentShape(Rectangle()).onHover { hovering = $0 }
             .help(help).accessibilityElement(children: .contain)

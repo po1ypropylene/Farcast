@@ -105,6 +105,8 @@ features, and [packaging](packaging.md) for signing requirements.
 `scripts/test-sidebar-migration.sh` opens an owned pre-sidebar schema with the
 current models, verifies retained profiles and folder IDs, and reopens new collapse
 metadata. Core tests cover nested folder metadata, favorite ordering persistence, SSH config first-match defaults, proxy exclusion and input bounds.
+The workspace presentation harness renders SSH theme previews at normal and enlarged font sizes
+using the terminal renderer and fictional output shared with the screenshot app.
 The workspace presentation harness renders sidebar hierarchy and connection states
 using synthetic profiles in light/dark appearances, including configured VPN names
 and missing-profile labels in connection subtitles. Protocol-icon previews include
