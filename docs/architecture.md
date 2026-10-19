@@ -229,7 +229,7 @@ The editor is a 540 × 600-point sheet capped to its presenting window, with a
 Terminal and Security tabs appear as applicable. Header/tabs/actions stay fixed;
 one body scroll view handles short windows and long folder lists. Tab state starts
 on General and falls back there if a tab becomes unavailable. The Terminal tab previews its theme and font size through the local terminal renderer
-using fictional sample output shared with the screenshot app. All tabs share the
+using self-contained fictional sample output. All tabs share the
 draft/credentials; switching tabs never reloads values. Validation appears after
 leaving a required field or attempting Save; new tunnels defer field errors until
 edited fields lose focus or Save is attempted. Errors appear inline once, with
@@ -763,7 +763,7 @@ See [development](development.md) for commands and cache relocation.
 Packaging relocates the native dependency closure and ships notices. Local builds
 retain a pinned certificate requirement with hardened runtime disabled; distribution
 requires Developer ID, hardened runtime and notarization. Version.xcconfig owns
-version/build metadata. Production and screenshot build scripts share one build-number
+version/build metadata. The app build script uses a locked build-number
 reservation helper; every app build advances by one across marketing versions,
 without a reset. Final bundle, loader, sandboxed-helper, mounted-DMG and
 SHA256 checks are required; see [packaging](packaging.md) and [testing](testing.md).
@@ -811,16 +811,3 @@ decompression requires explicit import consent recorded in the protected profile
 Core uses asymmetric compression mode and never compresses outgoing traffic. Route exclusions
 and unsupported pushed tunnel settings fail rather than silently changing policy.
 Native logs are discarded; helper responses contain fixed error categories only.
-
-## Screenshot app isolation
-
-`Showcase` owns a reusable screenshot build, sample catalog and local session
-simulations outside the synchronized production source folder. Its build copies
-current app sources/project into an ignored tree, replaces session startup and
-credential/file access there, and adds the sample support files only to that copy.
-The production target has no conditional or runtime showcase feature. The separate
-`com.peterpo.farcast.showcase` identity isolates preferences and sandbox data; its
-SwiftData library and credentials are in memory. It displays the same native UI.
-`Farcast-demo.app` sits beside the normal Release app; DMG staging selects only
-`Farcast.app`. See [the screenshot build](../Showcase/README.md) for commands and
-simulation limits.

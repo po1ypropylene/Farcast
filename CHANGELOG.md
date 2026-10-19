@@ -5,6 +5,8 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Move screenshot-app tooling into a separate repository; building Farcast and previewing terminal themes require only this public checkout.
+
 - Restore SSH/RDP/VNC badges on connection rows, move favorite stars to the left, and offer the Add menu when right-clicking empty sidebar space.
 - Preview SSH terminal themes and font sizes using the screenshot app’s fictional terminal sample.
 

@@ -24,7 +24,6 @@ stated scope; disabled live entries report SKIP.
 | OpenVPN | Safe profile import, credential coding, ZIP/folder/manual companion import, UDP/TCP TLS negotiation, legacy AES-CBC/LZO framing, encrypted outbound IP delivery, certificate rejection, shared leases, route refusal and cancellation against an owned null-device peer | Synthetic certificates only; production interoperability and full desktop/file traffic remain unverified |
 | WireGuard | Encrypted loopback traffic, concurrent SSH/SFTP/RDP/VNC on one helper, independent disconnect/reconnect, DNS/route and host-key refusal, shared-helper failure/cleanup and schema migration | Generated keys and owned peers |
 | Packaging/signing | Platform, library closure, signatures, loader, sandboxed helper, certificate continuity, mounted bundle and SHA256 | Local development artifact; distribution is separate |
-| Screenshot app | Editable catalog validation, separate source assembly, production source/bundle exclusion, catalog-matched session counts, seeded SSH/SFTP/RDP/VNC and VPN state, reconnect/disconnect, current version/build and signed bundle checks | Local simulations only; no protocol or VPN interoperability proof |
 | Maintenance | Cleanup boundaries, dependency rollback, signing policy, harness teardown and repository hygiene | Disposable files and mocked destructive operations |
 
 ## Known implementation limits
@@ -106,7 +105,7 @@ features, and [packaging](packaging.md) for signing requirements.
 current models, verifies retained profiles and folder IDs, and reopens new collapse
 metadata. Core tests cover nested folder metadata, favorite ordering persistence, SSH config first-match defaults, proxy exclusion and input bounds.
 The workspace presentation harness renders SSH theme previews at normal and enlarged font sizes
-using the terminal renderer and fictional output shared with the screenshot app.
+using the terminal renderer and self-contained fictional output.
 The workspace presentation harness renders sidebar hierarchy and connection states
 using synthetic profiles in light/dark appearances, including configured VPN names
 and missing-profile labels in connection subtitles. Protocol-icon previews include

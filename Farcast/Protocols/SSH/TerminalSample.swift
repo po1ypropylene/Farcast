@@ -1,4 +1,4 @@
-/// Fictional output shared by the appearance preview and screenshot app.
+/// Self-contained fictional output for the terminal appearance preview.
 enum TerminalSample {
     static let prompt = "barry@star-labs:~$ "
     static let text = """

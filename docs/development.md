@@ -16,7 +16,9 @@ open ".build/Xcode/Build/Products/Release/Farcast.app"
 ```
 
 Alternatively, prepare dependencies, open `Farcast.xcodeproj` and Run. Allow the
-pinned SwiftTerm build plugin if Xcode requests approval.
+pinned SwiftTerm build plugin if Xcode requests approval. The public checkout contains
+all app sources, preview content and build scripts; no private repository, submodule
+or demo tooling is required.
 
 ## Maintenance tools
 
@@ -84,8 +86,8 @@ version and positive integer build number. Both Debug and Release read it. The
 current baseline was explicitly reset to **1.0.0 build 1**; earlier changelog history
 was removed. Do not restore the old history or versions from older artifacts.
 
-Ordinary work keeps the marketing version unchanged. `scripts/build.sh` and
-`Showcase/build.sh` automatically increment the shared build number in
+Ordinary work keeps the marketing version unchanged. `scripts/build.sh`
+automatically increments the build number in
 Version.xcconfig by exactly one before each new app build. Failed compilations
 retain their reserved number; do not roll it back. Packaging an existing app does
 not advance either number. Stage completed user-visible

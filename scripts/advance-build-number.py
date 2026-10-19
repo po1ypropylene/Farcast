@@ -6,7 +6,7 @@ import re
 
 
 def advance(path: Path) -> int:
-    # Serialise reservations by the production and screenshot build scripts.
+    # Serialise build-number reservations by concurrent app builds.
     with path.open('r+') as file:
         fcntl.flock(file, fcntl.LOCK_EX)
         source = file.read()
