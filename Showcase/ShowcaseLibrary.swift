@@ -2,6 +2,12 @@ import AppKit
 import SwiftData
 
 @MainActor enum ShowcaseLibrary {
+    struct VerificationError: LocalizedError {
+        let errorDescription: String?
+    }
+    static func require(_ condition: Bool, _ message: String) throws {
+        guard condition else { throw VerificationError(errorDescription: message) }
+    }
     struct Catalog: Decodable {
         struct VPN: Decodable {
             let name: String
@@ -44,32 +50,66 @@ import SwiftData
         workspace.modelContext = container.mainContext
         let connections = try container.mainContext.fetch(FetchDescriptor<SavedConnection>())
         let vpns = try container.mainContext.fetch(FetchDescriptor<SavedWireGuard>())
-        precondition(connections.count >= 6 && vpns.count >= 3)
+        let catalog = try loadCatalog()
+        try require(
+            connections.count == catalog.connections.count && vpns.count == catalog.vpns.count,
+            "Seeded library does not match catalog connection/VPN counts.")
         for saved in connections {
             workspace.connect(ConnectionDraft(saved))
-            let session = workspace.sessions.last!
-            precondition(session.state == .connected && workspace.prompts.isEmpty)
-            if saved.kind == .ssh {
-                precondition(session.files.remoteFiles.count == 9)
-                session.files.navigateRemote(path: "/home/research/Reports")
-                precondition(session.files.remotePath == "/home/research/Reports")
-                precondition(session.files.localFiles.count == 9)
-            } else {
-                precondition(session.desktop?.mailbox.snapshot()?.1.width == 1440)
-                precondition(session.observedDesktopSize == CGSize(width: 1440, height: 900))
+            guard let session = workspace.sessions.last else {
+                throw VerificationError(errorDescription: "Demo connection did not create a session.")
             }
-            if saved.wireGuardID != nil { precondition(session.vpnState == .connected) }
+            try require(
+                session.state == .connected && workspace.prompts.isEmpty,
+                "Demo session did not connect without prompts.")
+            if saved.kind == .ssh {
+                try require(
+                    session.files.remoteFiles.count == SFTPController.showcaseFiles.count,
+                    "Demo remote file listing is missing.")
+                session.files.navigateRemote(path: "/home/research/Reports")
+                try require(
+                    session.files.remotePath == "/home/research/Reports", "Demo remote folder navigation failed.")
+                try require(
+                    session.files.localFiles.count == SFTPController.showcaseFiles.count,
+                    "Demo local file listing is missing.")
+            } else {
+                try require(session.desktop?.mailbox.snapshot()?.1.width == 1440, "Demo desktop frame is missing.")
+                try require(
+                    session.observedDesktopSize == CGSize(width: 1440, height: 900),
+                    "Demo desktop dimensions are incorrect.")
+            }
+            if saved.wireGuardID != nil {
+                try require(session.vpnState == .connected, "Demo VPN status is not connected.")
+            }
             workspace.reconnect(session)
-            precondition(workspace.sessions.last!.state == .connected)
-            workspace.sessions.last!.disconnect()
-            precondition(workspace.sessions.last!.state == .disconnected)
+            guard let reconnected = workspace.sessions.last else {
+                throw VerificationError(errorDescription: "Demo reconnect did not create a session.")
+            }
+            try require(reconnected.state == .connected, "Demo reconnect failed.")
+            reconnected.disconnect()
+            try require(reconnected.state == .disconnected, "Demo disconnect failed.")
         }
-        print("PASS showcase: seeded library, SSH, SFTP browsing, RDP/VNC frames, VPN status, reconnect and disconnect")
+        print(
+            "PASS showcase: \(connections.count) catalog connections and \(vpns.count) VPN profiles; seeded sessions, file/desktop content, reconnect and disconnect"
+        )
     }
     static var fileProfiles = Set<UUID>()
-    static func seed(_ container: ModelContainer) throws {
-        let url = Bundle.main.url(forResource: "catalog", withExtension: "json")!
+    static func loadCatalog() throws -> Catalog {
+        guard let url = Bundle.main.url(forResource: "catalog", withExtension: "json") else {
+            throw VerificationError(errorDescription: "Demo catalog resource is missing.")
+        }
         let catalog = try JSONDecoder().decode(Catalog.self, from: Data(contentsOf: url))
+        try require(!catalog.connections.isEmpty, "Demo catalog must contain at least one connection.")
+        for connection in catalog.connections {
+            try require(RemoteProtocol(rawValue: connection.kind) != nil, "Demo catalog has an unsupported protocol.")
+            if let vpn = connection.vpn {
+                try require(catalog.vpns.indices.contains(vpn), "Demo catalog has an invalid VPN index.")
+            }
+        }
+        return catalog
+    }
+    static func seed(_ container: ModelContainer) throws {
+        let catalog = try loadCatalog()
         let context = container.mainContext
         var folders: [String: UUID] = [:]
         for connection in catalog.connections where folders[connection.folder] == nil {

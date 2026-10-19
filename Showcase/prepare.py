@@ -1,10 +1,39 @@
 #!/usr/bin/env python3
 """Assemble an isolated source tree; production sources never import showcase code."""
 from pathlib import Path
+import json
 import shutil
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 DEST = ROOT / '.build/showcase-source'
+
+
+def validate_catalog(path):
+    """Reject invalid editable input before signing, compilation or build reservation."""
+    catalog = json.loads(path.read_text())
+    if not isinstance(catalog, dict):
+        raise ValueError('catalog must be an object')
+    connections = catalog.get('connections')
+    vpns = catalog.get('vpns')
+    if not isinstance(connections, list) or not connections or not isinstance(vpns, list):
+        raise ValueError('catalog needs a nonempty connections array and a vpns array')
+    for vpn in vpns:
+        if (not isinstance(vpn, dict) or
+                any(not isinstance(vpn.get(key), str) for key in ['name', 'endpoint', 'address']) or
+                not isinstance(vpn.get('openVPN'), bool)):
+            raise ValueError('VPN profiles need name, endpoint, address and openVPN fields')
+    for connection in connections:
+        if (not isinstance(connection, dict) or
+                any(not isinstance(connection.get(key), str) for key in ['name', 'host', 'username', 'folder']) or
+                connection.get('kind') not in ['SSH', 'RDP', 'VNC'] or
+                not isinstance(connection.get('favorite'), bool) or
+                (connection.get('files') is not None and not isinstance(connection['files'], bool))):
+            raise ValueError('connections need string metadata, SSH/RDP/VNC kind and boolean favorite/files fields')
+        vpn = connection.get('vpn')
+        if vpn is not None and (type(vpn) is not int or not 0 <= vpn < len(vpns)):
+            raise ValueError('connection VPN index is outside the vpns array')
+    return catalog
 
 
 def replace(path, old, new):
@@ -24,6 +53,7 @@ def region(path, start, end, replacement):
 
 
 def prepare():
+    validate_catalog(ROOT / 'Showcase/catalog.json')
     if DEST.exists():
         shutil.rmtree(DEST)
     DEST.mkdir(parents=True)
@@ -43,6 +73,12 @@ def prepare():
                 exit(EXIT_SUCCESS)
             }
             container = library''')
+    replace(app, '            startupError = error.localizedDescription',
+            '''            if ProcessInfo.processInfo.arguments.contains("--verify-showcase") {
+                FileHandle.standardError.write(Data("FAIL showcase: \\(error.localizedDescription)\\n".utf8))
+                exit(EXIT_FAILURE)
+            }
+            startupError = error.localizedDescription''')
     for name in ['ShowcaseLibrary.swift', 'ShowcaseDesktop.swift', 'catalog.json']:
         shutil.copy2(ROOT / 'Showcase' / name, DEST / 'Farcast' / name)
     session = 'Farcast/Features/Sessions/RemoteSession.swift'
@@ -108,4 +144,10 @@ def prepare():
 
 
 if __name__ == '__main__':
-    prepare()
+    try:
+        if sys.argv[1:] == ['--validate-catalog']:
+            validate_catalog(ROOT / 'Showcase/catalog.json')
+        else:
+            prepare()
+    except (ValueError, OSError) as error:
+        raise SystemExit(f'Invalid Showcase/catalog.json: {error}')

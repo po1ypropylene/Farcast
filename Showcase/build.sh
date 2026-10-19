@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+python3 Showcase/prepare.py --validate-catalog
 signing_identity="$(python3 scripts/local-signing.py select)"
 [[ "$signing_identity" != - ]] || { echo 'Showcase builds require the pinned development certificate.' >&2; exit 1; }
 # Reuse the standard dependency preparation and signing policy.

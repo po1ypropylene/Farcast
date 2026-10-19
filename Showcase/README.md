@@ -13,11 +13,15 @@ open .build/Xcode/Build/Products/Release/Farcast-demo.app
 
 The build reuses the pinned certificate and native dependencies. It increments the build
 number in `Version.xcconfig` for each app build, keeping the marketing version.
+Catalog validation runs before reserving a build number. Verification checks the
+built version/build and every configured session without requiring a fixed number
+of sample connections or VPNs. Invalid catalogs and session failures report errors;
+a failed build preserves the previous demo, which can still show an older version.
 The output sits beside `Farcast.app`; the normal app is never replaced. The DMG
 script stages only `Farcast.app` and excludes this app.
 
 Double-click any saved connection. SSH renders terminal output locally and echoes
-typed input, with a fixed response on Enter. The Archives connection opens Files;
+typed input, with a fixed response on Enter. Connections marked `"files": true` open Files;
 other SSH connections support Terminal, Files and Split using the same session.
 SFTP shows synthetic listings on both sides and supports folder navigation and
 filtering; file contents and transfers are not implemented. RDP and VNC render
