@@ -192,13 +192,16 @@ bundle/path strings are restricted to migration recognition and test provenance.
 Brand assets and regeneration are documented in [branding](branding.md); control
 sizes, focus and accessibility rules are in [UI guidelines](ui-guidelines.md).
 Terminal/Split background fills respect safe-area edges; the sidebar retains its
-own native material. Sidebar destinations resolve VPN names from live metadata, show missing references
+own native material. Sidebar destination subtitles show user@host via VPN name for
+routed profiles, resolve VPN names from live metadata, show missing references
 explicitly and expose full endpoints in tooltips and Get Info. Folder identity, optional
 parent ID and collapse state live in SwiftData; legacy folders default to expanded roots.
 Favorite shortcuts share their saved connection identity and retain an independent optional
 sort order. Search includes ancestor folder names and temporarily reveals matching branches
 without changing saved collapse state. Removing a folder reparents its children and profiles
-without deleting credentials. Native List selection retains system accent and inactive styling.
+without deleting credentials. Native List selection retains system accent and inactive styling. The unused sidebar area below
+visible content accepts connection drops to the root; measured row bounds keep this target
+separate from folder labels and favorite shortcuts.
 SSH output sets a per-session unread flag for background tabs, cleared on session selection;
 this uses the existing backpressured main-thread delivery and records no terminal contents.
 SSH config import reads only a user-selected, bounded UTF-8 file and previews metadata.
@@ -753,7 +756,9 @@ See [development](development.md) for commands and cache relocation.
 Packaging relocates the native dependency closure and ships notices. Local builds
 retain a pinned certificate requirement with hardened runtime disabled; distribution
 requires Developer ID, hardened runtime and notarization. Version.xcconfig owns
-version/build metadata. Final bundle, loader, sandboxed-helper, mounted-DMG and
+version/build metadata. Production and screenshot build scripts share one build-number
+reservation helper; every app build advances by one across marketing versions,
+without a reset. Final bundle, loader, sandboxed-helper, mounted-DMG and
 SHA256 checks are required; see [packaging](packaging.md) and [testing](testing.md).
 
 ## Unsupported features

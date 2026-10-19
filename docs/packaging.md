@@ -87,6 +87,8 @@ IPv4/IPv6 loopback listener code in the signed sandboxed parent. It uses disposa
 sockets before UI/storage initialization and supplies no SSH credentials. Protocol
 forwarding is verified separately against owned SSH fixtures.
 
+`build.sh` automatically reserves the next build number before compilation,
+independently of the marketing version. Build numbers never reset.
 `build-dmg.sh` never builds the app or changes its build number. Run `build.sh`
 once and complete app testing first; packaging verifies that existing Release
 bundle and checks its version/build against Version.xcconfig before staging.

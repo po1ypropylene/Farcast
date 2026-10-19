@@ -46,8 +46,8 @@ DMG creation packages the existing verified Release app; it must never invoke an
 app build or advance the build number. Build once, test that bundle, then package it.
 Do not package separately for individual fixes or logical changes within the request.
 Keep the current marketing version unless a separate release prompt authorizes advancing
-it. Advance the build number for each new app build; reset it to `1` when the marketing
-version advances. Verify the mounted final bundle and SHA256 and deliver the versioned DMG path.
+it. Advance the build number by exactly one for each new app build, independently of
+marketing version changes; never reset it. Verify the mounted final bundle and SHA256 and deliver the versioned DMG path.
 If final packaging exposes a failure, fix it and repeat only the necessary packaging
 checks. Requests specifically about DMG creation, packaging or mounted-image behavior
 may require intermediate DMGs. Documentation/instruction-only changes require no app
@@ -72,7 +72,7 @@ Run swift-format using .swift-format for owned Swift sources. Objective-C adapte
 - Record completed changes under `## Unreleased` in `CHANGELOG.md`. Keep concise user-visible changes, fixes and material limitations current as scope changes. Staging here means changelog notes, not `git add`, a commit, a tag or publication.
 - Only when the user asks in a separate prompt to release/version the staged changes: review the entire Unreleased section, determine the highest applicable Semantic Versioning category, advance the version once, and move all staged changes into a dated version section. Leave an empty Unreleased section for future work. Explain the chosen version in delivery. An explicit user-supplied version takes precedence.
 - Use PATCH for backward-compatible fixes, MINOR for backward-compatible features or deprecations, and MAJOR for incompatible supported workflows, interfaces, import/export formats or persistence. Internal refactoring or a compatible migration alone is not a major change. Preserve user data in all cases.
-- Edit only `Version.xcconfig`, the single source for `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`. Reset the build number to `1` whenever the marketing version advances; otherwise increment the build number for each new app build without requiring a separate request. Keep Settings and artifact names derived from the built bundle.
+- Edit only `Version.xcconfig`, the single source for `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`. The build number grows monotonically across all marketing versions and never resets. `scripts/build.sh` advances it by exactly one for each new app build without requiring a separate request; changing the marketing version alone does not advance it. Keep Settings and artifact names derived from the built bundle.
 - The user explicitly reset the baseline to **1.0.0 build 1** and removed earlier release history. Do not restore old changelog entries or infer a higher version from Git history or older artifacts. Ordinary requested DMGs retain the current marketing version and use the build number of the app being packaged. Repackaging an existing app bundle alone does not advance its build number; creating a DMG does not authorize a marketing-version bump or promote staged notes.
 
 ## Documentation and delivery

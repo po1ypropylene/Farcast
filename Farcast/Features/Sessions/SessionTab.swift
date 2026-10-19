@@ -17,7 +17,6 @@ struct SessionTab: View {
                         kind: session.profile.kind,
                         routed: session.profile.wireGuardID != nil, vpnState: session.vpnState
                     )
-                    .scaleEffect(0.8).frame(width: 18, height: 18)
                     if session.hasUnreadOutput {
                         Image(systemName: "waveform").font(.caption).foregroundStyle(.secondary)
                             .help("New terminal output").accessibilityLabel("New terminal output")

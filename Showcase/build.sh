@@ -7,17 +7,7 @@ signing_identity="$(python3 scripts/local-signing.py select)"
 [[ -f Vendor/Native/lib/libssh2.1.dylib && -f Vendor/Native/lib/libfreerdp3.3.dylib && "$(cat Vendor/Native/.platform 2>/dev/null)" == arm64-macos27-audio1 && "$(cat Vendor/Native/.build-inputs 2>/dev/null)" == "$(shasum -a 256 scripts/prepare-dependencies.sh)" ]] || scripts/prepare-dependencies.sh
 scripts/prepare-wireguard.sh
 # Every new compilation advances the shared build number, retaining the version.
-python3 - <<'PYVERSION'
-from pathlib import Path
-import re
-path = Path('Version.xcconfig')
-text = path.read_text()
-text, count = re.subn(r'(CURRENT_PROJECT_VERSION = )(\d+)',
-                     lambda match: match[1] + str(int(match[2]) + 1), text)
-if count != 1:
-    raise SystemExit('Expected one build number in Version.xcconfig')
-path.write_text(text)
-PYVERSION
+python3 scripts/advance-build-number.py
 python3 Showcase/prepare.py
 rm -rf .build/Showcase/Build/Products/Release/Farcast.app
 xcodebuild -project .build/showcase-source/Farcast.xcodeproj -scheme Farcast -configuration Release \

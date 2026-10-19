@@ -11,6 +11,7 @@ struct WorkspaceView: View {
     @ObservedObject var workspace: Workspace
     @State private var search = ""
     @State private var selectedProfileID: UUID?
+    @FocusState private var sidebarFocused: Bool
     @State private var folderName = ""
     @State private var showFolderEditor = false
     @State private var editingFolder: ConnectionFolder?
@@ -77,6 +78,16 @@ struct WorkspaceView: View {
                         .dropDestination(for: String.self) { values, _ in return move(values, to: nil) }
                     }
                 }.listStyle(.sidebar)
+                    .overlayPreferenceValue(SidebarContentBoundsKey.self) { anchors in
+                        GeometryReader { geometry in
+                            let bottom = anchors.map { geometry[$0].maxY }.max() ?? 0
+                            let top = min(geometry.size.height, max(0, bottom))
+                            SidebarRootDropTarget { move($0, to: nil) }
+                                .frame(height: geometry.size.height - top)
+                                .offset(y: top)
+                        }
+                    }
+                    .focused($sidebarFocused)
                     .onKeyPress(.return) {
                         guard workspace.editor == nil,
                             let selected = connections.first(where: { $0.id == selectedProfileID })
@@ -362,31 +373,34 @@ struct WorkspaceView: View {
                         ForEach(filtered.filter { $0.folderID == folder.id }) { connectionRow($0, showsFolder: false) }
                         if matches.isEmpty {
                             Text("No connections").font(.caption).foregroundStyle(.secondary)
+                                .anchorPreference(key: SidebarContentBoundsKey.self, value: .bounds) { [$0] }
                         }
                     } label: {
-                        SidebarFolderLabel(name: folder.name, count: matches.count, expanded: expanded.wrappedValue)
-                            .contextMenu {
-                                Menu("New Connection in Folder") {
-                                    ForEach(RemoteProtocol.allCases) { kind in
-                                        Button(kind.rawValue) { create(kind, folderID: folder.id) }
-                                    }
+                        SidebarFolderLabel(
+                            name: folder.name, count: matches.count, expanded: expanded.wrappedValue,
+                            dropConnections: { move($0, to: folder.id) }
+                        )
+                        .contextMenu {
+                            Menu("New Connection in Folder") {
+                                ForEach(RemoteProtocol.allCases) { kind in
+                                    Button(kind.rawValue) { create(kind, folderID: folder.id) }
                                 }
-                                Button("New Subfolder…") {
-                                    editingFolder = nil
-                                    newFolderParentID = folder.id
-                                    folderName = ""
-                                    showFolderEditor = true
-                                }
-                                Button("Rename Folder…") {
-                                    editingFolder = folder
-                                    folderName = folder.name
-                                    showFolderEditor = true
-                                }
-                                Button("Delete Folder…", role: .destructive) { deletingFolder = folder }
                             }
+                            Button("New Subfolder…") {
+                                editingFolder = nil
+                                newFolderParentID = folder.id
+                                folderName = ""
+                                showFolderEditor = true
+                            }
+                            Button("Rename Folder…") {
+                                editingFolder = folder
+                                folderName = folder.name
+                                showFolderEditor = true
+                            }
+                            Button("Delete Folder…", role: .destructive) { deletingFolder = folder }
+                        }
                     }
                     .animation(.easeInOut(duration: 0.15), value: expanded.wrappedValue)
-                    .dropDestination(for: String.self) { values, _ in return move(values, to: folder.id) }
                 }
             })
     }
@@ -398,8 +412,9 @@ struct WorkspaceView: View {
             toggleFavorite: {
                 connection.favorite.toggle()
                 save()
-            }
+            }, selected: selectedProfileID == connection.id, selectionEmphasized: sidebarFocused
         )
+        .anchorPreference(key: SidebarContentBoundsKey.self, value: .bounds) { [$0] }
         .tag(connection.id).contentShape(Rectangle())
         .accessibilityAction(named: "Connect") { connect(connection) }
         .onTapGesture(count: 2) { connect(connection) }
@@ -458,14 +473,16 @@ struct WorkspaceView: View {
                     }.padding(.top, 18)
                     HStack(spacing: 16) {
                         launchCard(
-                            "SSH Terminal", subtitle: "A secure shell, right here.", icon: "terminal", color: .teal
+                            "SSH Terminal", subtitle: "A secure shell, right here.", kind: .ssh,
+                            color: .teal
                         ) { create(.ssh) }
                         launchCard(
-                            "Remote Desktop", subtitle: "Control your Windows servers.", icon: "desktopcomputer",
+                            "Remote Desktop", subtitle: "Control your Windows servers.", kind: .rdp,
                             color: .indigo
                         ) { create(.rdp) }
                         launchCard(
-                            "VNC Desktop", subtitle: "Control a VNC server.", icon: "display", color: .orange
+                            "VNC Desktop", subtitle: "Control a VNC server.", kind: .vnc,
+                            color: .orange
                         ) { create(.vnc) }
                     }
                     if let selected = connections.first(where: { $0.id == selectedProfileID }) {
@@ -496,13 +513,15 @@ struct WorkspaceView: View {
             }
         }
     }
-    private func launchCard(_ title: String, subtitle: String, icon: String, color: Color, action: @escaping () -> Void)
+    private func launchCard(
+        _ title: String, subtitle: String, kind: RemoteProtocol, color: Color, action: @escaping () -> Void
+    )
         -> some View
     {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 16) {
                 HStack {
-                    Image(systemName: icon).font(.title).foregroundStyle(color)
+                    ConnectionProtocolIcon(kind: kind, size: 24)
                     Spacer()
                     Image(systemName: "plus.circle").foregroundStyle(.secondary)
                 }

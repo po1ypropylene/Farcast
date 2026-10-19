@@ -84,9 +84,11 @@ version and positive integer build number. Both Debug and Release read it. The
 current baseline was explicitly reset to **1.0.0 build 1**; earlier changelog history
 was removed. Do not restore the old history or versions from older artifacts.
 
-Ordinary work keeps the marketing version unchanged. Increment the build number
-in Version.xcconfig before each new app build; packaging an existing app does not
-advance either number. Stage completed user-visible
+Ordinary work keeps the marketing version unchanged. `scripts/build.sh` and
+`Showcase/build.sh` automatically increment the shared build number in
+Version.xcconfig by exactly one before each new app build. Failed compilations
+retain their reserved number; do not roll it back. Packaging an existing app does
+not advance either number. Stage completed user-visible
 changes, fixes and material limitations under **Unreleased** in
 [CHANGELOG.md](../CHANGELOG.md). This is documentation staging, not Git staging.
 Keep the notes current as the implementation changes.
@@ -96,9 +98,9 @@ a dated release section. Determine the highest applicable Semantic Versioning
 category across the full staged scope: patch for compatible fixes, minor for
 compatible features/deprecations, major for incompatible supported behavior or data
 formats. An explicit version overrides that calculation. Set the new version in
-Version.xcconfig and reset its build to 1, leaving an empty Unreleased section.
-The first app build of that version uses build 1. Further app builds increment
-the build number; creating the DMG reuses the tested build unchanged.
+Version.xcconfig, leaving an empty Unreleased section. The build number never
+resets when the marketing version changes. Each subsequent app build increments
+the existing build number by one; creating the DMG reuses the tested build unchanged.
 
 Finish all app changes, builds, tests and UI verification before creating one
 final DMG for the request. Packaging does not promote notes or authorize a version

@@ -9,6 +9,15 @@ future design task; do not apply a 44-point touch baseline to the Mac interface.
 - Prefer native bordered/primary buttons and regular control size. Do not add fixed
   padding or oversized fonts to native controls. Reuse IconActionButton (24 points)
   and PrimaryActionButton; icon buttons retain tooltips and accessibility labels.
+- SSH, RDP and VNC icons use distinct SF Symbol shapes with semibold strokes and
+  adaptive protocol colours: teal SSH, indigo RDP and orange VNC. Use darker shades
+  in light mode, lighter shades in dark mode and stronger shades with Increase
+  Contrast. Focused selected sidebar icons use a lighter or darker shade of the
+  same hue, choosing the better contrast against the system selection colour;
+  inactive selections use the normal palette. Icons have no separate background. Tabs,
+  import previews and overview cards share the palette; colour is supplementary. Protocol names remain in
+  accessibility labels and import previews. Target at least 3:1 icon/background
+  contrast ([WCAG non-text contrast](https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html)).
 - Session tabs are 28 points high with rounded top corners, an opaque selected fill
   and normal body text. Secondary session tools and editor tabs use a lighter
   underline style; keep a divider between the session and tool rows. Keep the independent 22-point close target

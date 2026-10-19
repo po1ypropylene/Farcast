@@ -5,6 +5,15 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Move connections out of folders by dropping them anywhere in the empty sidebar space below the list.
+
+## 1.5.1 — 2026-10-19
+
+- Restore the VPN profile name beneath sidebar connections as user@host via VPN, including an explicit label for unavailable profiles.
+- Align folder drop targets and hover feedback with the folder label instead of its expanded contents.
+- Preserve teal SSH, indigo RDP and orange VNC icons with adaptive light/dark and selection shades and stronger strokes for contrast, without separate icon backgrounds.
+- Automatically advance the build number by one per app build and preserve it across marketing-version changes; release and changelog rules remain unchanged.
+
 ## 1.5.0 — 2026-10-19
 
 - Clarify the sidebar hierarchy with collapsible, persistent folders and subfolders, item counts, indented connections, quieter section headings and no empty ungrouped section. Keep host details visible, distinguish SSH/RDP/VNC icons and mark VPN routing and favorite shortcuts. Reorder favorites by dragging; view full connection metadata with Get Info.

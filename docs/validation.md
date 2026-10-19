@@ -106,7 +106,20 @@ features, and [packaging](packaging.md) for signing requirements.
 current models, verifies retained profiles and folder IDs, and reopens new collapse
 metadata. Core tests cover nested folder metadata, favorite ordering persistence, SSH config first-match defaults, proxy exclusion and input bounds.
 The workspace presentation harness renders sidebar hierarchy and connection states
-using synthetic profiles in light/dark appearances. Native accessibility-tree labels and increased-contrast appearances are inspected separately; complete VoiceOver navigation and Finder dragging still need manual checks.
+using synthetic profiles in light/dark appearances, including configured VPN names
+and missing-profile labels in connection subtitles. Protocol-icon previews include
+SSH, RDP and VNC together in native selected/unselected lists and session tabs,
+with explicit light/dark and Increase Contrast appearances. The icons use adaptive
+teal/indigo/orange shades and semibold strokes, with selection shades chosen against
+the system accent and no separate icon background; import previews and overview cards retain the same palette and shapes. Native accessibility-tree labels are
+inspected separately; complete VoiceOver navigation and Finder dragging still need manual checks.
+Folder drop targets belong to the full-width folder labels, excluding expanded
+child rows and empty placeholders; hover feedback follows the same label bounds.
+The blank area below visible sidebar rows accepts root-level connection drops, including
+when every connection is grouped. Its bounds follow visible rows as folders collapse or
+the sidebar scrolls and resizes.
+Native pointer dragging into the blank root area or empty, collapsed and nested folders
+still needs manual verification; the presentation harness covers their layout only.
 
 The sidebar implementation follows the document's primary sections 1–6. Its section 7
 items remain separate future work: command palette, extended Quick Connect syntax/history

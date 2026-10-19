@@ -72,18 +72,82 @@ private final class InspectorRDPClient: FCRDPClient {
         }
         settle()
         try snapshot("home", window: window)
+        // Review every protocol with native selected/unselected rows and compact tabs.
+        let iconWorkspace = Workspace(loadCredential: { _ in ConnectionCredential() }, defaults: defaults)
+        let iconProfiles = RemoteProtocol.allCases.map { kind in
+            var profile = ConnectionDraft()
+            profile.name = "Synthetic \(kind.rawValue)"
+            profile.kind = kind
+            profile.host = "fixture.invalid"
+            return SavedConnection(draft: profile)
+        }
+        iconWorkspace.sessions = iconProfiles.map {
+            RemoteSession(profile: ConnectionDraft($0), workspace: iconWorkspace, persistent: false)
+        }
+        iconWorkspace.select(iconWorkspace.sessions[0].id)
+        for scheme in [ColorScheme.light, .dark] {
+            for contrast in [false, true] {
+                window.appearance = NSAppearance(
+                    named: contrast
+                        ? (scheme == .light ? .accessibilityHighContrastAqua : .accessibilityHighContrastDarkAqua)
+                        : (scheme == .light ? .aqua : .darkAqua))
+                window.contentView = NSHostingView(
+                    rootView:
+                        VStack(alignment: .leading) {
+                            HStack {
+                                ForEach(iconWorkspace.sessions) { session in
+                                    SessionTab(session: session, workspace: iconWorkspace)
+                                }
+                            }
+                            HStack {
+                                ForEach([false, true], id: \.self) { selected in
+                                    List(selection: .constant(selected ? Set(iconProfiles.map(\.id)) : Set<UUID>())) {
+                                        ForEach(iconProfiles) { profile in
+                                            SidebarConnectionRow(
+                                                connection: profile, workspace: iconWorkspace,
+                                                folder: "", tunnel: nil, toggleFavorite: {}, selected: selected,
+                                                selectionEmphasized: selected
+                                            ).tag(profile.id)
+                                        }
+                                    }.listStyle(.sidebar)
+                                }
+                            }
+                        }.padding().frame(width: 1000, height: 360)
+                        .background(Color(nsColor: .windowBackgroundColor))
+                        .environment(\.controlActiveState, .key)
+                        .preferredColorScheme(scheme)
+                )
+                settle()
+                func focusSelectedList(_ view: NSView) {
+                    if let table = view as? NSTableView { window.makeFirstResponder(table) }
+                    for child in view.subviews { focusSelectedList(child) }
+                }
+                if let view = window.contentView { focusSelectedList(view) }
+                settle()
+                try snapshot("protocol-icons-\(scheme)-\(contrast ? "contrast" : "standard")", window: window)
+            }
+        }
+        window.appearance = nil
+        window.contentView = NSHostingView(
+            rootView: WorkspaceView(workspace: workspace).modelContainer(container).preferredColorScheme(.dark))
         // Owned profiles exercise hierarchy without importing a user's library.
         let sidebarFolder = ConnectionFolder(name: "Research")
         let sidebarChild = ConnectionFolder(name: "Archives")
+        let emptyFolder = ConnectionFolder(name: "Empty destination")
         sidebarChild.parentID = sidebarFolder.id
         container.mainContext.insert(sidebarFolder)
         container.mainContext.insert(sidebarChild)
+        container.mainContext.insert(emptyFolder)
+        let sidebarVPN = try SavedWireGuard(name: "Lab VPN", configuration: WireGuardConfiguration())
+        container.mainContext.insert(sidebarVPN)
+        saved.wireGuardID = sidebarVPN.id
         saved.folderID = sidebarFolder.id
         saved.favorite = true
         var sidebarDraft = ConnectionDraft()
         sidebarDraft.name = "Synthetic VNC"
         sidebarDraft.kind = .vnc
         sidebarDraft.host = "desktop.example"
+        sidebarDraft.wireGuardID = UUID()
         sidebarDraft.folderID = sidebarChild.id
         let sidebarProfile = SavedConnection(draft: sidebarDraft)
         container.mainContext.insert(sidebarProfile)
@@ -115,8 +179,11 @@ private final class InspectorRDPClient: FCRDPClient {
         try snapshot("sidebar-ssh-import", window: window)
         saved.folderID = nil
         saved.favorite = false
+        saved.wireGuardID = nil
+        container.mainContext.delete(sidebarVPN)
         container.mainContext.delete(sidebarProfile)
         container.mainContext.delete(sidebarChild)
+        container.mainContext.delete(emptyFolder)
         container.mainContext.delete(sidebarFolder)
         try container.mainContext.save()
         window.contentView = NSHostingView(

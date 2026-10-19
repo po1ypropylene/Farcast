@@ -22,7 +22,7 @@ struct TestServerImportView: View {
             .foregroundStyle(.secondary)
             List(document.enabledServers) { entry in
                 HStack {
-                    Image(systemName: entry.protocolName.icon)
+                    ConnectionProtocolIcon(kind: entry.protocolName)
                     Text(entry.draft.name)
                     Spacer()
                     Text(entry.protocolName.rawValue).foregroundStyle(.secondary)

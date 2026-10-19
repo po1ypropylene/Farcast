@@ -76,6 +76,14 @@ remove the test Keychain; they never query saved user credentials.
 
 ## Important regression contracts
 
+- Protocol-icon review covers SSH/RDP/VNC in selected/unselected native lists and
+  compact tabs, in light/dark and Increase Contrast appearances. Set
+  `FARCAST_PRESENTATION_SNAPSHOTS` to an existing output directory when running
+  `scripts/test-workspace.sh`. Offscreen bitmap caching omits vibrant selection
+  backgrounds and cannot establish selected-row contrast; inspect the synthetic
+  window directly for that check. Complete VoiceOver navigation remains a separate
+  manual check.
+
 - Connection UI checks assert quiet validation and long-list reveal, centered tunnel
   empty/stopped states with stable header positions at 560/900/2500-point pane widths
   in light/dark hosts, all three template selections, terminal-tool visibility and

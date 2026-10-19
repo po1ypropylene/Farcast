@@ -78,9 +78,10 @@ favorites, duplication, and deletion. After SSH rejects credentials, **Retry sig
 asks for fresh credentials instead of silently reusing the saved value. Check the
 username/authentication option in Edit Connection if needed. Saving replacement
 credentials remains optional; reconnecting alone does not delete the stored value.
-Create folders from Add, and drag connection
-rows into folders. Folders have one level. Search matches
-names, hosts, users, protocols, and notes.
+Create folders from Add and subfolders from a folder’s context menu. Drag a
+connection onto a folder label to move it there. To remove it from a folder, drop
+it onto Connections or anywhere in the empty sidebar space below the list.
+Search matches names, hosts, users, protocols, notes and ancestor folder names.
 
 Connection dots use the same colours in the sidebar, tabs and bottom status bar:
 orange while connecting or stale, green when connected, red on failure and grey
