@@ -5,6 +5,10 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+## 2.0.0 — 2026-10-20
+
+- Fix RDP keyboard state across focus changes, missed modifier releases and graphics reactivation; reconcile left/right modifier snapshots, send physical US letters between Shift transitions, synchronize Caps Lock, clear abandoned composition and preserve native app shortcuts. Production long-session and Windows Sticky Keys behavior still require live validation.
+
 - Refresh RDP resolution from the destination viewport after returning a popped-out session to the main window.
 
 - Remove connection favourites, duplicate shortcut rows and star controls to free space in the connection panel.

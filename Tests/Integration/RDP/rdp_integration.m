@@ -1,6 +1,21 @@
 #import "RDPClient.h"
 #import <Foundation/Foundation.h>
+#include <freerdp/freerdp.h>
+#include <freerdp/settings.h>
 #import <math.h>
+#import <objc/runtime.h>
+
+// White-box pause uses the real worker/context on the owned peer; no production
+// testing API or user input is needed to exercise FreeRDP's silent-skip condition.
+@interface FCRDPClient (KeyboardQueueFixture)
+- (void)drainEvents:(void *)context;
+@end
+static freerdp *fixtureInstance(FCRDPClient *client) {
+    Ivar field = class_getInstanceVariable(FCRDPClient.class, "_instance");
+    freerdp *instance = NULL;
+    memcpy(&instance, (const uint8_t *)(__bridge const void *)client + ivar_getOffset(field), sizeof(instance));
+    return instance;
+}
 int main(int argc, char **argv) {
     @autoreleasepool {
         if (argc < 3)
@@ -176,6 +191,16 @@ int main(int argc, char **argv) {
               }
               return;
           }
+          if (frame && [mode hasPrefix:@"keyboard"]) {
+              if (!finishing) {
+                  finishing = YES;
+                  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 2),
+                                 dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+                                   [weakClient disconnect];
+                                 });
+              }
+              return;
+          }
           if (frame && !inputOverflowTest && !driveTest && !fileTest &&
               (!clipboardTest || clipboardCount == samples.count))
               [weakClient disconnect];
@@ -188,6 +213,43 @@ int main(int argc, char **argv) {
                   // the bounded queue deterministically without sending keys.
                   for (NSUInteger i = 0; i < 4097; i++)
                       [weakClient sendUnicode:0x61 pressed:NO];
+                  return;
+              }
+              if ([mode hasPrefix:@"keyboard"]) {
+                  BOOL paused = [mode isEqualToString:@"keyboard-paused"];
+                  freerdp *instance = paused ? fixtureInstance(weakClient) : NULL;
+                  if (paused) {
+                      NSCAssert(instance && freerdp_is_active_state(instance->context),
+                                @"Owned active context required");
+                      freerdp_settings_set_bool(instance->context->settings, FreeRDP_SuspendInput, TRUE);
+                  }
+                  [weakClient sendUnicode:0xE000 pressed:YES];
+                  [weakClient sendScanCode:0x2A pressed:YES extended:NO];
+                  [weakClient sendScanCode:0x1E pressed:YES extended:NO];
+                  [weakClient sendScanCode:0x1E pressed:YES extended:NO];
+                  [weakClient sendScanCode:0x1E pressed:NO extended:NO];
+                  [weakClient sendScanCode:0x2A pressed:NO extended:NO];
+                  for (NSNumber *code in @[ @0x1D, @0x4B ]) {
+                      [weakClient sendScanCode:code.integerValue pressed:YES extended:YES];
+                      [weakClient sendScanCode:code.integerValue pressed:NO extended:YES];
+                  }
+                  for (NSNumber *code in @[ @0x4E2D, @0xD83D, @0xDE00 ]) {
+                      [weakClient sendUnicode:code.integerValue pressed:YES];
+                      [weakClient sendUnicode:code.integerValue pressed:NO];
+                  }
+                  [weakClient synchronizeCapsLock:YES];
+                  [weakClient synchronizeCapsLock:NO];
+                  [weakClient sendUnicode:0xE001 pressed:NO];
+                  if (paused) {
+                      [weakClient setClipboardActive:NO];
+                      [weakClient drainEvents:instance->context];
+                      NSArray *pending =
+                          object_getIvar(weakClient, class_getInstanceVariable(FCRDPClient.class, "_events"));
+                      NSCAssert(pending.count == 19,
+                                @"Suspended input must remain queued while clipboard control drains");
+                      freerdp_settings_set_bool(instance->context->settings, FreeRDP_SuspendInput, FALSE);
+                      puts("PASS RDP suspended input retains releases and allows clipboard ownership changes");
+                  }
                   return;
               }
               if ([mode isEqualToString:@"pointer-burst"])

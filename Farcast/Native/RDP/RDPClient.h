@@ -42,6 +42,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)cancelResize;
 - (void)sendScanCode:(NSInteger)code pressed:(BOOL)pressed extended:(BOOL)extended;
 - (void)sendUnicode:(NSInteger)code pressed:(BOOL)pressed;
+- (void)synchronizeCapsLock:(BOOL)enabled;
 - (void)sendPointerFlags:(NSInteger)flags x:(NSInteger)x y:(NSInteger)y;
 - (void)setClipboardText:(NSString *)text;
 - (void)setClipboardFiles:(NSArray<NSURL *> *)files;

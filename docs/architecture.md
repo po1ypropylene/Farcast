@@ -351,8 +351,15 @@ The worker retains clipboard updates before channel attachment and advertises af
 MonitorReady. The selected session synchronizes before paste and on its timer.
 Command+C/X/V/A map to Windows Control shortcuts after releasing forwarded Command;
 app shortcuts remain local. Text and file sharing are opt-in.
+Keyboard surfaces reconcile left/right modifier snapshots and release tracked input on
+responder, window/app activation, reparenting and input-disable transitions. Ordinary
+US text commits retain physical scan-code pairs; other committed text keeps Unicode
+pairs. Caps Lock uses ordered RDP Synchronize events. See the
+[keyboard review](rdp-keyboard.md) for event routing, evidence and layout limits.
 The bounded native event queue coalesces consecutive pure pointer motion while
-preserving key/button/wheel ordering. Queue overload stops the session with an
+preserving key/button/wheel ordering. During FreeRDP reactivation/input suspension,
+keyboard/pointer/toggle events remain queued rather than entering APIs that silently
+skip them; clipboard ownership and control events continue draining. Queue overload stops the session with an
 explicit reconnect error rather than dropping input or clipboard deactivation.
 Draining stops after cancellation; no pending resize is submitted after that check.
 The native clipboard adapter negotiates [MS-RDPECLIP](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpeclip/cbc851d3-4e68-45f4-9292-26872a9209f2) file streaming, relative file

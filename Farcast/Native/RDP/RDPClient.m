@@ -700,11 +700,28 @@ static void destroyContext(rdpContext *context) {
     [_lock unlock];
 }
 - (void)drainEvents:(FCContext *)ctx {
-    [_lock lock];
-    NSArray *events = [_events copy];
-    [_events removeAllObjects];
-    [_lock unlock];
     rdpContext *context = (rdpContext *)ctx;
+    // FreeRDP reports success while silently skipping input during graphics
+    // reactivation or suspension. Keep key/button releases queued until active.
+    BOOL inputReady =
+        freerdp_is_active_state(context) && !freerdp_settings_get_bool(context->settings, FreeRDP_SuspendInput);
+    [_lock lock];
+    NSArray *events;
+    if (inputReady) {
+        events = [_events copy];
+        [_events removeAllObjects];
+    } else {
+        // Clipboard ownership/cancellation must still progress while input waits.
+        NSIndexSet *ready =
+            [_events indexesOfObjectsPassingTest:^BOOL(NSDictionary *event, NSUInteger index, BOOL *stop) {
+              NSString *type = event[@"type"];
+              return ![type isEqualToString:@"key"] && ![type isEqualToString:@"unicode"] &&
+                     ![type isEqualToString:@"pointer"] && ![type isEqualToString:@"synchronize"];
+            }];
+        events = [_events objectsAtIndexes:ready];
+        [_events removeObjectsAtIndexes:ready];
+    }
+    [_lock unlock];
     for (NSDictionary *event in events) {
         if (atomic_load(&_stopped))
             break;
@@ -717,6 +734,8 @@ static void destroyContext(rdpContext *context) {
             freerdp_input_send_unicode_keyboard_event(context->input,
                                                       [event[@"pressed"] boolValue] ? 0 : KBD_FLAGS_RELEASE,
                                                       [event[@"code"] unsignedShortValue]);
+        else if ([type isEqualToString:@"synchronize"])
+            freerdp_input_send_synchronize_event(context->input, [event[@"caps"] boolValue] ? KBD_SYNC_CAPS_LOCK : 0);
         else if ([type isEqualToString:@"pointer"])
             freerdp_input_send_mouse_event(context->input, [event[@"flags"] unsignedShortValue],
                                            [event[@"x"] unsignedShortValue], [event[@"y"] unsignedShortValue]);
@@ -779,6 +798,9 @@ static void destroyContext(rdpContext *context) {
 }
 - (void)sendUnicode:(NSInteger)code pressed:(BOOL)pressed {
     [self enqueue:@{@"type" : @"unicode", @"code" : @(code), @"pressed" : @(pressed)}];
+}
+- (void)synchronizeCapsLock:(BOOL)enabled {
+    [self enqueue:@{@"type" : @"synchronize", @"caps" : @(enabled)}];
 }
 - (void)sendPointerFlags:(NSInteger)flags x:(NSInteger)x y:(NSInteger)y {
     [self enqueue:@{@"type" : @"pointer", @"flags" : @(flags), @"x" : @(x), @"y" : @(y)}];

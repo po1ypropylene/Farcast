@@ -462,6 +462,7 @@ import SwiftTerm
                 client?.sendScanCode(code, pressed: down, extended: extended)
             }
             desktop.sendUnicode = { [weak client] code, down in client?.sendUnicode(code, pressed: down) }
+            desktop.synchronizeCapsLock = { [weak client] enabled in client?.synchronizeCapsLock(enabled) }
             desktop.preparePaste = { [weak self] in self?.syncClipboard() }
             desktop.sendPointer = { [weak client] flags, x, y in client?.sendPointerFlags(flags, x: x, y: y) }
             client.onDisplayAvailability = { [weak self] available in

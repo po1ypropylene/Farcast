@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import IOKit.hidsystem
 
 @main struct RDPKeyboardTests {
     @MainActor static func main() {
@@ -14,11 +15,107 @@ import Foundation
         var events: [String] = []
         desktop.sendKey = { code, down, extended in events.append("\(code):\(down):\(extended)") }
         desktop.preparePaste = { events.append("prepare") }
-        func event(_ type: NSEvent.EventType, key: UInt16, flags: NSEvent.ModifierFlags, text: String = "") -> NSEvent {
+        func event(
+            _ type: NSEvent.EventType, key: UInt16, flags: NSEvent.ModifierFlags, text: String = "",
+            repeatKey: Bool = false
+        ) -> NSEvent {
             NSEvent.keyEvent(
                 with: type, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber,
-                context: nil, characters: text, charactersIgnoringModifiers: text, isARepeat: false, keyCode: key)!
+                context: nil, characters: text, charactersIgnoringModifiers: text, isARepeat: repeatKey, keyCode: key)!
         }
+        let leftShift = NSEvent.ModifierFlags.shift.union(.init(rawValue: UInt(NX_DEVICELSHIFTKEYMASK)))
+        let rightShift = NSEvent.ModifierFlags.shift.union(.init(rawValue: UInt(NX_DEVICERSHIFTKEYMASK)))
+        let bothShift = leftShift.union(rightShift)
+        // Repeated notifications are snapshots, not alternating down/up events.
+        for _ in 0..<5 { desktop.flagsChanged(with: event(.flagsChanged, key: 56, flags: leftShift)) }
+        precondition(events == ["42:true:false"], "Duplicate modifier snapshots must not generate Shift taps")
+        desktop.flagsChanged(with: event(.flagsChanged, key: 60, flags: bothShift))
+        desktop.flagsChanged(with: event(.flagsChanged, key: 56, flags: rightShift))
+        desktop.flagsChanged(with: event(.flagsChanged, key: 60, flags: []))
+        precondition(events == ["42:true:false", "54:true:false", "42:false:false", "54:false:false"])
+        events.removeAll()
+        for (key, flag, mask, scan, extended) in [
+            (UInt16(59), NSEvent.ModifierFlags.control, NX_DEVICELCTLKEYMASK, 29, false),
+            (62, .control, NX_DEVICERCTLKEYMASK, 29, true),
+            (58, .option, NX_DEVICELALTKEYMASK, 56, false),
+            (61, .option, NX_DEVICERALTKEYMASK, 56, true),
+            (55, .command, NX_DEVICELCMDKEYMASK, 91, true),
+            (54, .command, NX_DEVICERCMDKEYMASK, 92, true),
+        ] {
+            let flags = flag.union(.init(rawValue: UInt(mask)))
+            desktop.flagsChanged(with: event(.flagsChanged, key: key, flags: flags))
+            desktop.flagsChanged(with: event(.flagsChanged, key: key, flags: flags))
+            desktop.flagsChanged(with: event(.flagsChanged, key: key, flags: []))
+            precondition(events == ["\(scan):true:\(extended)", "\(scan):false:\(extended)"])
+            events.removeAll()
+        }
+        // Each capital has a physical letter between Shift down/up, rather than
+        // Unicode-only text leaving Windows to count isolated Shift presses.
+        for _ in 0..<5 {
+            desktop.flagsChanged(with: event(.flagsChanged, key: 56, flags: leftShift))
+            desktop.keyDown(with: event(.keyDown, key: 0, flags: leftShift, text: "A"))
+            desktop.keyUp(with: event(.keyUp, key: 0, flags: leftShift, text: "A"))
+            desktop.flagsChanged(with: event(.flagsChanged, key: 56, flags: []))
+        }
+        precondition(
+            events
+                == Array(repeating: ["42:true:false", "30:true:false", "30:false:false", "42:false:false"], count: 5)
+                .flatMap { $0 })
+        events.removeAll()
+        // A missing release is repaired by the next event's actual flags.
+        desktop.flagsChanged(with: event(.flagsChanged, key: 59, flags: .control))
+        desktop.keyDown(with: event(.keyDown, key: 123, flags: []))
+        desktop.keyUp(with: event(.keyUp, key: 123, flags: []))
+        precondition(events == ["29:true:false", "29:false:false", "75:true:true", "75:false:true"])
+        events.removeAll()
+        desktop.flagsChanged(with: event(.flagsChanged, key: 56, flags: leftShift))
+        desktop.keyDown(with: event(.keyDown, key: 123, flags: leftShift))
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        precondition(events == ["42:true:false", "75:true:true", "75:false:true", "42:false:false"])
+        events.removeAll()
+        // Held modifiers are restored from the next event after focus returns.
+        desktop.keyDown(with: event(.keyDown, key: 124, flags: rightShift))
+        desktop.keyUp(with: event(.keyUp, key: 124, flags: rightShift))
+        desktop.inputEnabled = false
+        precondition(events == ["54:true:false", "77:true:true", "77:false:true", "54:false:false"])
+        desktop.flagsChanged(with: event(.flagsChanged, key: 56, flags: leftShift))
+        desktop.inputEnabled = true
+        events.removeAll()
+        var caps: [Bool] = []
+        desktop.synchronizeCapsLock = { caps.append($0) }
+        desktop.flagsChanged(with: event(.flagsChanged, key: 57, flags: .capsLock))
+        desktop.flagsChanged(with: event(.flagsChanged, key: 57, flags: .capsLock))
+        desktop.flagsChanged(with: event(.flagsChanged, key: 57, flags: []))
+        precondition(caps == [true, false] && events.isEmpty)
+        desktop.releaseInput()
+        desktop.keyDown(with: event(.keyDown, key: 123, flags: []))
+        desktop.keyUp(with: event(.keyUp, key: 123, flags: []))
+        precondition(caps == [true, false, false], "Focus return resynchronizes toggle state")
+        events.removeAll()
+        var unicode: [String] = []
+        desktop.sendUnicode = { unit, down in unicode.append("\(unit):\(down)") }
+        desktop.setMarkedText(
+            "中", selectedRange: NSRange(location: 1, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0))
+        desktop.insertText("中文😀", replacementRange: NSRange(location: NSNotFound, length: 0))
+        precondition(unicode == "中文😀".utf16.flatMap { ["\($0):true", "\($0):false"] })
+        precondition(!desktop.hasMarkedText() && events.isEmpty)
+        unicode.removeAll()
+        desktop.keyDown(with: event(.keyDown, key: 0, flags: [], text: "é"))
+        desktop.keyUp(with: event(.keyUp, key: 0, flags: [], text: "é"))
+        precondition(events.isEmpty && unicode == ["233:true", "233:false"], "Non-US committed text stays Unicode")
+        desktop.setMarkedText(
+            "中", selectedRange: NSRange(location: 1, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0))
+        NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: NSApp)
+        precondition(!desktop.hasMarkedText(), "Abandoned composition must not capture later typing")
+        // Native window dispatch must deliver one press per event and one final
+        // release even when keyDown repeats while held.
+        window.sendEvent(event(.keyDown, key: 0, flags: [], text: "a"))
+        window.sendEvent(event(.keyDown, key: 0, flags: [], text: "a", repeatKey: true))
+        window.sendEvent(event(.keyUp, key: 0, flags: [], text: "a"))
+        precondition(events == ["30:true:false", "30:true:false", "30:false:false"])
+        events.removeAll()
         // A real Command press is first forwarded as Windows; the editing shortcut must release it.
         desktop.flagsChanged(with: event(.flagsChanged, key: 55, flags: .command))
         events.removeAll()
@@ -29,7 +126,7 @@ import Foundation
             ])
         events.removeAll()
         desktop.flagsChanged(with: event(.flagsChanged, key: 55, flags: []))
-        precondition(events == ["91:false:true"])
+        precondition(events.isEmpty)
         for (key, text, scan) in [(UInt16(8), "c", 46), (7, "x", 45), (0, "a", 30)] {
             events.removeAll()
             precondition(desktop.performKeyEquivalent(with: event(.keyDown, key: key, flags: .command, text: text)))
@@ -38,10 +135,20 @@ import Foundation
         events.removeAll()
         desktop.keyDown(with: event(.keyDown, key: 9, flags: .control, text: "v"))
         desktop.keyUp(with: event(.keyUp, key: 9, flags: .control, text: "v"))
-        precondition(events == ["prepare", "47:true:false", "47:false:false"])
+        precondition(events == ["29:true:false", "prepare", "47:true:false", "47:false:false"])
+        desktop.releaseInput()
         events.removeAll()
         precondition(!desktop.performKeyEquivalent(with: event(.keyDown, key: 12, flags: .command, text: "q")))
         precondition(events.isEmpty)
+        let previousMenu = NSApp.mainMenu
+        let menu = NSMenu()
+        let quickConnect = NSMenuItem(title: "Synthetic Quick Connect", action: nil, keyEquivalent: "k")
+        quickConnect.keyEquivalentModifierMask = .command
+        menu.addItem(quickConnect)
+        NSApp.mainMenu = menu
+        precondition(!desktop.performKeyEquivalent(with: event(.keyDown, key: 40, flags: .command, text: "k")))
+        precondition(events.isEmpty, "Registered app shortcuts must not reach Windows")
+        NSApp.mainMenu = previousMenu
         desktop.inputEnabled = false
         precondition(!desktop.performKeyEquivalent(with: event(.keyDown, key: 9, flags: .command, text: "v")))
         precondition(events.isEmpty)
@@ -104,5 +211,8 @@ import Foundation
             "PASS RDP display: 100% scrolling, panned pointer coordinates, fixed resolution, initial window size, fit")
         print(
             "PASS RDP keyboard: editing shortcuts, paste ordering, modifier release, app shortcuts, disconnected input")
+        print(
+            "PASS RDP keyboard: duplicate/overlapping modifiers, Shift-letter sequences, lost-release recovery, focus loss, Caps Lock sync, Unicode pairs and native window key repeat"
+        )
     }
 }
