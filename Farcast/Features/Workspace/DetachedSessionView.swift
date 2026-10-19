@@ -15,13 +15,15 @@ struct DetachedSessionView: View {
                 VStack(spacing: 0) {
                     DetachedSessionToolbar(session: session, workspace: workspace, slot: slot)
                     Divider()
-                    HStack(spacing: 0) {
-                        SessionPane(session: session, workspace: workspace).id(session.id)
-                        if workspace.detachedInspectors.contains(slot) {
-                            Divider()
-                            SessionInspector(session: session).frame(width: 300)
-                        }
-                    }
+                    SessionDetailsLayout(
+                        session: session, workspace: workspace,
+                        isPresented: Binding(
+                            get: { workspace.detachedInspectors.contains(slot) },
+                            set: { shown in
+                                if shown != workspace.detachedInspectors.contains(slot) {
+                                    workspace.toggleInspector(slot: slot)
+                                }
+                            }))
                 }
             }
         }

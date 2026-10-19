@@ -267,6 +267,47 @@ private final class InspectorRDPClient: FCRDPClient {
                 pixels: Data(repeating: 96, count: 1920 * 1080 * 4), width: 1920, height: 1080, stride: 1920 * 4))
         settle()
         precondition(desktop.window === window)
+        func checkDetailsLayout(slot: UUID? = nil, host: NSWindow) throws {
+            let viewport = desktop.viewport!
+            let original = viewport.bounds.size
+            func present(_ shown: Bool) {
+                if let slot {
+                    if workspace.detachedInspectors.contains(slot) != shown { workspace.toggleInspector(slot: slot) }
+                } else {
+                    workspace.showInspector = shown
+                }
+                settle()
+                host.contentView?.layoutSubtreeIfNeeded()
+                settle()
+            }
+            precondition(!workspace.inspectorPinned)
+            present(true)
+            precondition(
+                desktop.viewport === viewport && viewport.bounds.size == original,
+                "Overlay details must preserve the live viewport")
+            try snapshot(slot == nil ? "details-overlay" : "detached-details-overlay", window: host)
+            workspace.inspectorPinned = true
+            settle()
+            precondition(
+                desktop.viewport === viewport && abs(viewport.bounds.width - (original.width - 301)) < 1,
+                "Pinned details must reserve space in the existing viewport")
+            precondition(
+                Workspace(loadCredential: { _ in nil }, defaults: defaults).inspectorPinned,
+                "Pin preference must survive workspace recreation")
+            try snapshot(slot == nil ? "details-pinned" : "detached-details-pinned", window: host)
+            present(false)
+            precondition(viewport.bounds.size == original, "Closing pinned details must restore the work area")
+            present(true)
+            precondition(
+                abs(viewport.bounds.width - (original.width - 301)) < 1,
+                "Reopening pinned details must reserve space")
+            workspace.inspectorPinned = false
+            settle()
+            precondition(viewport.bounds.size == original, "Unpinning must restore the work area")
+            present(false)
+            precondition(viewport.bounds.size == original && desktop.viewport === viewport)
+        }
+        try checkDetailsLayout(host: window)
         let oldViewport = desktop.viewport!
         workspace.popOut(session) { slot in
             NSHostingView(
@@ -287,6 +328,7 @@ private final class InspectorRDPClient: FCRDPClient {
         precondition(!session.isSelected)
         workspace.activate(detachedWindow)
         precondition(session.isSelected && workspace.activeSession === session)
+        try checkDetailsLayout(slot: slot, host: detachedWindow)
         try snapshot("detached", window: detachedWindow)
         print("PASS production desktop moves to one detached viewport and ignores stale layout")
         workspace.returnToWorkspace(slot: slot)

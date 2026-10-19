@@ -86,6 +86,10 @@ at its existing index. Background reconnect retains the selected tab. Ad hoc/del
 profiles retain their snapshot. Only persistent tabs enter restoration preferences;
 restored tabs remain disconnected. Dragging inserts a tab before its destination.
 
+Connection Details opens as a trailing overlay by default, preserving the session viewport.
+A persistent workspace pin preference reserves 301 points only while details are
+visible, allowing the existing opt-in RDP resize path to follow the reduced viewport.
+Main and detached windows share this layout without reparenting their native surface.
 Connection Details retains a bounded, in-memory activity history per session. It
 records VPN lease transitions, protocol status/errors, requested initial RDP geometry,
 Display Control submission/results, observed server geometry and presentation changes.

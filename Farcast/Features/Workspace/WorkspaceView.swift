@@ -146,13 +146,8 @@ struct WorkspaceView: View {
                     Divider()
                 }
                 if let session = workspace.selectedSession {
-                    HStack(spacing: 0) {
-                        SessionPane(session: session, workspace: workspace).id(session.id)
-                        if workspace.showInspector {
-                            Divider()
-                            SessionInspector(session: session).frame(width: 300)
-                        }
-                    }
+                    SessionDetailsLayout(
+                        session: session, workspace: workspace, isPresented: $workspace.showInspector)
                 } else {
                     overview
                 }

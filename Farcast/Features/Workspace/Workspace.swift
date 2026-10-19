@@ -37,6 +37,9 @@ import UniformTypeIdentifiers
     @Published var editor: EditorRequest?
     @Published var showWireGuard = false
     @Published var showLibraryImport = false
+    @Published var inspectorPinned = false {
+        didSet { defaults.set(inspectorPinned, forKey: "connectionDetailsPinned") }
+    }
     @Published var showInspector = false
     @Published private(set) var detachedSessions: [UUID: UUID] = [:]
     @Published private(set) var focusedDetachedSlot: UUID?
@@ -76,6 +79,7 @@ import UniformTypeIdentifiers
         self.loadCredential = loadCredential
         self.defaults = defaults
         trust = TrustStore(defaults: defaults)
+        inspectorPinned = defaults.bool(forKey: "connectionDetailsPinned")
         super.init()
     }
 

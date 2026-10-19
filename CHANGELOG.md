@@ -5,6 +5,9 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+## 1.6.0 — 2026-10-19
+
+- Open Connection Details as an overlay without changing the session work area. Pin details to reserve space and resize RDP when Resize with window is enabled; remember the pin choice for main and popped-out windows.
 - Move connections out of folders by dropping them anywhere in the empty sidebar space below the list.
 
 ## 1.5.1 — 2026-10-19

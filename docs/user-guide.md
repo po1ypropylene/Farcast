@@ -106,6 +106,13 @@ before the app exits.
 
 ### Connection details
 
+Connection Details opens as an overlay, keeping the session work area unchanged.
+Use the pin button in its header to keep it beside the session and reserve space.
+RDP resizes to the remaining area when **Resize with window** is enabled and the
+server supports it. The pin choice is remembered across launches and shared with
+popped-out windows. Close details with its × button or ⌥⌘I; reopening uses the saved
+pin choice. Unpinning restores the full work area while keeping details visible.
+
 Connection Details (⌥⌘I) shows the current session status, VPN lease status, latest
 connection failure and timestamped activity. Desktop sessions include the initial RDP
 resolution request, received server resolution and display options. Resize activity
