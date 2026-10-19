@@ -68,6 +68,7 @@ Run swift-format using .swift-format for owned Swift sources. Objective-C adapte
 
 ## Staged changes and explicit releases
 
+- After completing changes for each prompt, run `git add` for that prompt's changed files and `git commit` with a simple, meaningful message, such as `connection panel ui improvement`. Usually make one commit per prompt; use separate commits when a prompt contains many unrelated changes. Keep unrelated existing changes out of the commit. Do not push unless explicitly requested.
 - Do not automatically advance the marketing version for app changes, fixes, dependency updates, packaging work or ordinary rebuilds. Unless a new marketing version is explicitly requested, keep it unchanged and increment the build number for each new app build, including ordinary rebuilds. Documentation/instruction-only changes that produce no app build require no version or build-number change.
 - Record completed changes under `## Unreleased` in `CHANGELOG.md`. Keep concise user-visible changes, fixes and material limitations current as scope changes. Staging here means changelog notes, not `git add`, a commit, a tag or publication.
 - Only when the user asks in a separate prompt to release/version the staged changes: review the entire Unreleased section, determine the highest applicable Semantic Versioning category, advance the version once, and move all staged changes into a dated version section. Leave an empty Unreleased section for future work. Explain the chosen version in delivery. An explicit user-supplied version takes precedence.
@@ -82,7 +83,7 @@ alongside the app. Preserve release entries created after the baseline reset unl
 the user asks to change them. Documentation/instruction-only changes do not require
 a new app artifact.
 
-Keep docs/validation.md focused on reproducible coverage, current findings and unresolved limits; synthetic tests do not prove production-server compatibility. Do not append dated run diaries, pass counts, old artifact paths or superseded UI descriptions. Put release history only in CHANGELOG.md. Record material architectural decisions in docs/architecture.md. Do not include raw credentials, server identifiers, terminal contents or original crash logs. Do not modify Codex memory unless directly requested. Do not commit/publish unless requested. Farcast's own source uses the MIT License in LICENSE; that license and third-party notices must ship in the app and license text must accompany redistribution.
+Keep docs/validation.md focused on reproducible coverage, current findings and unresolved limits; synthetic tests do not prove production-server compatibility. Do not append dated run diaries, pass counts, old artifact paths or superseded UI descriptions. Put release history only in CHANGELOG.md. Record material architectural decisions in docs/architecture.md. Do not include raw credentials, server identifiers, terminal contents or original crash logs. Do not modify Codex memory unless directly requested. Commit completed changes as described above; do not publish unless explicitly requested. Farcast's own source uses the MIT License in LICENSE; that license and third-party notices must ship in the app and license text must accompany redistribution.
 
 ## Brand assets
 
