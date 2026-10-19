@@ -45,15 +45,32 @@ import SwiftTerm
     private var displayLayout: RDPDisplayLayout?
     private var displayScreens: [RDPDisplayScreen] = []
     private let screenSnapshot: @MainActor (Bool, NSScreen?) -> [RDPDisplayScreen]
-    private var observedDesktopSize: CGSize?
+    @Published private(set) var observedDesktopSize: CGSize?
+    @Published private(set) var initialResolution = ""
+    @Published private(set) var latestFailure = ""
     private var confirmedMonitors = false
     private var startupPresentationPending = false
     private var displayObservationTask: DispatchWorkItem?
     private var resizeCoordinator = RDPResizeCoordinator()
     private var lastSubmittedScale: Int?
     @Published private(set) var fullScreenPresented = false
-    @Published private(set) var displayMessage = ""
-    @Published private(set) var vpnState = SessionState.waiting
+    @Published private(set) var displayMessage = "" {
+        didSet {
+            if !displayMessage.isEmpty && displayMessage != oldValue { record("Display: \(displayMessage)") }
+        }
+    }
+    @Published private(set) var vpnState = SessionState.waiting {
+        didSet {
+            guard profile.wireGuardID != nil, vpnState != oldValue else { return }
+            switch vpnState {
+            case .connecting: record("VPN: establishing session transport…")
+            case .connected: record("VPN: destination lease ready. This is not a continuous peer-health check.")
+            case .failed: record("VPN: session transport failed.")
+            case .disconnected: record("VPN: session transport released.")
+            default: break
+            }
+        }
+    }
     private var tunnel: WireGuardTransport?
     private var tunnelTask: Task<Void, Never>?
     private var pendingWaiters: [PromptWaiter] = []
@@ -61,9 +78,11 @@ import SwiftTerm
     private var clipboardTimer: Timer?
     @Published private(set) var clipboardMessage = ""
     private let clipboardBridge = RDPClipboardBridge()
+    @Published var hasUnreadOutput = false
     var isSelected = false {
         didSet {
             guard isSelected != oldValue else { return }
+            if isSelected { hasUnreadOutput = false }
             rdp?.setClipboardActive(isSelected)
             if !isSelected {
                 fullScreen?.releaseInput()
@@ -99,7 +118,7 @@ import SwiftTerm
         } else {
             terminal = nil
             let view = RDPDesktopView(frame: NSRect(x: 0, y: 0, width: 1000, height: 700))
-            view.displayMode = profile.kind == .vnc && profile.displayMode != .actualSize ? .fit : profile.displayMode
+            view.displayMode = profile.effectiveDisplayMode
             view.retinaDisplay = profile.kind == .rdp && profile.retinaDisplay
             view.setDesktopSize(CGSize(width: profile.desktopWidth, height: profile.desktopHeight))
             desktop = view
@@ -107,6 +126,8 @@ import SwiftTerm
     }
     func start(credential: ConnectionCredential) {
         guard workspace?.isShuttingDown != true else { return }
+        record(
+            "Starting \(profile.kind.rawValue) session via \(profile.wireGuardID == nil ? "direct transport" : "VPN").")
         if profile.kind == .rdp { rdpCredential = credential }
         if profile.kind == .ssh, let error = profile.validationMessage {
             update("failed", message: error, attempt: generation)
@@ -134,6 +155,7 @@ import SwiftTerm
         do {
             guard let workspace else { throw WireGuardError.unavailable }
             let (configuration, keys) = try workspace.wireGuardSettings(for: tunnelID)
+            record("VPN engine: \(configuration.protocolName).")
             let transport = WireGuardTransport()
             tunnel = transport
             let host = profile.host
@@ -273,6 +295,7 @@ import SwiftTerm
             client.onData = { [weak self] data in
                 DispatchQueue.main.sync {
                     guard let self, self.generation == attempt else { return }
+                    if !self.isSelected { self.hasUnreadOutput = true }
                     self.terminal?.view.feed(byteArray: Array(data)[...])
                 }
             }
@@ -336,6 +359,7 @@ import SwiftTerm
             client.onMonitorLayout = { [weak self] monitors in
                 DispatchQueue.main.async {
                     guard let self, self.generation == attempt, let layout = self.displayLayout else { return }
+                    let previouslyConfirmed = self.confirmedMonitors
                     self.confirmedMonitors =
                         monitors.count == layout.monitors.count
                         && layout.monitors.allSatisfy { wanted in
@@ -347,6 +371,12 @@ import SwiftTerm
                                     && (received["primary"] as? NSNumber)?.boolValue == wanted.primary
                             }
                         }
+                    if self.confirmedMonitors != previouslyConfirmed {
+                        self.record(
+                            self.confirmedMonitors
+                                ? "RDP: server confirmed the monitor layout."
+                                : "RDP: server monitor layout differs from the requested layout.")
+                    }
                     if self.fullScreenPresented && !self.confirmedMonitors {
                         self.exitFullScreen(
                             reason: "The server changed its monitor layout. The session continues in the workspace.")
@@ -358,7 +388,7 @@ import SwiftTerm
                 DispatchQueue.main.async {
                     guard let self, self.generation == attempt, self.state.active else { return }
                     let size = CGSize(width: width, height: height)
-                    self.observedDesktopSize = size
+                    self.observeDesktop(size)
                     self.desktop?.adoptDesktopSize(size)
                     if self.fullScreenPresented, size != self.fullScreen?.layout.bounds.size {
                         self.exitFullScreen(
@@ -437,6 +467,12 @@ import SwiftTerm
             client.onDisplayAvailability = { [weak self] available in
                 DispatchQueue.main.async {
                     guard let self, self.generation == attempt, self.state.active else { return }
+                    if self.resizeCoordinator.available != available {
+                        self.record(
+                            available
+                                ? "RDP: server enabled Display Control resolution updates."
+                                : "RDP: server disabled Display Control resolution updates.")
+                    }
                     let next = self.resizeCoordinator.availability(available)
                     self.submitResize(next)
                     if !available, self.resizeCoordinator.desired != nil {
@@ -449,6 +485,13 @@ import SwiftTerm
                     guard let self, self.generation == attempt, self.state == .connected,
                         let pending = self.resizeCoordinator.pending, pending.id == id
                     else { return }
+                    let outcome =
+                        result == "submitted"
+                        ? "submitted; awaiting server geometry"
+                        : (result == "restricted" ? "restricted by server limits" : "could not be sent")
+                    self.record(
+                        "RDP resize #\(id): \(Self.resolution(pending.request.size)), scale \(pending.request.scale)% — \(outcome)."
+                    )
                     let next = self.resizeCoordinator.result(id: id, submitted: result == "submitted")
                     if result == "submitted" {
                         self.lastSubmittedScale = pending.request.scale
@@ -472,6 +515,10 @@ import SwiftTerm
                     let request = RDPResizeRequest(width: width, height: height, scale: scale)
                 else { return }
                 let changed = self.resizeCoordinator.desired != request
+                if changed {
+                    self.record(
+                        "RDP window resize requested: \(Self.resolution(request.size)), scale \(request.scale)%.")
+                }
                 let next = self.resizeCoordinator.request(request)
                 self.submitResize(next)
                 if changed, !self.resizeCoordinator.available { self.scheduleResizeObservation() }
@@ -486,6 +533,13 @@ import SwiftTerm
                     self.update("failed", message: RDPDisplayLayoutError.invalid.localizedDescription, attempt: attempt)
                     return
                 }
+                self.initialResolution = "\(Self.resolution(size)), scale \(scale)%"
+                self.record(
+                    "RDP initial resolution requested: \(self.initialResolution); \(self.displayLayout?.monitors.count ?? 1) monitor(s)."
+                )
+                self.record(
+                    "RDP options: Resize with window \(self.profile.dynamicResolution ? "on" : "off"), Retina \(self.profile.retinaDisplay ? "on" : "off"), clipboard \(self.profile.clipboard ? "on" : "off"), audio \(self.profile.audioPlayback ? "on" : "off"), \(self.profile.redirectedFolders.count) shared folder(s)."
+                )
                 self.lastSubmittedScale = scale
                 self.resizeCoordinator.initialScale(scale)
                 client?.connectHost(
@@ -497,7 +551,10 @@ import SwiftTerm
             if let layout = displayLayout {
                 connect(layout.bounds.size, layout.monitors[0].desktopScale)
             } else {
-                desktop.withInitialSize(width: profile.desktopWidth, height: profile.desktopHeight) {
+                desktop.withInitialSize(
+                    width: profile.desktopWidth, height: profile.desktopHeight,
+                    matchWindow: profile.displayMode == .matchWindow
+                ) {
                     [weak desktop] size in
                     let factor =
                         self.profile.retinaDisplay
@@ -514,7 +571,7 @@ import SwiftTerm
         }
     }
     private var resizeEnabled: Bool {
-        state == .connected && profile.displayMode == .fit && profile.dynamicResolution
+        state == .connected && profile.dynamicResolution
             && (displayLayout?.monitors.count ?? 1) == 1
             && !fullScreenPresented && !startupPresentationPending
     }
@@ -554,7 +611,7 @@ import SwiftTerm
                 guard let self, self.generation == attempt, self.state.active else { return }
                 if self.fullScreenPresented { self.exitFullScreen() }
                 let firstSize = self.observedDesktopSize == nil
-                self.observedDesktopSize = CGSize(width: width, height: height)
+                self.observeDesktop(CGSize(width: width, height: height))
                 self.desktop?.adoptDesktopSize(CGSize(width: width, height: height))
                 if firstSize && self.profile.launchFullScreen {
                     DispatchQueue.main.async { [weak self] in
@@ -595,6 +652,8 @@ import SwiftTerm
     private func submitResize(_ submission: RDPResizeCoordinator.Submission?) {
         guard resizeEnabled, let submission else { return }
         let request = submission.request
+        record(
+            "RDP resize #\(submission.id) sending: \(Self.resolution(request.size)), scale \(request.scale)%.")
         rdp?.resizeWidth(request.width, height: request.height, scale: request.scale, requestID: submission.id)
         scheduleResizeObservation()
     }
@@ -669,6 +728,7 @@ import SwiftTerm
         presentation.onExit = { [weak self] reason in self?.exitFullScreen(reason: reason) }
         fullScreen = presentation
         fullScreenPresented = true
+        record("Desktop entered full screen on \(screens.count) display(s).")
         presentation.show()
     }
     func exitFullScreen(reason: String? = nil, restoreFocus: Bool = true) {
@@ -677,6 +737,7 @@ import SwiftTerm
         fullScreenPresented = false
         startupPresentationPending = false
         presentation?.exit(notify: false, restoreFocus: restoreFocus && state == .connected)
+        if presentation != nil { record("Desktop exited full screen.") }
         if let reason { displayMessage = reason }
         desktop?.requestResize()
     }
@@ -720,8 +781,8 @@ import SwiftTerm
             if state == .connecting { state = .reconnecting }
             self.message = "Reconnect attempt \(rdpReconnect.attempts) of 3 · \(message)"
         }
-        logs.append(SessionLog(message: message))
-        if logs.count > 200 { logs.removeFirst(logs.count - 200) }
+        if state == .failed || state == .stale { latestFailure = message }
+        record(message)
         if state == .connected {
             if profile.kind == .rdp {
                 rdpReconnect.connected(now: ProcessInfo.processInfo.systemUptime)
@@ -767,6 +828,21 @@ import SwiftTerm
             desktop?.inputEnabled = false
         }
     }
+    static func resolution(_ size: CGSize) -> String {
+        "\(Int(size.width)) × \(Int(size.height)) px"
+    }
+    private func observeDesktop(_ size: CGSize) {
+        guard observedDesktopSize != size else { return }
+        let initial = observedDesktopSize == nil
+        observedDesktopSize = size
+        record(
+            "\(profile.kind.rawValue) \(initial ? "initial desktop received" : "desktop resized by server"): \(Self.resolution(size))."
+        )
+    }
+    private func record(_ message: String) {
+        logs.append(SessionLog(message: message))
+        if logs.count > 200 { logs.removeFirst(logs.count - 200) }
+    }
     private func monitorRDP(attempt: UUID) {
         rdpHealthTask?.cancel()
         rdpHealthTask = Task { [weak self] in
@@ -795,7 +871,7 @@ import SwiftTerm
             if (retryable || rdpTunnelFailed) && rdpReconnect.attempts == 3 {
                 state = .failed
                 message = "Could not reconnect after 3 attempts. Check the network and reconnect when ready."
-                logs.append(SessionLog(message: message))
+                record(message)
             }
             rdpCredential = nil
             return
@@ -805,7 +881,7 @@ import SwiftTerm
         let retryGeneration = generation
         state = .reconnecting
         message = "Connection lost. Reconnecting in \(Int(delay)) seconds (attempt \(rdpReconnect.attempts) of 3)…"
-        logs.append(SessionLog(message: message))
+        record(message)
         rdpReconnectTask?.cancel()
         rdpReconnectTask = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(delay)) } catch { return }
@@ -864,7 +940,7 @@ import SwiftTerm
         generation = UUID()
         state = .disconnected
         message = "Disconnected"
-        logs.append(SessionLog(message: message))
+        record(message)
     }
     private func cancelPrompts() {
         for waiter in pendingWaiters { waiter.resolve(nil) }

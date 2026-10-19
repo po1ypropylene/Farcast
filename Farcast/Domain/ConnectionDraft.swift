@@ -18,6 +18,11 @@ struct ConnectionDraft: Identifiable {
     var desktopHeight = 900
     var displayMode = RDPDisplayMode.fit
     var dynamicResolution = false
+    var effectiveDisplayMode: RDPDisplayMode {
+        if kind == .rdp && dynamicResolution { return .fit }
+        if kind == .vnc && displayMode != .actualSize { return .fit }
+        return displayMode
+    }
     var launchFullScreen = false
     var useAllMonitors = false
     var retinaDisplay = false

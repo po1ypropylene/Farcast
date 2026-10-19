@@ -9,7 +9,7 @@ stated scope; disabled live entries report SKIP.
 
 | Area | Checks | Evidence boundary |
 | --- | --- | --- |
-| Core and persistence | Draft validation, credential encoding/permissions, endpoint trust, imports, prompt cancellation, display geometry and resize coordination | Isolated stores and synthetic input |
+| Core and persistence | Sidebar rename/reopen identity, collapse state and favorite order; draft validation, credential encoding/permissions, endpoint trust, imports, prompt cancellation, display geometry and resize coordination | Isolated stores and synthetic input |
 | Migration | Old-module and pre-feature SwiftData stores, ID/metadata preservation, credential opt-in, reopening and unchanged source bytes | Disposable libraries; user-container grants need live testing |
 | SSH/SFTP | Authentication/trust, fresh sign-in retry, file-only fallback, byte equality, overwrite/move safety, cancellation, terminal scheduling and throughput; navigation history, cache hits/expiry/eviction/invalidation, stale replies and filename filtering | Loopback peers, controlled proxies and explicit synthetic listing replies |
 | SSH forwarding | Local/remote/SOCKS byte equality, live add/edit/remove including initially empty sessions, concurrency, IPv6, server-only DNS, malformed/fragmented messages, backpressure and EOF, policy denial, ports, stop/restart, forwarding-only sessions, file conflicts/cancellation, WireGuard sharing/reconnect/failure and signed sandboxed listeners | Owned loopback/encrypted peers and native off-screen controls; production policy and throughput unverified |
@@ -17,13 +17,14 @@ stated scope; disabled live entries report SKIP.
 | RDP channels | TLS/NLA, frames, clipboard text/files, folder drives, Display Control PDUs, initial monitor attributes and pointer input | Synthetic peers; channel submission does not prove Windows acceptance |
 | RDP recovery | Idle worker health, stalled-worker interruption, abrupt peer loss, visible stale/failed/reconnecting state, three-attempt backoff, cancellation, teardown ordering, callback generations and same-tab TLS reauthentication | Owned TLS peer and controlled native callbacks; production long-session failure reproduction remains pending |
 | RDP folder browsing | Packed directory formats, compatibility padding at enumeration end, Unicode pagination, trailing separators and nested files; direct/WireGuard fixtures | Signed app on one authorized Windows server with direct transport: complete visible root count and repeated browsing through two subfolder levels. Real writes and other server policies remain unverified |
-| RDP presentation | Cropped Metal uploads, inverse input mapping, letterbox/stale-frame rejection, full-screen startup/exit/re-entry and teardown | Marked frames and owned off-screen windows |
+| RDP presentation | Cropped Metal uploads, inverse input mapping, letterbox/stale-frame rejection, full-screen startup/exit/re-entry and teardown; resize opt-in overrides all stored display modes against an owned Display Control peer | Marked frames and owned off-screen windows |
 | Workspace | Tab ordering/reconnect, detached surface ownership, focus/prompt routing, terminal menus, deferred connection/tunnel validation, centered empty/stopped tunnel layouts at narrow/wide sizes in light/dark, template type selection, view-specific terminal tools, conditional Disconnect All and AppKit shutdown | Synthetic sessions, private pasteboards and preferences |
-| Connection status | Shared sidebar/tab/status-bar colours across all session states in light/dark; per-session VPN startup, readiness, failure, release and recovery while other sessions share the helper | Owned native windows and encrypted loopback peers; VPN Ready indicates an available destination lease, not continuous peer-health verification |
+| Connection status | Inspector failure retention, VPN lifecycle activity, initial/submitted/observed RDP geometry and resize fallback events; shared sidebar/tab/status-bar colours across all session states in light/dark; per-session VPN startup, readiness, failure, release and recovery while other sessions share the helper | Owned native windows and encrypted loopback peers; VPN Ready indicates an available destination lease, not continuous peer-health verification |
 | VPN editor and Settings | Field validation and engine bounds, initial selection, dirty/Cancel/Revert/Save, secure-field controls, import summaries and grouped Settings in light/dark | Synthetic credentials and owned native windows; full VoiceOver and Finder drops need manual verification |
 | OpenVPN | Safe profile import, credential coding, ZIP/folder/manual companion import, UDP/TCP TLS negotiation, legacy AES-CBC/LZO framing, encrypted outbound IP delivery, certificate rejection, shared leases, route refusal and cancellation against an owned null-device peer | Synthetic certificates only; production interoperability and full desktop/file traffic remain unverified |
 | WireGuard | Encrypted loopback traffic, concurrent SSH/SFTP/RDP/VNC on one helper, independent disconnect/reconnect, DNS/route and host-key refusal, shared-helper failure/cleanup and schema migration | Generated keys and owned peers |
 | Packaging/signing | Platform, library closure, signatures, loader, sandboxed helper, certificate continuity, mounted bundle and SHA256 | Local development artifact; distribution is separate |
+| Screenshot app | Separate source assembly, production source/bundle exclusion, seeded SSH/SFTP/RDP/VNC and VPN state, reconnect/disconnect and signed bundle checks | Local simulations only; no protocol or VPN interoperability proof |
 | Maintenance | Cleanup boundaries, dependency rollback, signing policy, harness teardown and repository hygiene | Disposable files and mocked destructive operations |
 
 ## Known implementation limits
@@ -98,6 +99,21 @@ stated scope; disabled live entries report SKIP.
 
 See [architecture](architecture.md) for ownership, protocol bounds and unsupported
 features, and [packaging](packaging.md) for signing requirements.
+
+## Sidebar validation
+
+`scripts/test-sidebar-migration.sh` opens an owned pre-sidebar schema with the
+current models, verifies retained profiles and folder IDs, and reopens new collapse
+metadata. Core tests cover nested folder metadata, favorite ordering persistence, SSH config first-match defaults, proxy exclusion and input bounds.
+The workspace presentation harness renders sidebar hierarchy and connection states
+using synthetic profiles in light/dark appearances. Native accessibility-tree labels and increased-contrast appearances are inspected separately; complete VoiceOver navigation and Finder dragging still need manual checks.
+
+The sidebar implementation follows the document's primary sections 1–6. Its section 7
+items remain separate future work: command palette, extended Quick Connect syntax/history
+and saving, search highlighting, full drag insertion feedback and connection ordering,
+additional keyboard commands, density preferences, tags, a tunnel sidebar and icon-only
+sidebar mode. Existing terminal themes and VPN management remain available in Settings
+and VPN Connections.
 
 ## Live validation still required
 

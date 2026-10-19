@@ -15,8 +15,9 @@ struct SessionDisconnectButton: View {
                     workspace.requestDisconnect(session)
                 } label: {
                     Label("Disconnect Session", systemImage: "power").labelStyle(.iconOnly)
+                        .foregroundStyle(session.state.active ? Color.red : Color.secondary)
                 }.help("Disconnect Session (⇧⌘D)").accessibilityLabel("Disconnect Session")
             }
-        }.disabled(!session.state.active)
+        }.tint(.red).disabled(!session.state.active)
     }
 }

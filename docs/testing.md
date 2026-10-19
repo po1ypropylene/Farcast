@@ -180,3 +180,10 @@ grouping in light/dark appearance. An optional
 output directory receives synthetic view captures. It never reads the user’s
 clipboard, credentials or profile library. Full VoiceOver workflows and Finder
 configuration-file drops still require manual verification.
+
+### Sidebar schema compatibility
+
+Run `scripts/test-sidebar-migration.sh` to migrate an owned database written with
+pre-sidebar folder/profile fields. It retains entity and profile identity, defaults
+old folders to expanded roots, then verifies collapse persistence after renaming.
+Core tests also cover nested folder metadata and independent favorite order.

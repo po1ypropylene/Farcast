@@ -172,6 +172,10 @@ import SwiftData
         try await checkForwarding(first)
         try await checkForwarding(second)
         print("PASS SSH TCP forwarding byte equality and half-close use the shared WireGuard SSH transport")
+        for session in [first, second, desktop, vnc] {
+            precondition(session.logs.contains { $0.message.contains("VPN: establishing") })
+            precondition(session.logs.contains { $0.message.contains("VPN: destination lease ready") })
+        }
         precondition(first.terminalAvailable && second.terminalAvailable)
         first.terminal?.sendBytes?(Data("encrypted-terminal-check\n".utf8))
         try await waitUntil("SSH terminal input/output did not cross the encrypted tunnel") {

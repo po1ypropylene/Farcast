@@ -4,6 +4,24 @@ import XCTest
 @testable import FarcastCore
 
 final class CoreTests: XCTestCase {
+    func testResizeOptInOverridesButPreservesStoredDisplayMode() {
+        var draft = ConnectionDraft()
+        XCTAssertFalse(draft.dynamicResolution)
+        draft.kind = .rdp
+        for mode in RDPDisplayMode.allCases {
+            draft.displayMode = mode
+            draft.dynamicResolution = true
+            let restored = ConnectionDraft(SavedConnection(draft: draft))
+            XCTAssertEqual(restored.displayMode, mode)
+            XCTAssertEqual(restored.effectiveDisplayMode, .fit)
+            draft.dynamicResolution = false
+            XCTAssertEqual(draft.effectiveDisplayMode, mode)
+        }
+        draft.kind = .vnc
+        draft.displayMode = .actualSize
+        draft.dynamicResolution = true
+        XCTAssertEqual(draft.effectiveDisplayMode, .actualSize)
+    }
     func testValidationAndIPv6Normalization() {
         var profile = ConnectionDraft()
         profile.host = " [2001:db8::1] "
@@ -57,6 +75,75 @@ final class CoreTests: XCTestCase {
         alternate.port = 22
         alternate.host = "server.example"
         XCTAssertEqual(ssh.endpointKey, alternate.endpointKey)
+    }
+    func testSSHConfigImportUsesMetadataAndFirstMatchingDefaults() throws {
+        let imported = try SSHConfigImport(
+            text: """
+                User default-user
+                Host lab alternate
+                    HostName "lab.example" # comment
+                    Port=2222
+                    IdentityFile ~/.ssh/private-key
+                Host blocked
+                    HostName blocked.example
+                    ProxyCommand never-execute-this
+                Host jump
+                    ProxyJump lab
+                Host * !blocked
+                    Port 2200
+                Match exec never-execute-this
+                    HostName ignored.example
+                """)
+        XCTAssertEqual(imported.entries.map(\.alias), ["lab", "alternate"])
+        XCTAssertEqual(imported.entries.map(\.host), ["lab.example", "lab.example"])
+        XCTAssertTrue(imported.entries.allSatisfy { $0.username == "default-user" && $0.port == 2222 })
+        let defaults = try SSHConfigImport(text: "Host *\n Port 2200\nHost machine\n HostName %h.example\n Port 2222")
+        XCTAssertEqual(defaults.entries.first?.host, "machine.example")
+        XCTAssertEqual(defaults.entries.first?.port, 2200)
+    }
+    func testSSHConfigImportRejectsInvalidAndSkipsUnsupportedHosts() throws {
+        XCTAssertThrowsError(try SSHConfigImport(text: "Host \"unterminated"))
+        XCTAssertThrowsError(try SSHConfigImport(text: String(repeating: "a", count: 1_048_577)))
+        let imported = try SSHConfigImport(
+            text:
+                "Host *.example !excluded\nHost invalid\n Port 65536\nHost unsupported\n HostName %n.example\nInclude /not/read"
+        )
+        XCTAssertTrue(imported.entries.isEmpty)
+    }
+    @MainActor func testSidebarMetadataSurvivesRenameAndReopen() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let schema = Schema([SavedConnection.self, ConnectionFolder.self])
+        let config = ModelConfiguration(schema: schema, url: root.appendingPathComponent("library.store"))
+        let container = try ModelContainer(for: schema, configurations: [config])
+        let parent = ConnectionFolder(name: "Parent")
+        let child = ConnectionFolder(name: "Child")
+        child.parentID = parent.id
+        child.isCollapsed = true
+        var draft = ConnectionDraft()
+        draft.name = "Server"
+        draft.host = "server.example"
+        draft.folderID = child.id
+        draft.favorite = true
+        let profile = SavedConnection(draft: draft)
+        profile.favoriteOrder = 4
+        container.mainContext.insert(parent)
+        container.mainContext.insert(child)
+        container.mainContext.insert(profile)
+        try container.mainContext.save()
+        child.name = "Renamed"
+        try container.mainContext.save()
+        let reopened = try ModelContainer(for: schema, configurations: [config])
+        let folders = try reopened.mainContext.fetch(FetchDescriptor<ConnectionFolder>())
+        let restored = try XCTUnwrap(folders.first { $0.id == child.id })
+        XCTAssertEqual(restored.name, "Renamed")
+        XCTAssertEqual(restored.parentID, parent.id)
+        XCTAssertEqual(restored.isCollapsed, true)
+        let profiles = try reopened.mainContext.fetch(FetchDescriptor<SavedConnection>())
+        XCTAssertEqual(profiles.first?.folderID, child.id)
+        XCTAssertEqual(profiles.first?.favoriteOrder, 4)
+        XCTAssertEqual(profiles.first?.favorite, true)
     }
     @MainActor func testProfileAndFolderPersistenceDoesNotStoreCredentials() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

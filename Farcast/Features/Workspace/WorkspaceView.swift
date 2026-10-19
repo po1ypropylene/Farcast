@@ -14,11 +14,18 @@ struct WorkspaceView: View {
     @State private var folderName = ""
     @State private var showFolderEditor = false
     @State private var editingFolder: ConnectionFolder?
+    @State private var newFolderParentID: UUID?
+    @State private var sshConfigImport: SSHConfigImport?
+    @State private var showSSHConfigImport = false
+    @State private var infoConnection: SavedConnection?
+    @State private var deletingFolder: ConnectionFolder?
+    @AppStorage("sidebar.favoritesExpanded") private var favoritesExpanded = true
+    @AppStorage("sidebar.connectionsExpanded") private var connectionsExpanded = true
     @State private var deletingConnection: SavedConnection?
     private var filtered: [SavedConnection] {
         connections.filter {
             search.isEmpty
-                || "\($0.name) \($0.host) \($0.username) \($0.protocolName) \($0.notes)"
+                || "\($0.name) \($0.host) \($0.username) \($0.protocolName) \($0.notes) \(folderPath($0.folderID))"
                     .localizedCaseInsensitiveContains(search)
         }
     }
@@ -43,41 +50,32 @@ struct WorkspaceView: View {
                 ).padding(.horizontal, 14)
                     .padding(.bottom, 12)
                 List(selection: $selectedProfileID) {
-                    if !filtered.filter(\.favorite).isEmpty {
+                    if !favorites.isEmpty {
                         Section {
-                            ForEach(filtered.filter(\.favorite)) { connectionRow($0) }
+                            if favoritesExpanded || !search.isEmpty {
+                                ForEach(favorites) { connection in
+                                    connectionRow(connection, showsFolder: true)
+                                        .dropDestination(for: String.self) { values, _ in
+                                            return reorderFavorites(values, before: connection)
+                                        }
+                                }
+                            }
                         } header: {
-                            Text("Favorites").foregroundStyle(.primary)
+                            SidebarSectionHeader(title: "Favorites", expanded: $favoritesExpanded)
+                                .dropDestination(for: String.self) { values, _ in return favorite(values) }
                         }
                     }
-                    ForEach(folders) { folder in
+                    ForEach(rootFolders) { folder in folderTree(folder, ancestors: []) }
+                    if !ungrouped.isEmpty {
                         Section {
-                            ForEach(filtered.filter { $0.folderID == folder.id }) { connectionRow($0) }
-                            if filtered.filter({ $0.folderID == folder.id }).isEmpty {
-                                Text(search.isEmpty ? "No connections" : "No matches").font(.callout).foregroundStyle(
-                                    .tertiary)
+                            if connectionsExpanded || !search.isEmpty {
+                                ForEach(ungrouped) { connectionRow($0, showsFolder: false) }
                             }
                         } header: {
-                            Label(folder.name, systemImage: "folder").foregroundStyle(.primary).contextMenu {
-                                Button("Rename Folder…") {
-                                    editingFolder = folder
-                                    folderName = folder.name
-                                    showFolderEditor = true
-                                }
-                                Button("Delete Folder", role: .destructive) { deleteFolder(folder) }
-                            }
-                        }.dropDestination(for: String.self) { values, _ in return move(values, to: folder.id) }
+                            SidebarSectionHeader(title: "Connections", expanded: $connectionsExpanded)
+                        }
+                        .dropDestination(for: String.self) { values, _ in return move(values, to: nil) }
                     }
-                    Section {
-                        ForEach(
-                            filtered.filter { connection in
-                                connection.folderID == nil || !folders.contains(where: { $0.id == connection.folderID })
-                            }
-                        ) { connectionRow($0) }
-                    } header: {
-                        Text("Connections").foregroundStyle(.primary)
-                    }
-                    .dropDestination(for: String.self) { values, _ in return move(values, to: nil) }
                 }.listStyle(.sidebar)
                     .onKeyPress(.return) {
                         guard workspace.editor == nil,
@@ -94,12 +92,14 @@ struct WorkspaceView: View {
                         Button("New VNC Connection") { create(.vnc) }
                         Divider()
                         Button("VPN Connections…") { workspace.showWireGuard = true }
+                        Button("Import from ~/.ssh/config…") { chooseSSHConfig() }
                         Button("Import Test Servers…") { workspace.chooseTestServerFile() }
                         Button("Import Existing Library…") { workspace.showLibraryImport = true }
                             .disabled(!workspace.sessions.isEmpty)
                         Divider()
                         Button("New Folder…") {
                             editingFolder = nil
+                            newFolderParentID = nil
                             folderName = ""
                             showFolderEditor = true
                         }
@@ -107,9 +107,11 @@ struct WorkspaceView: View {
                         Label("Add", systemImage: "plus").frame(minWidth: 70, minHeight: 24).contentShape(Rectangle())
                     }.menuStyle(.borderlessButton).controlSize(.regular).frame(minWidth: 70, minHeight: 24)
                     Spacer()
-                    Text("\(connections.count) connections").font(.callout).foregroundStyle(.secondary)
+                    Text("\(connections.count) connections · \(connections.filter(\.favorite).count) favorites").font(
+                        .callout
+                    ).foregroundStyle(.secondary)
                 }.padding(14)
-            }.navigationSplitViewColumnWidth(min: 240, ideal: 270, max: 340)
+            }.navigationSplitViewColumnWidth(min: 220, ideal: 290, max: 400)
         } detail: {
             VStack(spacing: 0) {
                 if !workspace.attachedSessions.isEmpty {
@@ -197,9 +199,27 @@ struct WorkspaceView: View {
         .modifier(SessionActionConfirmation(workspace: workspace))
         .buttonStyle(.automatic)
         .navigationTitle(workspace.selectedSession?.profile.name ?? "Workspace")
+        .navigationSubtitle(
+            workspace.selectedSession.map { session in
+                let destination =
+                    "\(session.profile.username.isEmpty ? "" : session.profile.username + "@")\(session.profile.host)"
+                let tunnel = tunnels.first { $0.id == session.profile.wireGuardID }
+                return destination + (tunnel.map { " · via " + $0.name } ?? "")
+            } ?? ""
+        )
         .frame(minWidth: 900, minHeight: 660)
         .sheet(item: $workspace.testServerImport) { request in
             TestServerImportView(workspace: workspace, document: request.document)
+        }
+        .popover(item: $infoConnection) { connection in
+            SidebarConnectionInfo(
+                connection: connection, folder: folderPath(connection.folderID),
+                tunnel: tunnels.first { $0.id == connection.wireGuardID })
+        }
+        .sheet(isPresented: $showSSHConfigImport) {
+            if let document = sshConfigImport {
+                SSHConfigImportView(document: document) { workspace.error = $0 }
+            }
         }
         .sheet(isPresented: $workspace.showWireGuard) { WireGuardLibrary() }
         .sheet(isPresented: $workspace.showLibraryImport) { ExistingLibraryImportView(workspace: workspace) }
@@ -242,7 +262,9 @@ struct WorkspaceView: View {
                     if let editingFolder {
                         editingFolder.name = name
                     } else {
-                        context.insert(ConnectionFolder(name: name, order: folders.count))
+                        let folder = ConnectionFolder(name: name, order: folders.count)
+                        folder.parentID = newFolderParentID
+                        context.insert(folder)
                     }
                     save()
                 }
@@ -263,6 +285,19 @@ struct WorkspaceView: View {
                 "This removes the saved profile and its saved credentials. Open sessions remain available until you close them."
             )
         }
+        .confirmationDialog(
+            "Delete \(deletingFolder?.name ?? "folder")?",
+            isPresented: Binding(get: { deletingFolder != nil }, set: { if !$0 { deletingFolder = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Delete Folder", role: .destructive) {
+                if let folder = deletingFolder { deleteFolder(folder) }
+                deletingFolder = nil
+            }
+            Button("Cancel", role: .cancel) { deletingFolder = nil }
+        } message: {
+            Text("Connections and subfolders move to the parent folder. Saved connections and credentials are kept.")
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
             if let window = notification.object as? NSWindow { workspace.activate(window) }
         }
@@ -271,42 +306,141 @@ struct WorkspaceView: View {
             workspace.restoreWorkspace(connections)
         }
     }
-    private func connectionRow(_ connection: SavedConnection) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: connection.kind.icon).foregroundStyle(connection.kind == .ssh ? Color.teal : Color.indigo)
-                .frame(width: 22).help(connection.kind.rawValue).accessibilityLabel(connection.kind.rawValue)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(connection.name).font(.body).lineLimit(1)
-                Text(destinationDescription(connection)).font(.body).foregroundStyle(.secondary)
-                    .lineLimit(1).truncationMode(.middle).help(destinationDescription(connection))
-            }
-            Spacer()
-            SidebarSessionState(workspace: workspace, profileID: connection.id)
-        }.frame(minHeight: 24).padding(.vertical, 2).tag(connection.id).contentShape(Rectangle())
-            .accessibilityAction(named: "Connect") { connect(connection) }
-            .onTapGesture(count: 2) { connect(connection) }
-            .contextMenu {
-                Button("Connect") { connect(connection) }
-                Button("Edit Connection…") {
-                    edit(connection)
-                }
-                Button(connection.favorite ? "Remove from Favorites" : "Add to Favorites") {
-                    connection.favorite.toggle()
-                    save()
-                }
-                Button("Duplicate Connection") {
-                    context.insert(connection.duplicate())
-                    save()
-                }
-                Divider()
-                Button("Delete Connection…", role: .destructive) { deletingConnection = connection }
-            }.draggable(connection.id.uuidString)
+    private var favorites: [SavedConnection] {
+        filtered.filter(\.favorite).sorted {
+            let left = $0.favoriteOrder ?? Int.max
+            let right = $1.favoriteOrder ?? Int.max
+            return left == right ? $0.name.localizedStandardCompare($1.name) == .orderedAscending : left < right
+        }
     }
-    private func destinationDescription(_ connection: SavedConnection) -> String {
-        let destination = connection.username.isEmpty ? connection.host : "\(connection.username)@\(connection.host)"
-        guard let tunnelID = connection.wireGuardID else { return destination }
-        let name = tunnels.first(where: { $0.id == tunnelID })?.name ?? "Unavailable VPN connection"
-        return "\(destination) via \(name)"
+    private var ungrouped: [SavedConnection] {
+        filtered.filter { connection in
+            connection.folderID == nil || !folders.contains { $0.id == connection.folderID }
+        }
+    }
+    private var rootFolders: [ConnectionFolder] {
+        folders.filter { folder in
+            folder.parentID == nil || !folders.contains { $0.id == folder.parentID }
+        }
+    }
+    private func folderPath(_ id: UUID?) -> String {
+        var id = id
+        var names: [String] = []
+        var seen = Set<UUID>()
+        while let current = id, seen.insert(current).inserted,
+            let folder = folders.first(where: { $0.id == current })
+        {
+            names.insert(folder.name, at: 0)
+            id = folder.parentID
+        }
+        return names.joined(separator: " / ")
+    }
+    private func folderIDs(_ folder: ConnectionFolder) -> Set<UUID> {
+        var ids: Set<UUID> = [folder.id]
+        var previousCount = 0
+        while previousCount != ids.count {
+            previousCount = ids.count
+            for child in folders where child.parentID.map({ ids.contains($0) }) == true { ids.insert(child.id) }
+        }
+        return ids
+    }
+    private func folderTree(_ folder: ConnectionFolder, ancestors: Set<UUID>) -> AnyView {
+        let ids = folderIDs(folder)
+        let matches = filtered.filter { $0.folderID.map { ids.contains($0) } == true }
+        let children = folders.filter { $0.parentID == folder.id && !ancestors.contains($0.id) }
+        let expanded = Binding(
+            get: { !search.isEmpty || folder.isCollapsed != true },
+            set: {
+                folder.isCollapsed = !$0
+                save()
+            })
+        return AnyView(
+            Group {
+                if search.isEmpty || !matches.isEmpty {
+                    DisclosureGroup(isExpanded: expanded) {
+                        ForEach(children) { child in folderTree(child, ancestors: ancestors.union([folder.id])) }
+                        ForEach(filtered.filter { $0.folderID == folder.id }) { connectionRow($0, showsFolder: false) }
+                        if matches.isEmpty {
+                            Text("No connections").font(.caption).foregroundStyle(.secondary)
+                        }
+                    } label: {
+                        SidebarFolderLabel(name: folder.name, count: matches.count, expanded: expanded.wrappedValue)
+                            .contextMenu {
+                                Menu("New Connection in Folder") {
+                                    ForEach(RemoteProtocol.allCases) { kind in
+                                        Button(kind.rawValue) { create(kind, folderID: folder.id) }
+                                    }
+                                }
+                                Button("New Subfolder…") {
+                                    editingFolder = nil
+                                    newFolderParentID = folder.id
+                                    folderName = ""
+                                    showFolderEditor = true
+                                }
+                                Button("Rename Folder…") {
+                                    editingFolder = folder
+                                    folderName = folder.name
+                                    showFolderEditor = true
+                                }
+                                Button("Delete Folder…", role: .destructive) { deletingFolder = folder }
+                            }
+                    }
+                    .animation(.easeInOut(duration: 0.15), value: expanded.wrappedValue)
+                    .dropDestination(for: String.self) { values, _ in return move(values, to: folder.id) }
+                }
+            })
+    }
+    private func connectionRow(_ connection: SavedConnection, showsFolder: Bool) -> some View {
+        SidebarConnectionRow(
+            connection: connection, workspace: workspace,
+            folder: showsFolder ? folderPath(connection.folderID) : "",
+            tunnel: tunnels.first { $0.id == connection.wireGuardID },
+            toggleFavorite: {
+                connection.favorite.toggle()
+                save()
+            }
+        )
+        .tag(connection.id).contentShape(Rectangle())
+        .accessibilityAction(named: "Connect") { connect(connection) }
+        .onTapGesture(count: 2) { connect(connection) }
+        .contextMenu {
+            Button("Connect") { connect(connection) }
+            Button("Get Info") { infoConnection = connection }
+            Button("Edit Connection…") { edit(connection) }
+            Button(connection.favorite ? "Remove from Favorites" : "Add to Favorites") {
+                connection.favorite.toggle()
+                save()
+            }
+            Button("Duplicate Connection") {
+                context.insert(connection.duplicate())
+                save()
+            }
+            Divider()
+            Button("Delete Connection…", role: .destructive) { deletingConnection = connection }
+        }.draggable(connection.id.uuidString)
+    }
+    private func favorite(_ values: [String]) -> Bool {
+        let ids = values.compactMap(UUID.init(uuidString:))
+        let matches = connections.filter { ids.contains($0.id) }
+        for connection in matches { connection.favorite = true }
+        save()
+        return !matches.isEmpty
+    }
+    private func reorderFavorites(_ values: [String], before target: SavedConnection) -> Bool {
+        guard let value = values.first, let id = UUID(uuidString: value), id != target.id,
+            let source = connections.first(where: { $0.id == id })
+        else { return false }
+        source.favorite = true
+        var ordered = connections.filter { $0.favorite && $0.id != id }.sorted {
+            let left = $0.favoriteOrder ?? Int.max
+            let right = $1.favoriteOrder ?? Int.max
+            return left == right ? $0.name.localizedStandardCompare($1.name) == .orderedAscending : left < right
+        }
+        guard let index = ordered.firstIndex(where: { $0.id == target.id }) else { return false }
+        ordered.insert(source, at: index)
+        for (index, connection) in ordered.enumerated() { connection.favoriteOrder = index }
+        save()
+        return true
     }
     private var overview: some View {
         GeometryReader { geometry in
@@ -381,9 +515,36 @@ struct WorkspaceView: View {
             ).overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(color.opacity(0.15)))
         }.buttonStyle(.plain)
     }
-    private func create(_ kind: RemoteProtocol) {
+    private func chooseSSHConfig() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose an SSH config to review metadata for import. Keys and included files will not be read."
+        panel.nameFieldStringValue = "config"
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ssh")
+        panel.begin { result in
+            guard result == .OK, let url = panel.url else { return }
+            let access = url.startAccessingSecurityScopedResource()
+            defer { if access { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let handle = try FileHandle(forReadingFrom: url)
+                defer { try? handle.close() }
+                let data = try handle.read(upToCount: 1_048_577) ?? Data()
+                guard data.count <= 1_048_576, let text = String(data: data, encoding: .utf8) else {
+                    throw SSHConfigImport.ImportError.invalid
+                }
+                sshConfigImport = try SSHConfigImport(text: text)
+                showSSHConfigImport = true
+            } catch {
+                workspace.error =
+                    "The selected SSH config could not be imported. Choose a UTF-8 config no larger than 1 MB with valid quoted values."
+            }
+        }
+    }
+    private func create(_ kind: RemoteProtocol, folderID: UUID? = nil) {
         var draft = ConnectionDraft()
         draft.kind = kind
+        draft.folderID = folderID
         draft.port = kind.defaultPort
         workspace.editor = EditorRequest(draft: draft, mode: .create)
     }
@@ -404,7 +565,8 @@ struct WorkspaceView: View {
         } catch { workspace.error = error.localizedDescription }
     }
     private func deleteFolder(_ folder: ConnectionFolder) {
-        for connection in connections where connection.folderID == folder.id { connection.folderID = nil }
+        for connection in connections where connection.folderID == folder.id { connection.folderID = folder.parentID }
+        for child in folders where child.parentID == folder.id { child.parentID = folder.parentID }
         context.delete(folder)
         save()
     }

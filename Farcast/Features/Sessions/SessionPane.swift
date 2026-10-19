@@ -104,11 +104,22 @@ struct SessionPane: View {
                     }.help("Time since connection").accessibilityLabel("Connected since \(since.formatted())")
                 }
                 Text("·").foregroundStyle(.secondary)
-                Text("\(session.profile.username)@\(session.profile.host):\(String(session.profile.port))").lineLimit(1)
-                    .textSelection(.enabled)
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(session.profile.host, forType: .string)
+                } label: {
+                    Text(
+                        "\(session.profile.username.isEmpty ? "" : session.profile.username + "@")\(session.profile.host):\(String(session.profile.port))"
+                    ).lineLimit(1)
+                }.buttonStyle(.plain).help("Copy host address")
+                    .accessibilityLabel("Copy host address: \(session.profile.host)")
                 if session.profile.wireGuardID != nil {
                     Text("·").foregroundStyle(.secondary)
-                    SessionVPNStatus(session: session)
+                    Button {
+                        workspace.showInspector = true
+                    } label: {
+                        SessionVPNStatus(session: session)
+                    }.buttonStyle(.plain).help("Show tunnel connection details")
                 }
                 Spacer()
                 if session.state == .connected, !session.clipboardMessage.isEmpty {
@@ -134,14 +145,14 @@ struct SessionPane: View {
                     }
                     Button("Ctrl + Alt + Delete") { session.controlAltDelete() }.disabled(session.state != .connected)
                 } else if session.showsTerminalTools {
-                    IconActionButton(title: "Decrease terminal font size", symbol: "minus") {
+                    IconActionButton(title: "Decrease terminal font size (⌘−)", symbol: "minus") {
                         session.zoomTerminal(-1)
                     }.disabled(!session.terminalAvailable)
                     Button("\(session.terminalZoom)%") { session.resetTerminalZoom() }
                         .monospacedDigit().help("Reset terminal zoom (⌘0)")
                         .accessibilityLabel("Terminal zoom \(session.terminalZoom) percent; reset zoom")
                         .disabled(!session.terminalAvailable)
-                    IconActionButton(title: "Increase terminal font size", symbol: "plus") {
+                    IconActionButton(title: "Increase terminal font size (⌘+)", symbol: "plus") {
                         session.zoomTerminal(1)
                     }.disabled(!session.terminalAvailable)
                     Button {

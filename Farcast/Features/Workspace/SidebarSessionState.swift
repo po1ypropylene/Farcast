@@ -5,10 +5,7 @@ struct SidebarSessionState: View {
     let profileID: UUID
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { timeline in
-            let sessions = workspace.sessions.filter { $0.profile.id == profileID }
-            let session =
-                sessions.first { $0.state == .connected } ?? sessions.first { $0.state.active }
-                ?? sessions.last { $0.state == .failed } ?? sessions.last
+            let session = workspace.sidebarSession(for: profileID)
             if let session {
                 let uptime =
                     session.connectedAt.map {
@@ -25,5 +22,13 @@ struct SidebarSessionState: View {
                     .help(label).accessibilityLabel(label)
             }
         }.frame(width: 8)
+    }
+}
+
+extension Workspace {
+    func sidebarSession(for profileID: UUID) -> RemoteSession? {
+        let matches = sessions.filter { $0.profile.id == profileID }
+        return matches.first { $0.state == .connected } ?? matches.first { $0.state.active }
+            ?? matches.last { $0.state == .failed } ?? matches.last
     }
 }

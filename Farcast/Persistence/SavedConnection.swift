@@ -11,6 +11,7 @@ import SwiftData
     var domain: String
     var authentication: String
     var folderID: UUID?
+    var favoriteOrder: Int? = nil
     var favorite: Bool
     var notes: String
     var fontSize: Double

@@ -430,7 +430,7 @@ struct ConnectionEditor: View {
             row("") {
                 Toggle("Resize with window", isOn: $draft.dynamicResolution)
             }
-            caption("Resize in Fit to window mode when supported; otherwise scale to fit.")
+            caption("Resize the remote desktop with the window; scale to fit while waiting or if unsupported.")
             row("") { Toggle("Open in full screen", isOn: $draft.launchFullScreen) }
             row("") {
                 Toggle("Use all monitors", isOn: $draft.useAllMonitors).disabled(!draft.launchFullScreen)
@@ -452,11 +452,13 @@ struct ConnectionEditor: View {
                     Text("Match window at connection").tag(RDPDisplayMode.matchWindow)
                 }.labelsHidden().accessibilityLabel("Display")
             }
-            caption(displayCaption).help(draft.displayMode.explanation)
+            caption(displayCaption).help(
+                draft.dynamicResolution ? displayCaption : draft.displayMode.explanation)
             if draft.displayMode != .matchWindow {
                 row(
                     draft.retinaDisplay
-                        ? "Logical size" : (draft.displayMode == .actualSize ? "Resolution" : "Initial resolution")
+                        ? "Logical size"
+                        : (draft.effectiveDisplayMode == .actualSize ? "Resolution" : "Initial resolution")
                 ) {
                     Picker("Resolution", selection: resolutionSelection) {
                         ForEach(RDPResolutionPreset.all) { Text($0.title).tag($0.id) }
@@ -504,6 +506,11 @@ struct ConnectionEditor: View {
             })
     }
     private var displayCaption: String {
+        if draft.dynamicResolution {
+            return draft.displayMode == .matchWindow
+                ? "Start at the window’s size, then resize with the window."
+                : "Start at the selected resolution, then resize with the window."
+        }
         switch draft.displayMode {
         case .actualSize:
             return draft.retinaDisplay

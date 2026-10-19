@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""Assemble an isolated source tree; production sources never import showcase code."""
+from pathlib import Path
+import shutil
+
+ROOT = Path(__file__).resolve().parents[1]
+DEST = ROOT / '.build/showcase-source'
+
+
+def replace(path, old, new):
+    target = DEST / path
+    text = target.read_text()
+    if text.count(old) != 1:
+        raise RuntimeError(f'Showcase source integration needs review: {path}: {old[:70]!r}')
+    target.write_text(text.replace(old, new))
+
+
+def region(path, start, end, replacement):
+    target = DEST / path
+    text = target.read_text()
+    a = text.index(start)
+    b = text.index(end, a)
+    target.write_text(text[:a] + replacement + text[b:])
+
+
+def prepare():
+    if DEST.exists():
+        shutil.rmtree(DEST)
+    DEST.mkdir(parents=True)
+    for name in ['Farcast', 'Farcast.xcodeproj']:
+        shutil.copytree(ROOT / name, DEST / name, ignore=shutil.ignore_patterns('xcuserdata'))
+    for name in ['Configuration', 'Vendor', 'ThirdParty', 'scripts']:
+        (DEST / name).symlink_to(ROOT / name, target_is_directory=True)
+    for name in ['Version.xcconfig', 'LICENSE']:
+        shutil.copy2(ROOT / name, DEST / name)
+    app = 'Farcast/App/FarcastApp.swift'
+    replace(app, 'container = try ModelContainer(for: SavedConnection.self, ConnectionFolder.self, SavedWireGuard.self)',
+            'let library = try ModelContainer(for: SavedConnection.self, ConnectionFolder.self, SavedWireGuard.self, '
+            'configurations: ModelConfiguration(isStoredInMemoryOnly: true))\n'
+            '''            try ShowcaseLibrary.seed(library)
+            if ProcessInfo.processInfo.arguments.contains("--verify-showcase") {
+                try ShowcaseLibrary.verify(library)
+                exit(EXIT_SUCCESS)
+            }
+            container = library''')
+    for name in ['ShowcaseLibrary.swift', 'ShowcaseDesktop.swift', 'catalog.json']:
+        shutil.copy2(ROOT / 'Showcase' / name, DEST / 'Farcast' / name)
+    session = 'Farcast/Features/Sessions/RemoteSession.swift'
+    region(session, '    func start(credential: ConnectionCredential) {', '    private func startProtocol(',
+           '    func start(credential: ConnectionCredential) {\n        startShowcase()\n    }\n')
+    with (DEST / session).open('a') as file:
+        file.write('\n' + (ROOT / 'Showcase/Session.swift').read_text())
+    workspace = 'Farcast/Features/Workspace/Workspace.swift'
+    region(workspace, '        if draft.kind == .ssh && draft.authentication == .interactive',
+           '    private func start(_ session:', '        return ConnectionCredential()\n    }\n\n')
+    replace('Farcast/Features/Workspace/WorkspaceView.swift',
+            '            workspace.restoreWorkspace(connections)',
+            '            workspace.restoreWorkspace(connections)\n'
+            '            ShowcaseLibrary.openRequestedView(workspace: workspace, connections: connections)')
+    # An ephemeral store for every credential call, including editor/VPN save/delete.
+    credential = 'Farcast/Shared/Security/CredentialStore.swift'
+    region(credential, 'struct CredentialStore {', '\n}', '''struct CredentialStore {
+    private static var values: [UUID: ConnectionCredential] = [:]
+    static func load(_ id: UUID) throws -> ConnectionCredential? {
+        values[id] ?? ConnectionCredential()
+    }
+    static func save(_ credential: ConnectionCredential, for id: UUID) throws {
+        values[id] = credential
+    }
+    static func delete(_ id: UUID) throws {
+        values.removeValue(forKey: id)
+    }''')
+    files = 'Farcast/Features/Sessions/SFTPController.swift'
+    region(files, '        let realHome = getpwuid', '    private func saveHomeAccess', '''        self.homeURL = URL(fileURLWithPath: "/Users/barry.allen", isDirectory: true)
+        localURL = self.homeURL
+        needsLocalAccess = false
+        refreshLocal()
+    }
+''')
+    region(files, '        guard !busy, let client else { return }\n        requested = true',
+           '    private func recordRemoteVisit', '''        showcaseListing(path: path)
+    }
+''')
+    region(files, '    func chooseLocalFolder() {', '    func open(_ file:', '''    func chooseLocalFolder() {
+        localURL = homeURL
+        refreshLocal()
+    }
+    func refreshLocal() { localFiles = Self.showcaseFiles }
+''')
+    region(files, '    func open(_ file:', '    func openLocal(_ file:', '''    func open(_ file: TransferFile, local: Bool) {
+        if file.directory {
+            if local { openLocal(file) } else { openRemote(file) }
+        }
+    }
+    func reveal(_ files: [TransferFile]) {}
+''')
+    region(files, '    private func run(_ work: [FileJob]) {', '    private func runNext()', '''    private func run(_ work: [FileJob]) {
+        message = "Ready · All files up to date"
+    }
+''')
+    with (DEST / files).open('a') as file:
+        file.write('\n' + (ROOT / 'Showcase/Files.swift').read_text())
+    # Separate sandbox/preferences identity; visual app and executable names stay Farcast.
+    project = DEST / 'Farcast.xcodeproj/project.pbxproj'
+    project.write_text(project.read_text().replace('PRODUCT_BUNDLE_IDENTIFIER = com.peterpo.farcast;',
+                                                  'PRODUCT_BUNDLE_IDENTIFIER = com.peterpo.farcast.showcase;'))
+    print(DEST)
+
+
+if __name__ == '__main__':
+    prepare()

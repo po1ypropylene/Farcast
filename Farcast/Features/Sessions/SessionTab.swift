@@ -13,9 +13,15 @@ struct SessionTab: View {
                 HStack(spacing: 6) {
                     Circle().fill(session.state.color).frame(width: 6, height: 6)
                         .accessibilityHidden(true)
-                    Image(systemName: session.profile.kind.icon)
-                        .font(.system(size: 12, weight: .medium))
-                        .accessibilityHidden(true)
+                    ConnectionProtocolIcon(
+                        kind: session.profile.kind,
+                        routed: session.profile.wireGuardID != nil, vpnState: session.vpnState
+                    )
+                    .scaleEffect(0.8).frame(width: 18, height: 18)
+                    if session.hasUnreadOutput {
+                        Image(systemName: "waveform").font(.caption).foregroundStyle(.secondary)
+                            .help("New terminal output").accessibilityLabel("New terminal output")
+                    }
                     Text(session.profile.name).fontWeight(selected ? .semibold : .regular)
                         .lineLimit(1).frame(maxWidth: 180)
                 }
@@ -27,7 +33,7 @@ struct SessionTab: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("\(session.profile.name), \(session.profile.kind.rawValue)")
-            .accessibilityValue(session.state.title)
+            .accessibilityValue(session.state.title + (session.hasUnreadOutput ? ", new terminal output" : ""))
             .accessibilityAddTraits(selected ? .isSelected : [])
             .help("\(session.profile.name) · \(session.state.title)")
 

@@ -66,12 +66,17 @@ private final class ControlledRDPClient: FCRDPClient {
         precondition(session.state == .failed && session.desktop?.inputEnabled == false)
         pump(2.2)
         precondition(clients.count == 1, "Must await native cleanup before replacing a client")
+        precondition(session.latestFailure == "Lost before cleanup")
         first.onStopped?(true)
         wait { session.state == .reconnecting }
         precondition(session.message.contains("attempt 1 of 3"))
+        precondition(session.latestFailure == "Lost before cleanup", "Recovery must preserve the actual failure")
+        let logCount = session.logs.count
+        first.onDesktopSize?(333, 222)
         first.connected()  // Old generation must not paint the session as connected.
         pump()
         precondition(session.state == .reconnecting)
+        precondition(session.logs.count == logCount && session.observedDesktopSize == nil)
         wait { clients.count == 2 }
         clients.last!.lost()
         wait { session.state == .reconnecting && session.message.contains("attempt 2 of 3") }
@@ -93,6 +98,7 @@ private final class ControlledRDPClient: FCRDPClient {
         clients.last!.lost()
         wait { cancelled.state == .reconnecting }
         cancelled.disconnect()
+        precondition(cancelled.latestFailure == "Fixture transport lost")
         let count = clients.count
         pump(2.2)
         precondition(clients.count == count && cancelled.state == .disconnected)

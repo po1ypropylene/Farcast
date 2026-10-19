@@ -80,6 +80,8 @@ enum PreviousLibraryIdentity {
             for folder in folders {
                 let copy = ConnectionFolder(name: folder.name, order: folder.order)
                 copy.id = folder.id
+                copy.parentID = folder.parentID
+                copy.isCollapsed = folder.isCollapsed
                 destination.insert(copy)
             }
             for profile in profiles {
@@ -94,6 +96,7 @@ enum PreviousLibraryIdentity {
                 copy.rdpFolderExports = profile.rdpFolderExports
                 copy.sshForwardingRules = profile.sshForwardingRules
                 copy.created = profile.created
+                copy.favoriteOrder = profile.favoriteOrder
                 copy.lastConnected = profile.lastConnected
                 destination.insert(copy)
             }

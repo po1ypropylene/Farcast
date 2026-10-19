@@ -24,7 +24,7 @@ import Foundation
         draft.port = port
         draft.username = "fixture"
         draft.kind = .rdp
-        draft.displayMode = .fit
+        draft.displayMode = mode == "actualSize" ? .actualSize : (mode == "matchWindow" ? .matchWindow : .fit)
         draft.dynamicResolution = true
         draft.retinaDisplay = mode == "retina"
         draft.desktopWidth = 640
@@ -45,6 +45,7 @@ import Foundation
         workspace.sessions.append(session)
         workspace.select(session.id)
         let desktop = session.desktop!
+        precondition(desktop.displayMode == .fit, "Resize opt-in must override every stored display mode")
         let viewport = RDPViewport(desktop: desktop)
         let window = NSWindow(
             contentRect: CGRect(x: -30000, y: -30000, width: 640, height: 480), styleMask: .borderless,
@@ -77,8 +78,23 @@ import Foundation
                 points: points, backing: desktop.convertToBacking(CGRect(origin: .zero, size: points)).size,
                 backingScale: window.backingScaleFactor, retina: draft.retinaDisplay)!
         }
+        if mode == "matchWindow" {
+            var initial: CGSize?
+            desktop.withInitialSize(width: 1600, height: 1000, matchWindow: true) { initial = $0 }
+            precondition(initial == CGSize(width: 640, height: 480), "Initial size must use viewport, not preset")
+            desktop.retinaDisplay = true
+            desktop.withInitialSize(width: 1600, height: 1000, matchWindow: true) { initial = $0 }
+            precondition(
+                initial == CGSize(width: 640 * window.backingScaleFactor, height: 480 * window.backingScaleFactor),
+                "Initial Retina size must scale the viewport once")
+            desktop.retinaDisplay = draft.retinaDisplay
+        }
         session.start(credential: ConnectionCredential(password: "fixture-password"))
         wait(8) { session.state == .connected }
+        precondition(!session.initialResolution.isEmpty)
+        wait(2) { session.observedDesktopSize != nil }
+        precondition(session.logs.contains { $0.message.contains("initial resolution requested") })
+        precondition(session.logs.contains { $0.message.contains("initial desktop received") })
         for width in stride(from: 700, through: 900, by: 2) { _ = resize(CGFloat(width), 650) }
         let newest = resize(901, 650)
         if mode == "ignored" || mode == "missing" {
@@ -117,6 +133,13 @@ import Foundation
             print(
                 "PASS \(mode) viewport storm, delayed caps, graphics reactivation and full-screen exit converge on one session"
             )
+        }
+        precondition(session.logs.contains { $0.message.contains("RDP window resize") })
+        if mode == "ignored" || mode == "missing" || mode == "restricted" {
+            precondition(session.logs.contains { $0.message.hasPrefix("Display:") })
+        } else {
+            precondition(session.logs.contains { $0.message.contains("desktop resized by server") })
+            precondition(session.logs.contains { $0.message.contains("submitted; awaiting server geometry") })
         }
         // Closing/disconnecting before a queued viewport change must not send it later.
         _ = resize(1100, 700)

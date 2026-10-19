@@ -103,6 +103,17 @@ Closing the last app window quits Farcast. Closing the window or choosing
 Quit disconnects SSH/SFTP and RDP sessions and stops all embedded VPN tunnels
 before the app exits.
 
+### Connection details
+
+Connection Details (⌥⌘I) shows the current session status, VPN lease status, latest
+connection failure and timestamped activity. Desktop sessions include the initial RDP
+resolution request, received server resolution and display options. Resize activity
+distinguishes requests and submissions from server geometry changes and records
+restrictions or confirmation timeouts. VPN Ready means a destination lease is
+available; it does not continuously verify peer health. The latest failure stays
+visible through recovery and disconnect. Activity is kept only for the open session
+and is limited to the most recent 200 events.
+
 ### WireGuard for private servers
 
 Open **File → VPN Connections…** to import or create named WireGuard
@@ -301,13 +312,16 @@ See [known limits](validation.md) for remaining interoperability checks.
 - BGRA framebuffer rendered through Metal. In **Display**,
   choose **Fit to window**, **100% with scrolling**, or **Match window at connection**.
   Fit scales the entire desktop. The separate **Resize with window** checkbox
-  requests server resizing in windowed Fit mode, falling back to scaling when
-  unsupported. It is off by default for new connections and always editable; other
-  display modes retain the choice without applying it. 100% uses
+  requests server resizing and takes precedence over the Display menu, fitting the
+  desktop while waiting or when unsupported. It is off by default for new connections
+  and always editable. Match window at connection still uses the current window for
+  the initial resolution and hides the resolution controls; subsequent resizing follows
+  the window. Other modes start at the selected resolution. Turn resizing off to restore
+  fixed-resolution behavior. 100% uses
   one remote pixel per Mac point, with your chosen desktop dimensions. Choose a
   preset in **Resolution / Initial resolution**, or **Custom…** to enter width and
   height (200–8192 pixels each); existing custom sizes remain editable. Match window
-  starts at the available desktop area and keeps that resolution until reconnecting;
+  starts at the available desktop area and, with resizing off, keeps that resolution until reconnecting;
   shrinking the window adds scrolling. Use scrollbars or Option-scroll to pan;
   ordinary scrolling goes to Windows. Display changes apply after reconnecting.
   **Open in full screen** disables the windowed display mode and resolution controls
@@ -502,3 +516,33 @@ in the import review. Outgoing data remains uncompressed; disabling server compr
 is preferable. Legacy AES-CBC ciphers are supported. Scripts, plugins, proxies, TAP,
 other compression modes, interactive MFA and route exclusions remain unsupported. Server
 certificate verification remains enabled. WireGuard remains available in the same library.
+
+## Organize the sidebar
+
+Use folder chevrons to show or hide connections; the choice survives renaming and
+relaunch. Folder context menus create connections or subfolders, rename folders,
+and confirm deletion. Deleting a folder moves its contents to the parent and keeps
+saved credentials. Search includes folder paths and temporarily expands matches.
+
+Favorites are shortcuts to the same saved profiles. Stars mark them in both places;
+use the row star or context menu to toggle one. Drag favorites onto another favorite
+to insert before it without changing folder order, or drop a profile on the Favorites
+heading to add it. Folder drops move profiles. The footer counts unique profiles and
+favorite shortcuts separately. The Connections heading appears only for ungrouped
+profiles. Folder counts include descendant connections.
+
+Rows keep the host visible ahead of long usernames. Hover for the full endpoint,
+protocol and VPN route, or choose Get Info for folder, VPN, last-connected time and
+notes. SSH, RDP and VNC have different symbols; a shield marks VPN routing. Its color
+shows the session's destination-lease state, not continuous peer health. Session
+status dots also have text labels; saved profiles without tabs have no status dot.
+Click the status-bar address to copy the host, or the VPN segment for session details.
+A waveform on a background SSH tab indicates output since it was last selected.
+
+Choose **Add → Import from ~/.ssh/config…** to select a config and review literal
+Host aliases before importing into SSH Config. Matching Host defaults use the first
+value for address, user and port; wildcard aliases are not separate connections.
+Hosts requiring ProxyJump or ProxyCommand are omitted. Include files, Match blocks,
+keys, passwords, trust decisions and all other SSH options are not imported. No
+connection starts automatically; edit imported profiles before connecting. Existing
+SSH endpoints with the same username and port are skipped.

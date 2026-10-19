@@ -5,7 +5,13 @@ enum RemoteProtocol: String, Codable, CaseIterable, Identifiable {
     case rdp = "RDP"
     case vnc = "VNC"
     var id: String { rawValue }
-    var icon: String { self == .ssh ? "terminal" : "desktopcomputer" }
+    var icon: String {
+        switch self {
+        case .ssh: return "terminal"
+        case .rdp: return "display"
+        case .vnc: return "rectangle.on.rectangle"
+        }
+    }
     var defaultPort: Int {
         switch self {
         case .ssh: return 22

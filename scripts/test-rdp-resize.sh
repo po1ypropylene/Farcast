@@ -13,7 +13,7 @@ xcrun swiftc -parse-as-library -module-name Farcast -target arm64-apple-macos27.
   "${sources[@]}" Tests/Integration/Workspace/RDPResizeSessionChecks.swift \
   "$fixture_root/SSH.o" "$fixture_root/RDP.o" "$fixture_root/RDPClipboard.o" "$fixture_root/RDPDrive.o" "$products/SwiftTerm.o" \
   -L Vendor/Native/lib -lssh2 -lfreerdp3 -lfreerdp-client3 -lwinpr3 -lcrypto -lssl -lz -Xlinker -rpath -Xlinker "$PWD/Vendor/Native/lib" -o "$fixture_root/client"
-for mode in apply retina ignored restricted missing; do
+for mode in apply retina actualSize matchWindow ignored restricted missing; do
   port=$(.dependencies/test-venv/bin/python - <<'PY'
 import socket
 with socket.socket() as s:
@@ -22,7 +22,7 @@ with socket.socket() as s:
 PY
 )
   export FARCAST_RDP_CONFIG="$fixture_root/config-$mode"
-  if [[ "$mode" == missing ]]; then unset FARCAST_FIXTURE_RESIZE; else export FARCAST_FIXTURE_RESIZE="$mode"; fi
+  if [[ "$mode" == missing ]]; then unset FARCAST_FIXTURE_RESIZE; elif [[ "$mode" == actualSize || "$mode" == matchWindow ]]; then export FARCAST_FIXTURE_RESIZE=apply; else export FARCAST_FIXTURE_RESIZE="$mode"; fi
   (cd "$(dirname "$server")"; exec "$server" --port="$port" --cert="$fixture_root/cert.pem" --key="$fixture_root/key.pem") > "$fixture_root/server-$mode.log" 2>&1 &
   server_pid=$!
   fixture_pids+=("$server_pid")

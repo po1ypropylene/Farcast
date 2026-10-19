@@ -2,6 +2,16 @@ import AppKit
 import SwiftData
 import SwiftUI
 
+private final class InspectorRDPClient: FCRDPClient {
+    override func connectHost(
+        _ host: String, port: Int, username: String, domain: String, password: String,
+        width: Int, height: Int, scale: Int, clipboard: Bool, audioPlayback: Bool
+    ) {
+        onStatus("connected", "Synthetic desktop connected")
+        onDesktopSize?(width, height)
+    }
+}
+
 /// Exercises the production SwiftUI hosts and persistent desktop across real windows.
 @main struct PresentationChecks {
     @MainActor static func main() throws {
@@ -62,6 +72,56 @@ import SwiftUI
         }
         settle()
         try snapshot("home", window: window)
+        // Owned profiles exercise hierarchy without importing a user's library.
+        let sidebarFolder = ConnectionFolder(name: "Research")
+        let sidebarChild = ConnectionFolder(name: "Archives")
+        sidebarChild.parentID = sidebarFolder.id
+        container.mainContext.insert(sidebarFolder)
+        container.mainContext.insert(sidebarChild)
+        saved.folderID = sidebarFolder.id
+        saved.favorite = true
+        var sidebarDraft = ConnectionDraft()
+        sidebarDraft.name = "Synthetic VNC"
+        sidebarDraft.kind = .vnc
+        sidebarDraft.host = "desktop.example"
+        sidebarDraft.folderID = sidebarChild.id
+        let sidebarProfile = SavedConnection(draft: sidebarDraft)
+        container.mainContext.insert(sidebarProfile)
+        try container.mainContext.save()
+        for scheme in [ColorScheme.light, .dark] {
+            window.contentView = NSHostingView(
+                rootView: WorkspaceView(workspace: workspace).modelContainer(container)
+                    .preferredColorScheme(scheme))
+            settle()
+            try snapshot("sidebar-\(scheme)", window: window)
+            sidebarFolder.isCollapsed = true
+            settle()
+            try snapshot("sidebar-collapsed-\(scheme)", window: window)
+            sidebarFolder.isCollapsed = false
+            window.appearance = NSAppearance(
+                named: scheme == .light ? .accessibilityHighContrastAqua : .accessibilityHighContrastDarkAqua)
+            window.contentView = NSHostingView(
+                rootView: WorkspaceView(workspace: workspace).modelContainer(container))
+            settle()
+            try snapshot("sidebar-contrast-\(scheme)", window: window)
+            window.appearance = nil
+        }
+        let configPreview = try SSHConfigImport(
+            text: "Host research\n HostName research.example\n User scientist\n Port 2222")
+        window.contentView = NSHostingView(
+            rootView: SSHConfigImportView(document: configPreview, reportError: { _ in })
+                .modelContainer(container).preferredColorScheme(.light))
+        settle()
+        try snapshot("sidebar-ssh-import", window: window)
+        saved.folderID = nil
+        saved.favorite = false
+        container.mainContext.delete(sidebarProfile)
+        container.mainContext.delete(sidebarChild)
+        container.mainContext.delete(sidebarFolder)
+        try container.mainContext.save()
+        window.contentView = NSHostingView(
+            rootView: WorkspaceView(workspace: workspace).modelContainer(container).preferredColorScheme(.dark))
+        settle()
         defaults.set([saved.id.uuidString], forKey: "workspaceConnections")
         workspace.restoreWorkspace([saved])
         let session = workspace.selectedSession!
@@ -94,12 +154,42 @@ import SwiftUI
         try snapshot("vpn-waiting", window: window)
         vpnSession.start(credential: ConnectionCredential())
         precondition(vpnSession.vpnState == .failed)
+        precondition(vpnSession.latestFailure == vpnSession.message && !vpnSession.latestFailure.isEmpty)
+        precondition(vpnSession.logs.contains { $0.message.contains("VPN: establishing") })
+        workspace.showInspector = true
+        for scheme in [ColorScheme.light, .dark] {
+            window.contentView = NSHostingView(
+                rootView: WorkspaceView(workspace: workspace).modelContainer(container).preferredColorScheme(scheme))
+            settle()
+            try snapshot("details-failure-\(scheme)", window: window)
+        }
         settle()
         try snapshot("vpn-failed", window: window)
         vpnSession.disconnect()
         precondition(vpnSession.vpnState == .disconnected)
+        precondition(!vpnSession.latestFailure.isEmpty)
+        precondition(vpnSession.logs.contains { $0.message.contains("VPN: session transport released") })
         settle()
         try snapshot("vpn-disconnected", window: window)
+        var detailsDraft = draft
+        detailsDraft.clipboard = false
+        detailsDraft.dynamicResolution = false
+        let detailsSession = RemoteSession(
+            profile: detailsDraft, workspace: workspace, persistent: false,
+            makeRDPClient: { InspectorRDPClient() })
+        workspace.sessions.append(detailsSession)
+        workspace.select(detailsSession.id)
+        detailsSession.start(credential: ConnectionCredential())
+        settle()
+        precondition(!detailsSession.initialResolution.isEmpty && detailsSession.observedDesktopSize != nil)
+        for scheme in [ColorScheme.light, .dark] {
+            window.contentView = NSHostingView(
+                rootView: WorkspaceView(workspace: workspace).modelContainer(container).preferredColorScheme(scheme))
+            settle()
+            try snapshot("details-desktop-\(scheme)", window: window)
+        }
+        workspace.close(detailsSession)
+        workspace.showInspector = false
         workspace.close(vpnSession)
         workspace.select(session.id)
         session.state = .connected

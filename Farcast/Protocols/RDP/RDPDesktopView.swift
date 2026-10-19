@@ -73,8 +73,8 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         }
         setDesktopSize(size)
     }
-    func withInitialSize(width: Int, height: Int, completion: @escaping (CGSize) -> Void) {
-        if displayMode != .matchWindow {
+    func withInitialSize(width: Int, height: Int, matchWindow: Bool? = nil, completion: @escaping (CGSize) -> Void) {
+        if !(matchWindow ?? (displayMode == .matchWindow)) {
             completion(CGSize(width: width, height: height))
         } else {
             initialSizeReady = completion

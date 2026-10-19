@@ -5,6 +5,14 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+## 1.5.0 — 2026-10-19
+
+- Clarify the sidebar hierarchy with collapsible, persistent folders and subfolders, item counts, indented connections, quieter section headings and no empty ungrouped section. Keep host details visible, distinguish SSH/RDP/VNC icons and mark VPN routing and favorite shortcuts. Reorder favorites by dragging; view full connection metadata with Get Info.
+- Add host-copy and VPN-details actions to the session status bar, VPN badges and background SSH-output indicators to session tabs, and endpoint context beneath the window title.
+- Preview and import metadata from a selected SSH config without loading keys, executing directives, following includes or trusting servers.
+- Add a reusable, separate screenshot app with sample connections, local terminal/file listings and original static desktops; keep all sample code and data outside the production target and DMG.
+- Expand Connection Details with session and VPN status, requested and received desktop resolutions, resize progress and fallback reasons, full-screen changes and the latest connection failure.
+- Fix Resize with window being ignored when a different RDP display mode was saved. Resize takes precedence for subsequent window changes; Match window at connection still determines the initial size without a resolution preset.
 - Package the tested Release app without rebuilding it or advancing its build number; reject missing apps and version/build mismatches before creating a DMG.
 
 ## 1.4.0 — 2026-10-19

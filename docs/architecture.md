@@ -86,6 +86,13 @@ at its existing index. Background reconnect retains the selected tab. Ad hoc/del
 profiles retain their snapshot. Only persistent tabs enter restoration preferences;
 restored tabs remain disconnected. Dragging inserts a tab before its destination.
 
+Connection Details retains a bounded, in-memory activity history per session. It
+records VPN lease transitions, protocol status/errors, requested initial RDP geometry,
+Display Control submission/results, observed server geometry and presentation changes.
+Submission is distinct from server-confirmed geometry; VPN readiness is lease readiness.
+The latest connection failure remains visible during recovery and after disconnect.
+Logs exclude credentials, clipboard/terminal contents and shared-folder paths.
+
 Each native worker owns its handles and bounded input/work queues. SSH sends output
 with main-thread backpressure. RDP uses a latest-frame mailbox, dropping superseded
 frames instead of building an unbounded UI queue. Trust/interactive callbacks wait on
@@ -185,8 +192,19 @@ bundle/path strings are restricted to migration recognition and test provenance.
 Brand assets and regeneration are documented in [branding](branding.md); control
 sizes, focus and accessibility rules are in [UI guidelines](ui-guidelines.md).
 Terminal/Split background fills respect safe-area edges; the sidebar retains its
-own native material. Sidebar destinations resolve WireGuard names from live metadata,
-show missing references explicitly and expose full labels in tooltips.
+own native material. Sidebar destinations resolve VPN names from live metadata, show missing references
+explicitly and expose full endpoints in tooltips and Get Info. Folder identity, optional
+parent ID and collapse state live in SwiftData; legacy folders default to expanded roots.
+Favorite shortcuts share their saved connection identity and retain an independent optional
+sort order. Search includes ancestor folder names and temporarily reveals matching branches
+without changing saved collapse state. Removing a folder reparents its children and profiles
+without deleting credentials. Native List selection retains system accent and inactive styling.
+SSH output sets a per-session unread flag for background tabs, cleared on session selection;
+this uses the existing backpressured main-thread delivery and records no terminal contents.
+SSH config import reads only a user-selected, bounded UTF-8 file and previews metadata.
+It never follows includes, executes directives or loads referenced key files. Proxy-based
+hosts are excluded; unsupported options are not translated. Import creates untrusted
+password-authentication profiles and does not save credentials or connect.
 
 The VPN library uses an 820-point sheet with a 210-point sidebar and compact,
 bordered form cards. An in-memory draft and baseline include secrets without
@@ -231,9 +249,11 @@ session actions ask for confirmation when file work or tunnels are active.
 
 The Display picker maps directly to existing stored modes. A separate Resize with
 window checkbox edits `dynamicResolution`; new drafts default to false, while saved
-choices are preserved. The checkbox is always editable; resizing applies only in
-windowed Fit mode. 100% with scrolling and Match window at
-connection retain their modes. Explicit preset selection
+choices are preserved. The checkbox is always editable and takes precedence over the stored display mode:
+RDP sessions use effective Fit mode for presentation while resizing is enabled.
+Initial sizing independently honors the stored Match window mode, samples the viewport
+and applies Retina once; the editor hides preset/custom dimensions for that mode. The stored mode returns when resizing is disabled. Full-screen
+and multi-monitor resize restrictions still apply. Explicit preset selection
 writes only width/height; unmatched dimensions use Custom and survive tab changes.
 Startup full screen disables windowed mode/resolution controls while preserving
 their values. Opening the editor never rewrites settings. Security can forget an
@@ -244,8 +264,8 @@ RDP negotiates software bitmap rendering for compatibility, then presents BGRA
 frames through Metal and the latest-frame mailbox. Changing graphics negotiation
 requires validating actual paint delivery, not authentication alone. Fit scales the desktop and optionally requests server resize;
 100% maps one remote pixel to one Mac point; Match window waits for a laid-out viewport
-and fixes that initial size (200–8192) until reconnect. Delivered server dimensions
-remain authoritative. Fixed modes disable resize requests. Native NSScrollView clips
+and, with resizing off, fixes that initial size (200–8192) until reconnect. Delivered server dimensions
+remain authoritative. Fixed modes apply only when Resize with window is off. Native NSScrollView clips
 and pans, with pointer coordinates derived from the same render rectangle. Scrollbars
 and Option-scroll pan locally; ordinary scrolling reaches Windows.
 
@@ -779,3 +799,16 @@ decompression requires explicit import consent recorded in the protected profile
 Core uses asymmetric compression mode and never compresses outgoing traffic. Route exclusions
 and unsupported pushed tunnel settings fail rather than silently changing policy.
 Native logs are discarded; helper responses contain fixed error categories only.
+
+## Screenshot app isolation
+
+`Showcase` owns a reusable screenshot build, sample catalog and local session
+simulations outside the synchronized production source folder. Its build copies
+current app sources/project into an ignored tree, replaces session startup and
+credential/file access there, and adds the sample support files only to that copy.
+The production target has no conditional or runtime showcase feature. The separate
+`com.peterpo.farcast.showcase` identity isolates preferences and sandbox data; its
+SwiftData library and credentials are in memory. It displays the same native UI.
+`Farcast-demo.app` sits beside the normal Release app; DMG staging selects only
+`Farcast.app`. See [the screenshot build](../Showcase/README.md) for commands and
+simulation limits.

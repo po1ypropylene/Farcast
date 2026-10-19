@@ -1,0 +1,15 @@
+{
+  "vpns": [
+    {"name": "S.T.A.R. Labs", "endpoint": "star-labs.com:51820", "address": "10.24.0.2/24", "openVPN": false},
+    {"name": "Central City", "endpoint": "central-city.gov:1194", "address": "10.25.0.2/24", "openVPN": true},
+    {"name": "Earth-2", "endpoint": "earth-2.universe:51820", "address": "10.26.0.2/24", "openVPN": false}
+  ],
+  "connections": [
+    {"name": "S.T.A.R. Labs · Cortex", "host": "cortex.star-labs", "username": "cisco.ramon", "kind": "SSH", "folder": "S.T.A.R. Labs", "vpn": 0, "favorite": true},
+    {"name": "S.T.A.R. Labs · Archives", "host": "archives.star-labs", "username": "caitlin.snow", "kind": "SSH", "folder": "S.T.A.R. Labs", "vpn": 0, "favorite": false, "files": true},
+    {"name": "CCPD · Forensics", "host": "forensics.central-city", "username": "barry.allen", "kind": "RDP", "folder": "Central City", "vpn": 1, "favorite": true},
+    {"name": "Picture News · Newsroom", "host": "newsroom.central-city", "username": "iris.west", "kind": "VNC", "folder": "Central City", "favorite": true},
+    {"name": "Earth-2 · Research", "host": "research.earth-2", "username": "harrison.wells", "kind": "RDP", "folder": "Earth-2", "vpn": 2, "favorite": false},
+    {"name": "Jitters · Operations", "host": "jitters.central-city", "username": "joe.west", "kind": "SSH", "folder": "Central City", "favorite": false}
+  ]
+}
