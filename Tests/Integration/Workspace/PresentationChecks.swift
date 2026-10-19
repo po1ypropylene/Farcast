@@ -31,7 +31,7 @@ private final class InspectorRDPClient: FCRDPClient {
         draft.username = "fixture"
         draft.kind = .rdp
         draft.port = 3389
-        draft.displayMode = .actualSize
+        draft.displayMode = .fit
         let saved = SavedConnection(draft: draft)
         container.mainContext.insert(saved)
         let window = NSWindow(
@@ -278,6 +278,16 @@ private final class InspectorRDPClient: FCRDPClient {
         workspace.select(session.id)
         session.state = .connected
         let desktop = session.desktop!
+        desktop.inputEnabled = true
+        var requestedSize: CGSize?
+        desktop.resizeRemote = { width, height, _ in requestedSize = CGSize(width: width, height: height) }
+        func checkResize() {
+            let points = desktop.viewport!.contentView.bounds.size
+            let expected = RDPResizeRequest(
+                points: points, backing: desktop.convertToBacking(CGRect(origin: .zero, size: points)).size,
+                backingScale: desktop.window!.backingScaleFactor, retina: desktop.retinaDisplay)!
+            precondition(requestedSize == expected.size, "Remote resize must follow the current window viewport")
+        }
         desktop.setDesktopSize(CGSize(width: 1920, height: 1080))
         desktop.mailbox.put(
             DesktopFrame(
@@ -324,6 +334,7 @@ private final class InspectorRDPClient: FCRDPClient {
             present(false)
             precondition(viewport.bounds.size == original && desktop.viewport === viewport)
         }
+        checkResize()
         try checkDetailsLayout(host: window)
         let oldViewport = desktop.viewport!
         workspace.popOut(session) { slot in
@@ -346,12 +357,15 @@ private final class InspectorRDPClient: FCRDPClient {
         workspace.activate(detachedWindow)
         precondition(session.isSelected && workspace.activeSession === session)
         try checkDetailsLayout(slot: slot, host: detachedWindow)
+        checkResize()
+        requestedSize = nil
         try snapshot("detached", window: detachedWindow)
         print("PASS production desktop moves to one detached viewport and ignores stale layout")
         workspace.returnToWorkspace(slot: slot)
         settle()
         precondition(desktop.window === window && workspace.selectedSession === session)
         precondition(workspace.detachedSessions.isEmpty && session.state == .connected)
+        checkResize()
         try snapshot("returned", window: window)
         print("PASS production desktop returns live; focus selects one clipboard/input owner")
         workspace.close(session)

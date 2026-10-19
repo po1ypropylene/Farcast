@@ -85,6 +85,21 @@ import Foundation
         desktop.displayMode = .fit
         viewport.layoutDesktop()
         precondition(desktop.frame.size == viewport.contentView.bounds.size)
+        // A viewport may settle after the surface has already acquired its final
+        // size during reparenting. Its layout must still publish that geometry.
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.35)) }
+        settle()
+        var requestedSize: CGSize?
+        desktop.resizeRemote = { width, height, _ in requestedSize = CGSize(width: width, height: height) }
+        let destination = CGSize(width: 600, height: 400)
+        desktop.setFrameSize(destination)
+        settle()
+        requestedSize = nil
+        viewport.frame.size = destination
+        viewport.layoutDesktop()
+        settle()
+        precondition(requestedSize == destination, "Settled viewport must publish geometry without a surface resize")
+        print("PASS RDP viewport publishes final geometry when the reparented surface already has its fitted size")
         print(
             "PASS RDP display: 100% scrolling, panned pointer coordinates, fixed resolution, initial window size, fit")
         print(

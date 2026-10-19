@@ -319,6 +319,8 @@ Dynamic resize samples the usable viewport and its own backing conversion; Retin
 uses point-sized geometry and 100% desktop scale, while Retina on uses backing pixels once.
 Window/backing changes refresh local drawables independently. Live resize flushes after
 dragging ends; programmatic/backing changes use a replaceable 200 ms debounce.
+The owning viewport also publishes its laid-out size and window/backing changes,
+so a detached-window return does not depend solely on Metal surface callbacks.
 
 `RDPResizeCoordinator` retains desired, pending submission and observed dimensions plus
 local request IDs. One request awaits geometry at a time; newer intentions replace the

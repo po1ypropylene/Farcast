@@ -1,6 +1,8 @@
 import AppKit
 import CryptoKit
 import Foundation
+import SwiftData
+import SwiftUI
 
 @main struct RDPResizeSessionChecks {
     @MainActor static func main() throws {
@@ -71,6 +73,7 @@ import Foundation
         }
         func resize(_ width: CGFloat, _ height: CGFloat) -> RDPResizeRequest {
             window.setContentSize(CGSize(width: width, height: height))
+            let viewport = desktop.viewport!
             viewport.layoutSubtreeIfNeeded()
             viewport.layoutDesktop()
             let points = viewport.contentView.bounds.size
@@ -140,6 +143,45 @@ import Foundation
         } else {
             precondition(session.logs.contains { $0.message.contains("desktop resized by server") })
             precondition(session.logs.contains { $0.message.contains("submitted; awaiting server geometry") })
+        }
+        if mode == "apply" || mode == "retina" {
+            let container = try ModelContainer(
+                for: SavedConnection.self, ConnectionFolder.self, SavedWireGuard.self,
+                configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+            workspace.modelContext = container.mainContext
+            workspace.registerMainWindow(window)
+            window.contentView = NSHostingView(
+                rootView: WorkspaceView(workspace: workspace).modelContainer(container))
+            func expectedSize() -> CGSize {
+                let points = desktop.viewport!.contentView.bounds.size
+                return RDPResizeRequest(
+                    points: points, backing: desktop.convertToBacking(CGRect(origin: .zero, size: points)).size,
+                    backingScale: desktop.window!.backingScaleFactor, retina: draft.retinaDisplay)!.size
+            }
+            func settle() {
+                let deadline = Date().addingTimeInterval(0.5)
+                while Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+            }
+            settle()
+            wait(8) { desktop.desktopSize == expectedSize() }
+            let mainSize = expectedSize()
+            for _ in 0..<2 {
+                workspace.popOut(session) { slot in
+                    NSHostingView(
+                        rootView: DetachedSessionView(workspace: workspace, slot: slot).modelContainer(container))
+                }
+                settle()
+                let detached = desktop.window!
+                detached.setContentSize(CGSize(width: 1300, height: 850))
+                settle()
+                precondition(expectedSize() != mainSize)
+                wait(8) { desktop.desktopSize == expectedSize() }
+                detached.close()
+                settle()
+                precondition(desktop.window === window)
+                wait(8) { desktop.desktopSize == mainSize && session.displayMessage.isEmpty }
+            }
+            print("PASS \(mode) server geometry follows repeated pop-out, resize and close back to the workspace")
         }
         // Closing/disconnecting before a queued viewport change must not send it later.
         _ = resize(1100, 700)

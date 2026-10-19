@@ -5,6 +5,8 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Refresh RDP resolution from the destination viewport after returning a popped-out session to the main window.
+
 - Remove connection favourites, duplicate shortcut rows and star controls to free space in the connection panel.
 
 - Move screenshot-app tooling into a separate repository; building Farcast and previewing terminal themes require only this public checkout.

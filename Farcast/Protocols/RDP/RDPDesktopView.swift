@@ -493,6 +493,9 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
 final class RDPViewport: NSScrollView {
     let desktop: RDPDesktopView
     private var layingOut = false
+    private var resizeViewportSize: CGSize?
+    private var resizeBackingScale: CGFloat?
+    private weak var resizeWindow: NSWindow?
     init(desktop: RDPDesktopView) {
         self.desktop = desktop
         super.init(frame: .zero)
@@ -507,6 +510,13 @@ final class RDPViewport: NSScrollView {
         desktop.viewport = self
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        resizeViewportSize = nil
+        resizeBackingScale = nil
+        resizeWindow = nil
+        layoutDesktop()
+    }
     override func layout() {
         super.layout()
         layoutDesktop()
@@ -548,6 +558,17 @@ final class RDPViewport: NSScrollView {
             contentView.scroll(to: NSPoint(x: 0, y: max(0, size.height - available.height)))
             reflectScrolledClipView(contentView)
             initializedScroll = true
+        }
+        // Reparenting can finish after Metal's move/size callbacks. Publish the
+        // destination viewport even if the surface already has the fitted size.
+        if let window, desktop.window === window,
+            resizeWindow !== window || resizeViewportSize != available
+                || resizeBackingScale != window.backingScaleFactor
+        {
+            resizeWindow = window
+            resizeViewportSize = available
+            resizeBackingScale = window.backingScaleFactor
+            desktop.requestResize()
         }
     }
     private var initializedScroll = false
