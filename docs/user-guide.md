@@ -74,7 +74,7 @@ require approval; report recurring prompts rather than deleting your saved crede
    removes the remembered exception.
 
 Double-click a saved connection to connect. Context menus provide editing,
-favorites, duplication, and deletion. After SSH rejects credentials, **Retry sign-in**
+duplication, and deletion. After SSH rejects credentials, **Retry sign-in**
 asks for fresh credentials instead of silently reusing the saved value. Check the
 username/authentication option in Edit Connection if needed. Saving replacement
 credentials remains optional; reconnecting alone does not delete the stored value.
@@ -532,12 +532,8 @@ relaunch. Folder context menus create connections or subfolders, rename folders,
 and confirm deletion. Deleting a folder moves its contents to the parent and keeps
 saved credentials. Search includes folder paths and temporarily expands matches.
 
-Favorites are shortcuts to the same saved profiles. Stars mark them in both places;
-use the row star or context menu to toggle one. Drag favorites onto another favorite
-to insert before it without changing folder order, or drop a profile on the Favorites
-heading to add it. Folder drops move profiles. The footer counts unique profiles and
-favorite shortcuts separately. The Connections heading appears only for ungrouped
-profiles. Folder counts include descendant connections.
+Folder drops move profiles. The footer counts saved connections. The Connections
+heading appears only for ungrouped profiles. Folder counts include descendant connections.
 
 Rows keep the host visible ahead of long usernames. Hover for the full endpoint,
 protocol and VPN route, or choose Get Info for folder, VPN, last-connected time and

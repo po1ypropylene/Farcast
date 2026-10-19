@@ -5,9 +5,11 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Remove connection favourites, duplicate shortcut rows and star controls to free space in the connection panel.
+
 - Move screenshot-app tooling into a separate repository; building Farcast and previewing terminal themes require only this public checkout.
 
-- Restore SSH/RDP/VNC badges on connection rows, move favorite stars to the left, and offer the Add menu when right-clicking empty sidebar space.
+- Restore SSH/RDP/VNC badges on connection rows and offer the Add menu when right-clicking empty sidebar space.
 - Preview SSH terminal themes and font sizes using the screenshot app’s fictional terminal sample.
 
 - Match Showcase SSH and SFTP mock content to the existing screenshots; configure local and server folder paths/listings independently in the demo catalog.

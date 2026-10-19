@@ -20,7 +20,6 @@ struct WorkspaceView: View {
     @State private var showSSHConfigImport = false
     @State private var infoConnection: SavedConnection?
     @State private var deletingFolder: ConnectionFolder?
-    @AppStorage("sidebar.favoritesExpanded") private var favoritesExpanded = true
     @AppStorage("sidebar.connectionsExpanded") private var connectionsExpanded = true
     @State private var deletingConnection: SavedConnection?
     private var filtered: [SavedConnection] {
@@ -51,26 +50,11 @@ struct WorkspaceView: View {
                 ).padding(.horizontal, 14)
                     .padding(.bottom, 12)
                 List(selection: $selectedProfileID) {
-                    if !favorites.isEmpty {
-                        Section {
-                            if favoritesExpanded || !search.isEmpty {
-                                ForEach(favorites) { connection in
-                                    connectionRow(connection, showsFolder: true)
-                                        .dropDestination(for: String.self) { values, _ in
-                                            return reorderFavorites(values, before: connection)
-                                        }
-                                }
-                            }
-                        } header: {
-                            SidebarSectionHeader(title: "Favorites", expanded: $favoritesExpanded)
-                                .dropDestination(for: String.self) { values, _ in return favorite(values) }
-                        }
-                    }
                     ForEach(rootFolders) { folder in folderTree(folder, ancestors: []) }
                     if !ungrouped.isEmpty {
                         Section {
                             if connectionsExpanded || !search.isEmpty {
-                                ForEach(ungrouped) { connectionRow($0, showsFolder: false) }
+                                ForEach(ungrouped) { connectionRow($0) }
                             }
                         } header: {
                             SidebarSectionHeader(title: "Connections", expanded: $connectionsExpanded)
@@ -104,9 +88,7 @@ struct WorkspaceView: View {
                         Label("Add", systemImage: "plus").frame(minWidth: 70, minHeight: 24).contentShape(Rectangle())
                     }.menuStyle(.borderlessButton).controlSize(.regular).frame(minWidth: 70, minHeight: 24)
                     Spacer()
-                    Text("\(connections.count) connections · \(connections.filter(\.favorite).count) favorites").font(
-                        .callout
-                    ).foregroundStyle(.secondary)
+                    Text("\(connections.count) connections").font(.callout).foregroundStyle(.secondary)
                 }.padding(14)
             }.navigationSplitViewColumnWidth(min: 220, ideal: 290, max: 400)
         } detail: {
@@ -298,13 +280,6 @@ struct WorkspaceView: View {
             workspace.restoreWorkspace(connections)
         }
     }
-    private var favorites: [SavedConnection] {
-        filtered.filter(\.favorite).sorted {
-            let left = $0.favoriteOrder ?? Int.max
-            let right = $1.favoriteOrder ?? Int.max
-            return left == right ? $0.name.localizedStandardCompare($1.name) == .orderedAscending : left < right
-        }
-    }
     private var ungrouped: [SavedConnection] {
         filtered.filter { connection in
             connection.folderID == nil || !folders.contains { $0.id == connection.folderID }
@@ -351,7 +326,7 @@ struct WorkspaceView: View {
                 if search.isEmpty || !matches.isEmpty {
                     DisclosureGroup(isExpanded: expanded) {
                         ForEach(children) { child in folderTree(child, ancestors: ancestors.union([folder.id])) }
-                        ForEach(filtered.filter { $0.folderID == folder.id }) { connectionRow($0, showsFolder: false) }
+                        ForEach(filtered.filter { $0.folderID == folder.id }) { connectionRow($0) }
                         if matches.isEmpty {
                             Text("No connections").font(.caption).foregroundStyle(.secondary)
                                 .anchorPreference(key: SidebarContentBoundsKey.self, value: .bounds) { [$0] }
@@ -403,15 +378,11 @@ struct WorkspaceView: View {
             showFolderEditor = true
         }
     }
-    private func connectionRow(_ connection: SavedConnection, showsFolder: Bool) -> some View {
+    private func connectionRow(_ connection: SavedConnection) -> some View {
         SidebarConnectionRow(
             connection: connection, workspace: workspace,
-            folder: showsFolder ? folderPath(connection.folderID) : "",
             tunnel: tunnels.first { $0.id == connection.wireGuardID },
-            toggleFavorite: {
-                connection.favorite.toggle()
-                save()
-            }, selected: selectedProfileID == connection.id, selectionEmphasized: sidebarFocused
+            selected: selectedProfileID == connection.id, selectionEmphasized: sidebarFocused
         )
         .anchorPreference(key: SidebarContentBoundsKey.self, value: .bounds) { [$0] }
         .tag(connection.id).contentShape(Rectangle())
@@ -421,10 +392,6 @@ struct WorkspaceView: View {
             Button("Connect") { connect(connection) }
             Button("Get Info") { infoConnection = connection }
             Button("Edit Connection…") { edit(connection) }
-            Button(connection.favorite ? "Remove from Favorites" : "Add to Favorites") {
-                connection.favorite.toggle()
-                save()
-            }
             Button("Duplicate Connection") {
                 context.insert(connection.duplicate())
                 save()
@@ -432,29 +399,6 @@ struct WorkspaceView: View {
             Divider()
             Button("Delete Connection…", role: .destructive) { deletingConnection = connection }
         }.draggable(connection.id.uuidString)
-    }
-    private func favorite(_ values: [String]) -> Bool {
-        let ids = values.compactMap(UUID.init(uuidString:))
-        let matches = connections.filter { ids.contains($0.id) }
-        for connection in matches { connection.favorite = true }
-        save()
-        return !matches.isEmpty
-    }
-    private func reorderFavorites(_ values: [String], before target: SavedConnection) -> Bool {
-        guard let value = values.first, let id = UUID(uuidString: value), id != target.id,
-            let source = connections.first(where: { $0.id == id })
-        else { return false }
-        source.favorite = true
-        var ordered = connections.filter { $0.favorite && $0.id != id }.sorted {
-            let left = $0.favoriteOrder ?? Int.max
-            let right = $1.favoriteOrder ?? Int.max
-            return left == right ? $0.name.localizedStandardCompare($1.name) == .orderedAscending : left < right
-        }
-        guard let index = ordered.firstIndex(where: { $0.id == target.id }) else { return false }
-        ordered.insert(source, at: index)
-        for (index, connection) in ordered.enumerated() { connection.favoriteOrder = index }
-        save()
-        return true
     }
     private var overview: some View {
         GeometryReader { geometry in

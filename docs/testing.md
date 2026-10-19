@@ -194,4 +194,4 @@ configuration-file drops still require manual verification.
 Run `scripts/test-sidebar-migration.sh` to migrate an owned database written with
 pre-sidebar folder/profile fields. It retains entity and profile identity, defaults
 old folders to expanded roots, then verifies collapse persistence after renaming.
-Core tests also cover nested folder metadata and independent favorite order.
+Core tests also cover nested folder metadata and retained legacy favorite metadata.

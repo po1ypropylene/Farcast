@@ -200,14 +200,15 @@ own native material. Sidebar destination subtitles show user@host via VPN name f
 routed profiles, resolve VPN names from live metadata, show missing references
 explicitly and expose full endpoints in tooltips and Get Info. Folder identity, optional
 parent ID and collapse state live in SwiftData; legacy folders default to expanded roots.
-Favorite shortcuts share their saved connection identity and retain an independent optional
-sort order. Search includes ancestor folder names and temporarily reveals matching branches
+Legacy favorite and favoriteOrder fields remain stored for library compatibility; the UI ignores them.
+Search includes ancestor folder names and temporarily reveals matching branches
 without changing saved collapse state. Removing a folder reparents its children and profiles
-without deleting credentials. Native List selection retains system accent and inactive styling. Protocol text badges remain on the trailing edge, with favorite stars on the leading edge.
+without deleting credentials. Native List selection retains system accent and inactive styling.
+Protocol text badges remain on the trailing edge, and protocol icons lead each row.
 The Add button and empty-sidebar context menu share their creation/import actions.
 The unused sidebar area below
 visible content accepts connection drops to the root; measured row bounds keep this target
-separate from folder labels and favorite shortcuts.
+separate from folder labels.
 SSH output sets a per-session unread flag for background tabs, cleared on session selection;
 this uses the existing backpressured main-thread delivery and records no terminal contents.
 SSH config import reads only a user-selected, bounded UTF-8 file and previews metadata.

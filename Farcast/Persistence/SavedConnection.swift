@@ -11,6 +11,7 @@ import SwiftData
     var domain: String
     var authentication: String
     var folderID: UUID?
+    // Retained for compatibility with existing libraries; favourites are no longer exposed.
     var favoriteOrder: Int? = nil
     var favorite: Bool
     var notes: String

@@ -121,7 +121,7 @@ private final class InspectorRDPClient: FCRDPClient {
                                         ForEach(iconProfiles) { profile in
                                             SidebarConnectionRow(
                                                 connection: profile, workspace: iconWorkspace,
-                                                folder: "", tunnel: nil, toggleFavorite: {}, selected: selected,
+                                                tunnel: nil, selected: selected,
                                                 selectionEmphasized: selected
                                             ).tag(profile.id)
                                         }
@@ -158,6 +158,7 @@ private final class InspectorRDPClient: FCRDPClient {
         container.mainContext.insert(sidebarVPN)
         saved.wireGuardID = sidebarVPN.id
         saved.folderID = sidebarFolder.id
+        // Legacy favourite metadata must not add duplicate rows or star controls.
         saved.favorite = true
         var sidebarDraft = ConnectionDraft()
         sidebarDraft.name = "Synthetic VNC"

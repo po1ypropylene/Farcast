@@ -164,12 +164,9 @@ struct SidebarConnectionRow: View {
     @Environment(\.controlActiveState) private var controlActiveState
     let connection: SavedConnection
     @ObservedObject var workspace: Workspace
-    let folder: String
     let tunnel: SavedWireGuard?
-    let toggleFavorite: () -> Void
     var selected = false
     var selectionEmphasized = false
-    @State private var hovering = false
 
     private var destination: String {
         let host = connection.host.contains(":") ? "[\(connection.host)]" : connection.host
@@ -182,22 +179,10 @@ struct SidebarConnectionRow: View {
                 "Via \((try? tunnel?.configuration().protocolName) ?? "VPN"): \(tunnel?.name ?? "Unavailable profile")")
 
         }
-        if !folder.isEmpty { lines.append(folder) }
-        if connection.favorite { lines.append("Favorite shortcut") }
         return lines.joined(separator: "\n")
     }
     var body: some View {
         HStack(spacing: 10) {
-            Group {
-                Button(action: toggleFavorite) {
-                    Image(systemName: connection.favorite ? "star.fill" : "star")
-                        .font(.system(size: 10)).foregroundStyle(.secondary)
-                }.buttonStyle(.borderless)
-                    .opacity(connection.favorite || hovering ? 1 : 0)
-                    .accessibilityHidden(!connection.favorite && !hovering)
-                    .help(connection.favorite ? "Remove from Favorites" : "Add to Favorites")
-                    .accessibilityLabel(connection.favorite ? "Remove from Favorites" : "Add to Favorites")
-            }
             TimelineView(.periodic(from: .now, by: 1)) { _ in
                 let session = workspace.sidebarSession(for: connection.id)
                 ConnectionProtocolIcon(
@@ -222,10 +207,6 @@ struct SidebarConnectionRow: View {
                         Text(" via " + (tunnel?.name ?? "Unavailable VPN"))
                             .truncationMode(.middle).layoutPriority(2)
                     }
-                    if !folder.isEmpty {
-                        Text(" · " + folder).truncationMode(.middle).frame(maxWidth: 64)
-                            .layoutPriority(connection.wireGuardID == nil ? 2 : 0)
-                    }
                 }.font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -234,10 +215,10 @@ struct SidebarConnectionRow: View {
                 .padding(.horizontal, 5).padding(.vertical, 2)
                 .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
             SidebarSessionState(workspace: workspace, profileID: connection.id)
-        }.padding(.vertical, 3).contentShape(Rectangle()).onHover { hovering = $0 }
+        }.padding(.vertical, 3).contentShape(Rectangle())
             .help(help).accessibilityElement(children: .contain)
             .accessibilityLabel(
-                "\(connection.name), \(connection.kind.rawValue)\(connection.favorite ? ", favorite" : "")")
+                "\(connection.name), \(connection.kind.rawValue)")
     }
 }
 

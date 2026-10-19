@@ -9,7 +9,7 @@ stated scope; disabled live entries report SKIP.
 
 | Area | Checks | Evidence boundary |
 | --- | --- | --- |
-| Core and persistence | Sidebar rename/reopen identity, collapse state and favorite order; draft validation, credential encoding/permissions, endpoint trust, imports, prompt cancellation, display geometry and resize coordination | Isolated stores and synthetic input |
+| Core and persistence | Sidebar rename/reopen identity, collapse state and retained legacy favorite metadata; draft validation, credential encoding/permissions, endpoint trust, imports, prompt cancellation, display geometry and resize coordination | Isolated stores and synthetic input |
 | Migration | Old-module and pre-feature SwiftData stores, ID/metadata preservation, credential opt-in, reopening and unchanged source bytes | Disposable libraries; user-container grants need live testing |
 | SSH/SFTP | Authentication/trust, fresh sign-in retry, file-only fallback, byte equality, overwrite/move safety, cancellation, terminal scheduling and throughput; navigation history, cache hits/expiry/eviction/invalidation, stale replies and filename filtering | Loopback peers, controlled proxies and explicit synthetic listing replies |
 | SSH forwarding | Local/remote/SOCKS byte equality, live add/edit/remove including initially empty sessions, concurrency, IPv6, server-only DNS, malformed/fragmented messages, backpressure and EOF, policy denial, ports, stop/restart, forwarding-only sessions, file conflicts/cancellation, WireGuard sharing/reconnect/failure and signed sandboxed listeners | Owned loopback/encrypted peers and native off-screen controls; production policy and throughput unverified |
@@ -103,7 +103,7 @@ features, and [packaging](packaging.md) for signing requirements.
 
 `scripts/test-sidebar-migration.sh` opens an owned pre-sidebar schema with the
 current models, verifies retained profiles and folder IDs, and reopens new collapse
-metadata. Core tests cover nested folder metadata, favorite ordering persistence, SSH config first-match defaults, proxy exclusion and input bounds.
+metadata. Core tests cover nested folder metadata, legacy favorite metadata preservation, SSH config first-match defaults, proxy exclusion and input bounds.
 The workspace presentation harness renders SSH theme previews at normal and enlarged font sizes
 using the terminal renderer and self-contained fictional output.
 The workspace presentation harness renders sidebar hierarchy and connection states
