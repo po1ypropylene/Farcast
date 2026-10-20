@@ -33,6 +33,10 @@ struct RDPResizeCoordinator {
         let id: Int
         let request: RDPResizeRequest
     }
+    enum Observation: Equatable {
+        case availability(RDPResizeRequest)
+        case geometry(Submission)
+    }
     private(set) var desired: RDPResizeRequest?
     private(set) var pending: Submission?
     private(set) var available = false
@@ -40,6 +44,21 @@ struct RDPResizeCoordinator {
     private var handled: RDPResizeRequest?
     private var lastScale = 100
     private var sequence = 0
+
+    var isSatisfied: Bool {
+        guard let desired else { return false }
+        return pending == nil && desired.size == observedSize && desired.scale == lastScale
+    }
+
+    /// Only unfinished work gets a deadline. Merely having a desired size is
+    /// insufficient: the initial desktop may already match it before caps arrive.
+    var observation: Observation? {
+        if let pending { return .geometry(pending) }
+        guard !available, let desired, desired != handled,
+            desired.size != observedSize || desired.scale != lastScale
+        else { return nil }
+        return .availability(desired)
+    }
 
     mutating func initialScale(_ scale: Int) { lastScale = scale }
     mutating func request(_ value: RDPResizeRequest) -> Submission? {
@@ -74,7 +93,7 @@ struct RDPResizeCoordinator {
         return next()
     }
     mutating func expire() -> Submission? {
-        if let pending { handled = pending.request }
+        if let pending { handled = pending.request } else if !available { handled = desired }
         pending = nil
         return next()
     }

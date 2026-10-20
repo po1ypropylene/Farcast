@@ -5,6 +5,10 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+## 2.0.1 — 2026-10-20
+
+- Fix false RDP resolution warnings after connecting when the desktop already matches the window; retire obsolete resize deadlines while retaining warnings for genuinely unconfirmed changes.
+
 - Add adaptive colours to session toolbar actions in main and popped-out windows, with stronger shades for Increase Contrast and grey disabled controls.
 
 ## 2.0.0 — 2026-10-20

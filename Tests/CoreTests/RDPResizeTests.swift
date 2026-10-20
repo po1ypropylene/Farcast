@@ -30,6 +30,36 @@ final class RDPResizeTests: XCTestCase {
         XCTAssertEqual(coordinator.availability(true)?.request, request(900))
         XCTAssertNil(coordinator.request(request(900)))
     }
+    func testMatchingInitialDesktopNeedsNoDeadlineWithOrWithoutCapabilities() {
+        var coordinator = RDPResizeCoordinator()
+        _ = coordinator.observe(request(800).size)
+        XCTAssertNil(coordinator.request(request(800)))
+        XCTAssertNil(coordinator.observation)
+        XCTAssertNil(coordinator.availability(true))
+        XCTAssertNil(coordinator.observation)
+    }
+    func testDeadlineTracksOnlyCurrentUnfinishedWork() {
+        var coordinator = RDPResizeCoordinator()
+        _ = coordinator.observe(request(640, 480).size)
+        _ = coordinator.request(request(800))
+        XCTAssertEqual(coordinator.observation, .availability(request(800)))
+        let pending = coordinator.availability(true)!
+        XCTAssertEqual(coordinator.observation, .geometry(pending))
+        _ = coordinator.result(id: pending.id, submitted: true)
+        _ = coordinator.observe(pending.request.size)
+        XCTAssertNil(coordinator.observation)
+        _ = coordinator.availability(false)
+        XCTAssertNil(coordinator.observation)
+        _ = coordinator.request(request(1000))
+        XCTAssertNotNil(coordinator.observation)
+        _ = coordinator.expire()
+        XCTAssertNil(coordinator.observation)
+        _ = coordinator.request(request(1000))
+        XCTAssertNil(coordinator.observation)
+        XCTAssertEqual(coordinator.availability(true)?.request, request(1000))
+        coordinator.cancel()
+        XCTAssertNil(coordinator.observation)
+    }
     func testStormKeepsOnePendingAndReevaluatesAfterIntermediateGraphics() {
         var coordinator = RDPResizeCoordinator()
         _ = coordinator.availability(true)
@@ -53,6 +83,19 @@ final class RDPResizeTests: XCTestCase {
         _ = coordinator.result(id: wider.id, submitted: true)
         XCTAssertNil(coordinator.request(request(800)))
         XCTAssertEqual(coordinator.observe(wider.request.size)?.request, request(800))
+    }
+    func testIgnoredIntermediateResizeDoesNotFailAnAlreadyMatchingLatestTarget() {
+        var coordinator = RDPResizeCoordinator()
+        _ = coordinator.observe(request(800).size)
+        _ = coordinator.availability(true)
+        _ = coordinator.request(request(800))
+        let wider = coordinator.request(request(1000))!
+        _ = coordinator.result(id: wider.id, submitted: true)
+        _ = coordinator.request(request(800))
+        XCTAssertFalse(coordinator.isSatisfied)
+        XCTAssertNil(coordinator.expire())
+        XCTAssertTrue(coordinator.isSatisfied)
+        XCTAssertNil(coordinator.observation)
     }
     func testIgnoredRequestExpiresWithoutResendLoopButNewIntentRetries() {
         var coordinator = RDPResizeCoordinator()

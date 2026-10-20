@@ -334,6 +334,11 @@ is handled once without claiming that dimensions confirm Windows UI scale.
 Local fitting/input retain effective geometry while waiting. Actual desktop resets retire
 obsolete textures and reject old-sized frames/pointer transforms before adopting new output.
 There is a five-second observation/availability notice; send success is submission only.
+Resize deadlines track a specific pending submission or an unmet target awaiting
+capabilities. An already matching initial desktop needs no deadline; capability and
+geometry callbacks retire obsolete deadlines. Expiring an intermediate request
+reevaluates the latest target before reporting failure, so returning to already
+observed geometry does not produce a false fallback notice.
 Single-monitor full screen does not request the Monitor Layout PDU: that would make the
 pinned FreeRDP activation state machine wait for a reply some hosts omit when multimon is
 off. It uses actual GDI dimensions; multi-monitor confirmation remains required.

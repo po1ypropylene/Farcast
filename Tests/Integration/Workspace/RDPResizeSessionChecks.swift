@@ -98,11 +98,30 @@ import SwiftUI
         wait(2) { session.observedDesktopSize != nil }
         precondition(session.logs.contains { $0.message.contains("initial resolution requested") })
         precondition(session.logs.contains { $0.message.contains("initial desktop received") })
+        if mode == "matchWindow" {
+            // The initial desktop already fits. Delayed Display Control capabilities
+            // must not leave an availability timeout that later reports resize failure.
+            let deadline = Date().addingTimeInterval(6)
+            while Date() < deadline {
+                let event = NSEvent.mouseEvent(
+                    with: .mouseMoved,
+                    location: desktop.convert(CGPoint(x: desktop.bounds.midX, y: desktop.bounds.midY), to: nil),
+                    modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                    eventNumber: 0, clickCount: 0, pressure: 0)!
+                desktop.mouseMoved(with: event)
+                RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+                precondition(
+                    session.displayMessage.isEmpty, "An already matching desktop must not report resize failure")
+            }
+            print("PASS matching initial desktop stays confirmed through delayed caps, mouse movement and timeout")
+        }
         for width in stride(from: 700, through: 900, by: 2) { _ = resize(CGFloat(width), 650) }
         let newest = resize(901, 650)
         if mode == "ignored" || mode == "missing" {
             wait(9) { session.displayMessage.contains(mode == "missing" ? "not enabled" : "not confirmed") }
             precondition(desktop.desktopSize == CGSize(width: 640, height: 480) && session.state == .connected)
+            _ = resize(640, 480)
+            wait(2) { session.displayMessage.isEmpty }
             print("PASS \(mode) Display Control preserves observed geometry and reports finite local-fit fallback")
         } else if mode == "restricted" {
             wait(8) { session.displayMessage.contains("does not allow") }
