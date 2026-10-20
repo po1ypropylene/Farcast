@@ -16,7 +16,7 @@ struct SessionFullScreenButton: View {
                 session.fullScreenPresented ? "Exit Remote Desktop Full Screen" : "Enter Remote Desktop Full Screen",
                 systemImage: session.fullScreenPresented
                     ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right"
-            ).labelStyle(.iconOnly)
+            ).labelStyle(.iconOnly).sessionActionColor(.fullScreen)
         }
         .help(
             session.fullScreenPresented

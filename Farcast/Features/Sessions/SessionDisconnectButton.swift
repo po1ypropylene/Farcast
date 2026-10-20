@@ -9,15 +9,15 @@ struct SessionDisconnectButton: View {
             if compact {
                 IconActionButton(title: "Disconnect Session (⇧⌘D)", symbol: "power") {
                     workspace.requestDisconnect(session)
-                }
+                }.sessionActionColor(.disconnect)
             } else {
                 Button {
                     workspace.requestDisconnect(session)
                 } label: {
                     Label("Disconnect Session", systemImage: "power").labelStyle(.iconOnly)
-                        .foregroundStyle(session.state.active ? Color.red : Color.secondary)
+                        .sessionActionColor(.disconnect)
                 }.help("Disconnect Session (⇧⌘D)").accessibilityLabel("Disconnect Session")
             }
-        }.tint(.red).disabled(!session.state.active)
+        }.disabled(!session.state.active)
     }
 }

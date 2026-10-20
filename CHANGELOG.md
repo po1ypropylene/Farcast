@@ -5,6 +5,8 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Add adaptive colours to session toolbar actions in main and popped-out windows, with stronger shades for Increase Contrast and grey disabled controls.
+
 ## 2.0.0 — 2026-10-20
 
 - Fix RDP keyboard state across focus changes, missed modifier releases and graphics reactivation; reconcile left/right modifier snapshots, send physical US letters between Shift transitions, synchronize Caps Lock, clear abandoned composition and preserve native app shortcuts. Production long-session and Windows Sticky Keys behavior still require live validation.

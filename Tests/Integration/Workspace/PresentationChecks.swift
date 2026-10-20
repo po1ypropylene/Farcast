@@ -360,6 +360,19 @@ private final class InspectorRDPClient: FCRDPClient {
         checkResize()
         requestedSize = nil
         try snapshot("detached", window: detachedWindow)
+        for scheme in ["Light", "Dark"] {
+            defaults.set(scheme, forKey: "appearance")
+            for increased in [false, true] {
+                detachedWindow.appearance = NSAppearance(
+                    named: scheme == "Dark"
+                        ? (increased ? .accessibilityHighContrastDarkAqua : .darkAqua)
+                        : (increased ? .accessibilityHighContrastAqua : .aqua))
+                settle()
+                try snapshot("session-actions-\(scheme)-\(increased ? "contrast" : "standard")", window: detachedWindow)
+            }
+        }
+        defaults.removeObject(forKey: "appearance")
+        detachedWindow.appearance = nil
         print("PASS production desktop moves to one detached viewport and ignores stale layout")
         workspace.returnToWorkspace(slot: slot)
         settle()
