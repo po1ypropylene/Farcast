@@ -5,6 +5,21 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Keep RDP desktop frames and input responsive after closing a popped-out macOS full-screen window back to the workspace.
+- Size popped-out desktop windows to the current remote resolution and Retina density, including native controls and capping them to the usable screen area.
+
+## 2.0.1 — 2026-10-20
+
+- Fix false RDP resolution warnings after connecting when the desktop already matches the window; retire obsolete resize deadlines while retaining warnings for genuinely unconfirmed changes.
+
+- Add adaptive colours to session toolbar actions in main and popped-out windows, with stronger shades for Increase Contrast and grey disabled controls.
+
+## 2.0.0 — 2026-10-20
+
+- Fix RDP keyboard state across focus changes, missed modifier releases and graphics reactivation; reconcile left/right modifier snapshots, send physical US letters between Shift transitions, synchronize Caps Lock, clear abandoned composition and preserve native app shortcuts. Production long-session and Windows Sticky Keys behavior still require live validation.
+
+- Refresh RDP resolution from the destination viewport after returning a popped-out session to the main window.
+
 - Remove connection favourites, duplicate shortcut rows and star controls to free space in the connection panel.
 
 - Move screenshot-app tooling into a separate repository; building Farcast and previewing terminal themes require only this public checkout.

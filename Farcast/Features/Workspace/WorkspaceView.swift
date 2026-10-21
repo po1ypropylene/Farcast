@@ -125,7 +125,11 @@ struct WorkspaceView: View {
                         Button {
                             workspace.editor = EditorRequest(draft: ConnectionDraft(), mode: .quick)
                         } label: {
-                            Label("Quick Connect", systemImage: "bolt.fill").labelStyle(.titleAndIcon)
+                            Label {
+                                Text("Quick Connect")
+                            } icon: {
+                                Image(systemName: "bolt.fill").sessionActionColor(.quickConnect)
+                            }.labelStyle(.titleAndIcon)
                         }.help("Quick Connect (⌘K)").accessibilityLabel("Quick Connect")
                     }
                     ToolbarSpacer(.fixed, placement: .primaryAction)
@@ -135,6 +139,7 @@ struct WorkspaceView: View {
                                 workspace.requestReconnect(session)
                             } label: {
                                 Label("Reconnect", systemImage: "arrow.clockwise").labelStyle(.iconOnly)
+                                    .sessionActionColor(.reconnect)
                             }.help("Reconnect (⇧⌘R)").accessibilityLabel("Reconnect")
                             SessionDisconnectButton(session: session, workspace: workspace)
                         }
@@ -149,13 +154,15 @@ struct WorkspaceView: View {
                                     NSApp.keyWindow?.toggleFullScreen(nil)
                                 } label: {
                                     Label("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right").labelStyle(
-                                        .iconOnly)
+                                        .iconOnly
+                                    ).sessionActionColor(.fullScreen)
                                 }.help("Full Screen (⌃⌘F)").accessibilityLabel("Full Screen")
                             }
                             Button {
                                 workspace.showInspector.toggle()
                             } label: {
                                 Label("Connection Details", systemImage: "sidebar.right").labelStyle(.iconOnly)
+                                    .sessionActionColor(.details)
                             }.help("Connection Details (⌥⌘I)").accessibilityLabel("Connection Details")
                             Button {
                                 workspace.popOut(session) { slot in
@@ -163,7 +170,8 @@ struct WorkspaceView: View {
                                 }
                             } label: {
                                 Label("Pop Out Session", systemImage: "macwindow.on.rectangle").labelStyle(
-                                    .iconOnly)
+                                    .iconOnly
+                                ).sessionActionColor(.popOut)
                             }.help("Pop Out Session (⇧⌘O)").accessibilityLabel("Pop Out Session")
                         }
                     }

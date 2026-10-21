@@ -99,8 +99,13 @@ Logs exclude credentials, clipboard/terminal contents and shared-folder paths.
 
 Each native worker owns its handles and bounded input/work queues. SSH sends output
 with main-thread backpressure. RDP uses a latest-frame mailbox, dropping superseded
-frames instead of building an unbounded UI queue. Trust/interactive callbacks wait on
-single-use PromptWaiter responses while the main actor presents sheets. Cancellation
+frames instead of building an unbounded UI queue. Mailbox publication coalesces one
+main-queue notification for all live weakly registered surfaces. Rendering follows
+frame delivery and native invalidation rather than MTKView's periodic window-bound
+display link, which can stop after closing a full-screen window during reparenting.
+Presentation suspension is explicit and independent of the disabled periodic link.
+Trust/interactive callbacks wait on single-use PromptWaiter responses while the main
+actor presents sheets. Cancellation
 resolves pending prompts, interrupts transport work, invalidates callbacks and stops
 clipboard timers. Never wait for workers/prompts on the main actor.
 
@@ -128,8 +133,10 @@ An uninterruptible local file operation can delay cleanup and therefore recovery
 A popped-out session retains its Workspace-owned RemoteSession, native surfaces and
 transport. A stable window slot follows replacement session IDs on reconnect. Only
 attached sessions appear in the main tab strip; closing the detached window returns
-its live session, while Close Session disconnects and removes it. Window focus chooses
-the single RDP clipboard/input owner and the Session menu target. Prompts are routed
+its live session, while Close Session disconnects and removes it. New desktop windows
+use the observed remote pixel dimensions divided by the destination Retina scale when
+enabled, plus measured toolbar/status chrome, capped to that screen's visible frame.
+Window focus chooses the single RDP clipboard/input owner and the Session menu target. Prompts are routed
 to the session's presenting window. Detached placement is temporary; restoration still
 stores profile IDs and restores disconnected tabs in the main window.
 
@@ -319,6 +326,8 @@ Dynamic resize samples the usable viewport and its own backing conversion; Retin
 uses point-sized geometry and 100% desktop scale, while Retina on uses backing pixels once.
 Window/backing changes refresh local drawables independently. Live resize flushes after
 dragging ends; programmatic/backing changes use a replaceable 200 ms debounce.
+The owning viewport also publishes its laid-out size and window/backing changes,
+so a detached-window return does not depend solely on Metal surface callbacks.
 
 `RDPResizeCoordinator` retains desired, pending submission and observed dimensions plus
 local request IDs. One request awaits geometry at a time; newer intentions replace the
@@ -332,6 +341,11 @@ is handled once without claiming that dimensions confirm Windows UI scale.
 Local fitting/input retain effective geometry while waiting. Actual desktop resets retire
 obsolete textures and reject old-sized frames/pointer transforms before adopting new output.
 There is a five-second observation/availability notice; send success is submission only.
+Resize deadlines track a specific pending submission or an unmet target awaiting
+capabilities. An already matching initial desktop needs no deadline; capability and
+geometry callbacks retire obsolete deadlines. Expiring an intermediate request
+reevaluates the latest target before reporting failure, so returning to already
+observed geometry does not produce a false fallback notice.
 Single-monitor full screen does not request the Monitor Layout PDU: that would make the
 pinned FreeRDP activation state machine wait for a reply some hosts omit when multimon is
 off. It uses actual GDI dimensions; multi-monitor confirmation remains required.
@@ -349,8 +363,15 @@ The worker retains clipboard updates before channel attachment and advertises af
 MonitorReady. The selected session synchronizes before paste and on its timer.
 Command+C/X/V/A map to Windows Control shortcuts after releasing forwarded Command;
 app shortcuts remain local. Text and file sharing are opt-in.
+Keyboard surfaces reconcile left/right modifier snapshots and release tracked input on
+responder, window/app activation, reparenting and input-disable transitions. Ordinary
+US text commits retain physical scan-code pairs; other committed text keeps Unicode
+pairs. Caps Lock uses ordered RDP Synchronize events. See the
+[keyboard review](rdp-keyboard.md) for event routing, evidence and layout limits.
 The bounded native event queue coalesces consecutive pure pointer motion while
-preserving key/button/wheel ordering. Queue overload stops the session with an
+preserving key/button/wheel ordering. During FreeRDP reactivation/input suspension,
+keyboard/pointer/toggle events remain queued rather than entering APIs that silently
+skip them; clipboard ownership and control events continue draining. Queue overload stops the session with an
 explicit reconnect error rather than dropping input or clipboard deactivation.
 Draining stops after cancellation; no pending resize is submitted after that check.
 The native clipboard adapter negotiates [MS-RDPECLIP](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpeclip/cbc851d3-4e68-45f4-9292-26872a9209f2) file streaming, relative file

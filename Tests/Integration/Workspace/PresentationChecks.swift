@@ -1,4 +1,5 @@
 import AppKit
+import MetalKit
 import SwiftData
 import SwiftUI
 
@@ -31,7 +32,7 @@ private final class InspectorRDPClient: FCRDPClient {
         draft.username = "fixture"
         draft.kind = .rdp
         draft.port = 3389
-        draft.displayMode = .actualSize
+        draft.displayMode = .fit
         let saved = SavedConnection(draft: draft)
         container.mainContext.insert(saved)
         let window = NSWindow(
@@ -278,6 +279,16 @@ private final class InspectorRDPClient: FCRDPClient {
         workspace.select(session.id)
         session.state = .connected
         let desktop = session.desktop!
+        desktop.inputEnabled = true
+        var requestedSize: CGSize?
+        desktop.resizeRemote = { width, height, _ in requestedSize = CGSize(width: width, height: height) }
+        func checkResize() {
+            let points = desktop.viewport!.contentView.bounds.size
+            let expected = RDPResizeRequest(
+                points: points, backing: desktop.convertToBacking(CGRect(origin: .zero, size: points)).size,
+                backingScale: desktop.window!.backingScaleFactor, retina: desktop.retinaDisplay)!
+            precondition(requestedSize == expected.size, "Remote resize must follow the current window viewport")
+        }
         desktop.setDesktopSize(CGSize(width: 1920, height: 1080))
         desktop.mailbox.put(
             DesktopFrame(
@@ -324,7 +335,10 @@ private final class InspectorRDPClient: FCRDPClient {
             present(false)
             precondition(viewport.bounds.size == original && desktop.viewport === viewport)
         }
+        checkResize()
         try checkDetailsLayout(host: window)
+        desktop.submit(Data(repeating: 96, count: 800 * 500 * 4), width: 800, height: 500, stride: 800 * 4)
+        settle()
         let oldViewport = desktop.viewport!
         workspace.popOut(session) { slot in
             NSHostingView(
@@ -336,6 +350,9 @@ private final class InspectorRDPClient: FCRDPClient {
         let detachedWindow = desktop.window!
         precondition(detachedWindow !== window && workspace.session(in: slot) === session)
         precondition(desktop.viewport !== oldViewport && workspace.attachedSessions.isEmpty)
+        precondition(
+            desktop.viewport!.contentView.bounds.size == CGSize(width: 800, height: 500),
+            "Pop-out must preserve the remote pixel resolution at 1:1 scale without resizing")
         detachedWindow.setContentSize(NSSize(width: 1500, height: 950))
         detachedWindow.contentView?.layoutSubtreeIfNeeded()
         let movedSize = desktop.frame.size
@@ -346,14 +363,76 @@ private final class InspectorRDPClient: FCRDPClient {
         workspace.activate(detachedWindow)
         precondition(session.isSelected && workspace.activeSession === session)
         try checkDetailsLayout(slot: slot, host: detachedWindow)
+        checkResize()
+        requestedSize = nil
         try snapshot("detached", window: detachedWindow)
+        for scheme in ["Light", "Dark"] {
+            defaults.set(scheme, forKey: "appearance")
+            for increased in [false, true] {
+                detachedWindow.appearance = NSAppearance(
+                    named: scheme == "Dark"
+                        ? (increased ? .accessibilityHighContrastDarkAqua : .darkAqua)
+                        : (increased ? .accessibilityHighContrastAqua : .aqua))
+                settle()
+                try snapshot("session-actions-\(scheme)-\(increased ? "contrast" : "standard")", window: detachedWindow)
+            }
+        }
+        defaults.removeObject(forKey: "appearance")
+        detachedWindow.appearance = nil
         print("PASS production desktop moves to one detached viewport and ignores stale layout")
-        workspace.returnToWorkspace(slot: slot)
+        detachedWindow.performClose(nil)
         settle()
         precondition(desktop.window === window && workspace.selectedSession === session)
         precondition(workspace.detachedSessions.isEmpty && session.state == .connected)
+        checkResize()
+        desktop.inputEnabled = true
+        desktop.expectedDesktopSize = nil
+        for marker: UInt8 in [37, 91] {
+            desktop.submit(Data(repeating: marker, count: 640 * 480 * 4), width: 640, height: 480, stride: 640 * 4)
+            settle()
+            var pixel: UInt8 = 0
+            if let texture = desktop.texture {
+                var bytes = [UInt8](repeating: 0, count: 4)
+                bytes.withUnsafeMutableBytes {
+                    texture.getBytes($0.baseAddress!, bytesPerRow: 4, from: MTLRegionMake2D(0, 0, 1, 1), mipmapLevel: 0)
+                }
+                pixel = bytes[0]
+            }
+            precondition(pixel == marker, "Returning via the close button must keep automatic Metal rendering alive")
+        }
+        var pointerSent = false
+        desktop.sendPointer = { _, _, _ in pointerSent = true }
+        let click = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: desktop.convert(CGPoint(x: desktop.bounds.midX, y: desktop.bounds.midY), to: nil),
+            modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            eventNumber: 0, clickCount: 1, pressure: 0)!
+        desktop.mouseDown(with: click)
+        desktop.mouseUp(with: click)
+        precondition(pointerSent && window.firstResponder === desktop)
         try snapshot("returned", window: window)
         print("PASS production desktop returns live; focus selects one clipboard/input owner")
+        for retina in [false, true] {
+            desktop.retinaDisplay = retina
+            let scale = retina ? window.backingScaleFactor : 1
+            let width = Int(800 * scale)
+            let height = Int(500 * scale)
+            desktop.submit(
+                Data(repeating: 96, count: width * height * 4), width: width, height: height, stride: width * 4)
+            settle()
+            workspace.popOut(session) { slot in
+                NSHostingView(rootView: DetachedSessionView(workspace: workspace, slot: slot).modelContainer(container))
+            }
+            settle()
+            precondition(
+                desktop.viewport!.contentView.bounds.size == CGSize(width: 800, height: 500),
+                "Pop-out must divide remote pixels by destination backing scale exactly once for Retina")
+            desktop.window!.performClose(nil)
+            settle()
+            precondition(desktop.window === window)
+        }
+        desktop.retinaDisplay = false
+        print("PASS normal and Retina pop-outs preserve the remote resolution at native scale")
         workspace.close(session)
         settle()
         // A separate owned empty directory keeps preview enumeration away from personal files.

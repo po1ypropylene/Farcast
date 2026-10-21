@@ -396,10 +396,10 @@ import SwiftTerm
                     }
                     let next = self.resizeCoordinator.observe(size)
                     if self.resizeCoordinator.pending == nil {
-                        self.displayObservationTask?.cancel()
                         self.displayMessage = ""
                     }
                     self.submitResize(next)
+                    self.scheduleResizeObservation()
                     self.presentStartupDesktopIfReady()
                 }
             }
@@ -462,6 +462,7 @@ import SwiftTerm
                 client?.sendScanCode(code, pressed: down, extended: extended)
             }
             desktop.sendUnicode = { [weak client] code, down in client?.sendUnicode(code, pressed: down) }
+            desktop.synchronizeCapsLock = { [weak client] enabled in client?.synchronizeCapsLock(enabled) }
             desktop.preparePaste = { [weak self] in self?.syncClipboard() }
             desktop.sendPointer = { [weak client] flags, x, y in client?.sendPointerFlags(flags, x: x, y: y) }
             client.onDisplayAvailability = { [weak self] available in
@@ -474,10 +475,9 @@ import SwiftTerm
                                 : "RDP: server disabled Display Control resolution updates.")
                     }
                     let next = self.resizeCoordinator.availability(available)
+                    if self.resizeCoordinator.isSatisfied { self.displayMessage = "" }
                     self.submitResize(next)
-                    if !available, self.resizeCoordinator.desired != nil {
-                        self.scheduleResizeObservation()
-                    }
+                    self.scheduleResizeObservation()
                 }
             }
             client.onResizeResult = { [weak self] id, result in
@@ -505,9 +505,8 @@ import SwiftTerm
                             ? "The server does not allow this resolution. The desktop is fitted locally."
                             : "The resolution update could not be sent. The desktop is fitted locally."
                     }
-                    self.displayObservationTask?.cancel()
-                    if self.resizeCoordinator.pending != nil { self.scheduleResizeObservation() }
                     self.submitResize(next)
+                    self.scheduleResizeObservation()
                 }
             }
             desktop.resizeRemote = { [weak self] width, height, scale in
@@ -520,8 +519,9 @@ import SwiftTerm
                         "RDP window resize requested: \(Self.resolution(request.size)), scale \(request.scale)%.")
                 }
                 let next = self.resizeCoordinator.request(request)
+                if self.resizeCoordinator.isSatisfied { self.displayMessage = "" }
                 self.submitResize(next)
-                if changed, !self.resizeCoordinator.available { self.scheduleResizeObservation() }
+                if changed { self.scheduleResizeObservation() }
             }
             let connect: (CGSize, Int) -> Void = { [weak self, weak client] size, scale in
                 guard let self, self.generation == attempt, self.state.active else { return }
@@ -658,17 +658,25 @@ import SwiftTerm
         scheduleResizeObservation()
     }
     private func scheduleResizeObservation() {
+        guard resizeEnabled else { return }
         displayObservationTask?.cancel()
+        displayObservationTask = nil
+        guard let observation = resizeCoordinator.observation else { return }
         let attempt = generation
         let timeout = DispatchWorkItem { [weak self] in
             guard let self, self.generation == attempt, self.resizeEnabled,
-                self.resizeCoordinator.desired != nil
+                self.resizeCoordinator.observation == observation
             else { return }
+            self.displayObservationTask = nil
             let next = self.resizeCoordinator.expire()
-            self.displayMessage =
-                self.resizeCoordinator.available
-                ? "The resolution change was not confirmed. The desktop is fitted locally."
-                : "The server has not enabled resolution updates. The desktop is fitted locally."
+            if self.resizeCoordinator.isSatisfied {
+                self.displayMessage = ""
+            } else if next == nil {
+                self.displayMessage =
+                    self.resizeCoordinator.available
+                    ? "The resolution change was not confirmed. The desktop is fitted locally."
+                    : "The server has not enabled resolution updates. The desktop is fitted locally."
+            }
             self.submitResize(next)
         }
         displayObservationTask = timeout

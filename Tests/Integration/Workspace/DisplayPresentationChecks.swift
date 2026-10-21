@@ -19,7 +19,7 @@ import MetalKit
         var exited = false
         presentation.onExit = { _ in exited = true }
         presentation.show()
-        precondition(presentation.windows.count == 2 && presentation.surfaces.count == 2 && desktop.isPaused)
+        precondition(presentation.windows.count == 2 && presentation.surfaces.count == 2 && desktop.renderingSuspended)
         let primary = presentation.surfaces[0]
         let left = presentation.surfaces[1]
         precondition(primary.mailbox === desktop.mailbox && left.mailbox === desktop.mailbox)
@@ -56,9 +56,9 @@ import MetalKit
         precondition(first == [0, 44, 96, 255])
         print("PASS production Metal upload crops marked framebuffer pixels without duplicating full-desktop textures")
         NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: app)
-        precondition(presentation.surfaces.allSatisfy { $0.isPaused && $0.texture == nil })
+        precondition(presentation.surfaces.allSatisfy { $0.renderingSuspended && $0.texture == nil })
         NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: app)
-        precondition(presentation.surfaces.allSatisfy { !$0.isPaused })
+        precondition(presentation.surfaces.allSatisfy { !$0.renderingSuspended })
         primary.draw(in: primary)
         left.draw(in: left)
         precondition(primary.texture?.width == 1600 && left.texture?.width == 800)
@@ -107,7 +107,8 @@ import MetalKit
         precondition(pointer == nil)
         let windows = presentation.windows
         presentation.exit()
-        precondition(exited && presentation.windows.isEmpty && presentation.surfaces.isEmpty && !desktop.isPaused)
+        precondition(
+            exited && presentation.windows.isEmpty && presentation.surfaces.isEmpty && !desktop.renderingSuspended)
         precondition(windows.allSatisfy { !$0.isVisible })
         presentation.exit(notify: false)
         print("PASS obsolete frame rejection and idempotent full-screen teardown leave the session surface reusable")
@@ -116,7 +117,9 @@ import MetalKit
         changed.onExit = { reason = $0 }
         changed.show()
         NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: app)
-        precondition(changed.windows.isEmpty && reason?.lowercased().contains("reconnect") == true && !desktop.isPaused)
+        precondition(
+            changed.windows.isEmpty && reason?.lowercased().contains("reconnect") == true && !desktop.renderingSuspended
+        )
         print("PASS topology change returns to the existing surface with an explicit reconnect notice")
 
     }

@@ -1,6 +1,8 @@
 import AppKit
 import CryptoKit
 import Foundation
+import SwiftData
+import SwiftUI
 
 @main struct RDPResizeSessionChecks {
     @MainActor static func main() throws {
@@ -71,6 +73,7 @@ import Foundation
         }
         func resize(_ width: CGFloat, _ height: CGFloat) -> RDPResizeRequest {
             window.setContentSize(CGSize(width: width, height: height))
+            let viewport = desktop.viewport!
             viewport.layoutSubtreeIfNeeded()
             viewport.layoutDesktop()
             let points = viewport.contentView.bounds.size
@@ -95,11 +98,30 @@ import Foundation
         wait(2) { session.observedDesktopSize != nil }
         precondition(session.logs.contains { $0.message.contains("initial resolution requested") })
         precondition(session.logs.contains { $0.message.contains("initial desktop received") })
+        if mode == "matchWindow" {
+            // The initial desktop already fits. Delayed Display Control capabilities
+            // must not leave an availability timeout that later reports resize failure.
+            let deadline = Date().addingTimeInterval(6)
+            while Date() < deadline {
+                let event = NSEvent.mouseEvent(
+                    with: .mouseMoved,
+                    location: desktop.convert(CGPoint(x: desktop.bounds.midX, y: desktop.bounds.midY), to: nil),
+                    modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                    eventNumber: 0, clickCount: 0, pressure: 0)!
+                desktop.mouseMoved(with: event)
+                RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+                precondition(
+                    session.displayMessage.isEmpty, "An already matching desktop must not report resize failure")
+            }
+            print("PASS matching initial desktop stays confirmed through delayed caps, mouse movement and timeout")
+        }
         for width in stride(from: 700, through: 900, by: 2) { _ = resize(CGFloat(width), 650) }
         let newest = resize(901, 650)
         if mode == "ignored" || mode == "missing" {
             wait(9) { session.displayMessage.contains(mode == "missing" ? "not enabled" : "not confirmed") }
             precondition(desktop.desktopSize == CGSize(width: 640, height: 480) && session.state == .connected)
+            _ = resize(640, 480)
+            wait(2) { session.displayMessage.isEmpty }
             print("PASS \(mode) Display Control preserves observed geometry and reports finite local-fit fallback")
         } else if mode == "restricted" {
             wait(8) { session.displayMessage.contains("does not allow") }
@@ -140,6 +162,50 @@ import Foundation
         } else {
             precondition(session.logs.contains { $0.message.contains("desktop resized by server") })
             precondition(session.logs.contains { $0.message.contains("submitted; awaiting server geometry") })
+        }
+        if mode == "apply" || mode == "retina" {
+            let container = try ModelContainer(
+                for: SavedConnection.self, ConnectionFolder.self, SavedWireGuard.self,
+                configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+            workspace.modelContext = container.mainContext
+            workspace.registerMainWindow(window)
+            window.contentView = NSHostingView(
+                rootView: WorkspaceView(workspace: workspace).modelContainer(container))
+            func expectedSize() -> CGSize {
+                let points = desktop.viewport!.contentView.bounds.size
+                return RDPResizeRequest(
+                    points: points, backing: desktop.convertToBacking(CGRect(origin: .zero, size: points)).size,
+                    backingScale: desktop.window!.backingScaleFactor, retina: draft.retinaDisplay)!.size
+            }
+            func settle() {
+                let deadline = Date().addingTimeInterval(0.5)
+                while Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+            }
+            settle()
+            wait(8) { desktop.desktopSize == expectedSize() }
+            let mainSize = expectedSize()
+            for _ in 0..<2 {
+                let remoteBeforePopOut = desktop.desktopSize
+                workspace.popOut(session) { slot in
+                    NSHostingView(
+                        rootView: DetachedSessionView(workspace: workspace, slot: slot).modelContainer(container))
+                }
+                settle()
+                let detached = desktop.window!
+                precondition(
+                    expectedSize() == remoteBeforePopOut,
+                    "Pop-out must preserve the negotiated desktop dimensions before any manual resize")
+                wait(8) { desktop.desktopSize == remoteBeforePopOut }
+                detached.setContentSize(CGSize(width: 1300, height: 850))
+                settle()
+                precondition(expectedSize() != mainSize)
+                wait(8) { desktop.desktopSize == expectedSize() }
+                detached.close()
+                settle()
+                precondition(desktop.window === window)
+                wait(8) { desktop.desktopSize == mainSize && session.displayMessage.isEmpty }
+            }
+            print("PASS \(mode) server geometry follows repeated pop-out, resize and close back to the workspace")
         }
         // Closing/disconnecting before a queued viewport change must not send it later.
         _ = resize(1100, 700)

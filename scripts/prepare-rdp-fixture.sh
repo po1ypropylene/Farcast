@@ -11,14 +11,15 @@ git -C .dependencies/sources/FreeRDP show HEAD:server/Sample/sfreerdp.h > "$fixt
 cp Tests/Integration/RDP/clipboard_fixture.h "$fixture_source/server/Sample/fc_clipboard_fixture.h"
 cp Tests/Integration/RDP/drive_fixture.h "$fixture_source/server/Sample/fc_drive_fixture.h"
 cp Tests/Integration/RDP/display_fixture.h "$fixture_source/server/Sample/fc_display_fixture.h"
+cp Tests/Integration/RDP/keyboard_fixture.h "$fixture_source/server/Sample/fc_keyboard_fixture.h"
 cp Tests/Integration/RDP/resize_fixture.h "$fixture_source/server/Sample/fc_resize_fixture.h"
 python3 - "$fixture_source/server/Sample/sfreerdp.c" <<'PY'
 from pathlib import Path
 import sys
 path = Path(sys.argv[1]); text = path.read_text()
 header = path.with_suffix('.h')
-header.write_text(header.read_text().replace('RdpsndServerContext* rdpsnd;', 'RdpsndServerContext* rdpsnd;\n    struct s_cliprdr_server_context* fc_clipboard;\n    struct s_rdpdr_server_context* fc_drive;\n    struct fc_fixture_resize* fc_resize;'))
-text = text.replace('struct server_info', '#include "fc_clipboard_fixture.h"\n#include "fc_drive_fixture.h"\n#include "fc_display_fixture.h"\n#include "fc_resize_fixture.h"\n\nstruct server_info', 1)
+header.write_text(header.read_text().replace('RdpsndServerContext* rdpsnd;', 'RdpsndServerContext* rdpsnd;\n    struct s_cliprdr_server_context* fc_clipboard;\n    struct s_rdpdr_server_context* fc_drive;\n    struct fc_fixture_resize* fc_resize;\n    int fc_keyboard_index;'))
+text = text.replace('struct server_info', '#include "fc_clipboard_fixture.h"\n#include "fc_drive_fixture.h"\n#include "fc_display_fixture.h"\n#include "fc_resize_fixture.h"\n#include "fc_keyboard_fixture.h"\n\nstruct server_info', 1)
 text = text.replace('rdpsnd_server_context_free(context->rdpsnd);', 'fc_fixture_resize_stop(context);\n        fc_fixture_drive_stop(context);\n        fc_fixture_clipboard_stop(context);\n        rdpsnd_server_context_free(context->rdpsnd);')
 text = text.replace('/* Dynamic Virtual Channels */', 'if (!fc_fixture_clipboard_start(context)) return FALSE;\n    if (!fc_fixture_drive_start(context)) return FALSE;\n\n    /* Dynamic Virtual Channels */')
 text = text.replace('instance->Open(instance, nullptr, (UINT16)port)', 'instance->Open(instance, "127.0.0.1", (UINT16)port)')
@@ -33,6 +34,13 @@ text = text.replace(needle, needle + '\n    if (!fc_fixture_display_check(client
 needle = 'static BOOL tf_peer_mouse_event(rdpInput* input, UINT16 flags, UINT16 x, UINT16 y)\n{'
 assert needle in text
 text = text.replace(needle, needle + '\n    fc_fixture_display_pointer(input, x, y);', 1)
+# Decode actual input PDUs on the peer, independently of view callback assertions.
+for name, args in [("synchronize", "'s', (UINT16)flags, 0"),
+                   ("keyboard", "'k', flags, code"), ("unicode_keyboard", "'u', flags, code")]:
+    declaration = f"static BOOL tf_peer_{name}_event(rdpInput* input, "
+    start = text.index(declaration)
+    body = text.index("\n{", start) + 2
+    text = text[:body] + f"\n    if (!fc_fixture_keyboard_event(input, {args})) return FALSE;" + text[body:]
 # Resize callbacks are queued from the disp thread and adopted only on the peer worker.
 text = text.replace('status = WaitForMultipleObjects(count, handles, FALSE, INFINITE);',
                     'status = WaitForMultipleObjects(count, handles, FALSE, getenv("FARCAST_FIXTURE_RESIZE") ? 20 : INFINITE);')

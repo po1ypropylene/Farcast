@@ -21,7 +21,7 @@ xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -Wno-deprecated-declarations \
   -L Vendor/Native/lib -Wl,-rpath,"$PWD/Vendor/Native/lib" -framework Foundation -lfreerdp3 -lwinpr3 \
   Tests/Integration/RDP/display_settings.m -o "$fixture_root/display-settings"
 "$fixture_root/display-settings"
-modes=(accept reject cancel input-overflow pointer-burst clipboard files drive drive-ro monitors retina)
+modes=(accept keyboard keyboard-paused reject cancel input-overflow pointer-burst clipboard files drive drive-ro monitors retina)
 [[ -z "${FARCAST_FIXTURE_NLA:-}" ]] || modes+=(bad-password)
 for mode in "${modes[@]}"; do "$fixture_root"/client "$mode" "$fixture_port"; done
 
@@ -29,3 +29,6 @@ for evidence in 'monitor definitions and mixed DPI' 'left-monitor pointer' 'prim
   rg -q "PASS display wire $evidence" "$fixture_root/server.log" || { echo "FAIL RDP display wire $evidence" >&2; exit 1; }
 done
 echo 'PASS RDP peer decoded monitor layout, Retina scales and pointer coordinates'
+
+[[ "$(rg -c 'PASS keyboard wire scan codes, repeats, extended keys, Unicode pairs and toggle synchronization' "$fixture_root/server.log")" == 2 ]] || { echo 'FAIL RDP keyboard wire sequence or pause/resume delivery' >&2; exit 1; }
+echo 'PASS RDP peer decoded ordered keyboard and toggle events'

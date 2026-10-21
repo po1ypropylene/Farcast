@@ -1,4 +1,5 @@
 import AppKit
+import IOKit.hidsystem
 import MetalKit
 import SwiftUI
 
@@ -12,11 +13,31 @@ final class FrameMailbox: @unchecked Sendable {
     private let lock = NSLock()
     private var frame: DesktopFrame?
     private var sequence: UInt64 = 0
+    private var notificationPending = false
+    @MainActor private var views: [WeakDesktop] = []
+    @MainActor private final class WeakDesktop {
+        weak var value: RDPDesktopView?
+        init(_ value: RDPDesktopView) { self.value = value }
+    }
+    @MainActor func observe(_ view: RDPDesktopView) {
+        views.removeAll { $0.value == nil }
+        views.append(WeakDesktop(view))
+    }
+    @MainActor private func publish() {
+        lock.lock()
+        notificationPending = false
+        lock.unlock()
+        views.removeAll { $0.value == nil }
+        for view in views { view.value?.drawLatestFrame() }
+    }
     func put(_ next: DesktopFrame) {
         lock.lock()
         frame = next
         sequence &+= 1
+        let schedule = !notificationPending
+        notificationPending = true
         lock.unlock()
+        if schedule { DispatchQueue.main.async { self.publish() } }
     }
     func snapshot() -> (UInt64, DesktopFrame)? {
         lock.lock()
@@ -42,21 +63,38 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     private var lastPointerPoint: CGPoint?
     private var pressedMouseButtons = Set<Int>()
     private var renderedSequence: UInt64?
+    private(set) var renderingSuspended = false
     func suspendRendering(_ suspended: Bool) {
-        isPaused = suspended
+        renderingSuspended = suspended
         if suspended {
             texture = nil
             renderedSequence = nil
+        } else {
+            drawLatestFrame()
         }
+    }
+    // A macOS full-screen window teardown can stop MTKView's automatic callbacks
+    // after this persistent surface moves to another window. Frame delivery also
+    // drives rendering, coalesced by the shared mailbox, without reconnecting.
+    func drawLatestFrame() {
+        guard !renderingSuspended, let window, window.isVisible else { return }
+        // Manual delegate rendering must retire MTKView's cached drawable too;
+        // each presentation needs a fresh drawable after a window transfer.
+        releaseDrawables()
+        draw(in: self)
+        releaseDrawables()
     }
     var sendKey: ((Int, Bool, Bool) -> Void)?
     var sendText: ((String) -> Void)?
     var typeClipboard: (() -> Void)?
     var sendUnicode: ((Int, Bool) -> Void)?
+    var synchronizeCapsLock: ((Bool) -> Void)?
     var preparePaste: (() -> Void)?
     var sendPointer: ((Int, Int, Int) -> Void)?
     var resizeRemote: ((Int, Int, Int) -> Void)?
-    var inputEnabled = false
+    var inputEnabled = false {
+        willSet { if !newValue { releaseInput() } }
+    }
     var displayMode = RDPDisplayMode.fit
     weak var viewport: RDPViewport?
     private var initialSizeReady: ((CGSize) -> Void)?
@@ -107,6 +145,9 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     private var cursorHotSpot = CGPoint.zero
     private var pressedKeys: [UInt16: (Int, Bool)] = [:]
     private var modifierKeys: [UInt16: (Int, Bool)] = [:]
+    private var interpretingEvent: NSEvent?
+    private var suppressCommand = false
+    private var capsLock: Bool?
     private var marked = NSAttributedString(string: "")
     private var tracking: NSTrackingArea?
     private var scrollRemainder = 0.0
@@ -138,7 +179,10 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         super.init(frame: frame, device: device)
         colorPixelFormat = .bgra8Unorm
         clearColor = MTLClearColor(red: 0.035, green: 0.045, blue: 0.065, alpha: 1)
-        preferredFramesPerSecond = 30
+        // Render on mailbox publication and native display invalidation. Do not
+        // rely on MTKView's window-bound periodic display link across reparenting.
+        isPaused = true
+        enableSetNeedsDisplay = true
         delegate = self
         if let device {
             queue = device.makeCommandQueue()
@@ -165,6 +209,7 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
                 pipeline = try device.makeRenderPipelineState(descriptor: descriptor)
             } catch { NSLog("Farcast desktop renderer could not initialize: %@", error.localizedDescription) }
         }
+        mailbox.observe(self)
     }
     required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override var acceptsFirstResponder: Bool { true }
@@ -180,6 +225,7 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         mailbox.put(DesktopFrame(pixels: data, width: width, height: height, stride: stride))
     }
     func draw(in view: MTKView) {
+        guard !renderingSuspended else { return }
         if let (sequence, frame) = mailbox.snapshot(), sequence != renderedSequence, let device {
             let region = sourceRect ?? CGRect(x: 0, y: 0, width: frame.width, height: frame.height)
             guard region.minX >= 0, region.minY >= 0, region.maxX <= CGFloat(frame.width),
@@ -209,6 +255,7 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
             }
             renderedSequence = sequence
         }
+        guard let window, window.isVisible, window.occlusionState.contains(.visible) else { return }
         guard let drawable = currentDrawable, let pass = currentRenderPassDescriptor,
             let buffer = queue?.makeCommandBuffer(), let encoder = buffer.makeRenderCommandEncoder(descriptor: pass)
         else { return }
@@ -244,9 +291,11 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) { requestResize() }
     func requestResize() {
         resizeTask?.cancel()
-        guard displayMode == .fit, !inLiveResize, !isPaused else { return }
+        guard displayMode == .fit, !inLiveResize, !renderingSuspended else { return }
         let task = DispatchWorkItem { [weak self] in
-            guard let self, self.inputEnabled, !self.inLiveResize, !self.isPaused, self.window != nil else { return }
+            guard let self, self.inputEnabled, !self.inLiveResize, !self.renderingSuspended, self.window != nil else {
+                return
+            }
             let factor = self.window?.backingScaleFactor ?? 1
             let points = self.viewport?.contentView.bounds.size ?? self.bounds.size
             let backing = self.convertToBacking(CGRect(origin: .zero, size: points)).size
@@ -265,8 +314,24 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: NSApplication.didResignActiveNotification, object: nil)
+        releaseInput()
+        if let window {
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(inputFocusLost), name: NSWindow.didResignKeyNotification, object: window)
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(windowVisibilityChanged), name: NSWindow.didChangeOcclusionStateNotification,
+                object: window)
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(inputFocusLost), name: NSApplication.didResignActiveNotification, object: nil)
+        }
         requestResize()
+        DispatchQueue.main.async { [weak self] in self?.drawLatestFrame() }
     }
+    @objc private func windowVisibilityChanged(_ notification: Notification) { drawLatestFrame() }
+    @objc private func inputFocusLost(_ notification: Notification) { releaseInput() }
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         refreshCursor()
@@ -317,6 +382,7 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
 
     private func pointer(_ event: NSEvent, flags: Int) {
         guard inputEnabled else { return }
+        reconcileModifiers(event.modifierFlags)
         if let expectedDesktopSize, let (_, frame) = mailbox.snapshot(),
             expectedDesktopSize != CGSize(width: frame.width, height: frame.height)
         {
@@ -346,9 +412,15 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         pointer(event, flags: 0x9000)
     }
     override func mouseUp(with event: NSEvent) { pointer(event, flags: 0x1000) }
-    override func rightMouseDown(with event: NSEvent) { pointer(event, flags: 0xA000) }
+    override func rightMouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        pointer(event, flags: 0xA000)
+    }
     override func rightMouseUp(with event: NSEvent) { pointer(event, flags: 0x2000) }
-    override func otherMouseDown(with event: NSEvent) { pointer(event, flags: 0xC000) }
+    override func otherMouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        pointer(event, flags: 0xC000)
+    }
     override func otherMouseUp(with event: NSEvent) { pointer(event, flags: 0x4000) }
     override func mouseMoved(with event: NSEvent) { pointer(event, flags: 0x0800) }
     override func mouseDragged(with event: NSEvent) { pointer(event, flags: 0x0800) }
@@ -367,44 +439,87 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     }
     override func keyDown(with event: NSEvent) {
         guard inputEnabled else { return }
+        reconcileModifiers(event.modifierFlags)
         if event.keyCode == 9, event.modifierFlags.contains(.control) { preparePaste?() }
         let shortcut = !event.modifierFlags.intersection([.control, .option, .command]).isEmpty
-        if !shortcut, let text = event.characters,
-            text.unicodeScalars.contains(where: { $0.value >= 32 && $0.value != 127 && $0.value < 0xF700 })
+        if !shortcut
+            && (hasMarkedText() || Self.printableKeys[event.keyCode] != nil
+                || event.characters?.unicodeScalars.contains(where: {
+                    $0.value >= 32 && $0.value != 127 && $0.value < 0xF700
+                }) == true)
         {
+            interpretingEvent = event
+            defer { interpretingEvent = nil }
             interpretKeyEvents([event])
             return
         }
+        sendPhysicalKey(event)
+    }
+    private func sendPhysicalKey(_ event: NSEvent) {
         if let code = Self.scanCodes[event.keyCode] {
             sendKey?(code.0, true, code.1)
             pressedKeys[event.keyCode] = code
         }
     }
     override func keyUp(with event: NSEvent) {
+        guard inputEnabled else { return }
+        reconcileModifiers(event.modifierFlags)
         if let code = pressedKeys.removeValue(forKey: event.keyCode) { sendKey?(code.0, false, code.1) }
     }
     override func flagsChanged(with event: NSEvent) {
         guard inputEnabled else { return }
-        if event.keyCode == 57 {
-            sendKey?(0x3A, true, false)
-            sendKey?(0x3A, false, false)
-            return
+        reconcileModifiers(event.modifierFlags, changedKey: event.keyCode)
+    }
+    private static let modifiers: [(UInt16, Int, Bool, NSEvent.ModifierFlags, Int32)] = [
+        (56, 0x2A, false, .shift, NX_DEVICELSHIFTKEYMASK),
+        (60, 0x36, false, .shift, NX_DEVICERSHIFTKEYMASK),
+        (59, 0x1D, false, .control, NX_DEVICELCTLKEYMASK),
+        (62, 0x1D, true, .control, NX_DEVICERCTLKEYMASK),
+        (58, 0x38, false, .option, NX_DEVICELALTKEYMASK),
+        (61, 0x38, true, .option, NX_DEVICERALTKEYMASK),
+        (55, 0x5B, true, .command, NX_DEVICELCMDKEYMASK),
+        (54, 0x5C, true, .command, NX_DEVICERCMDKEYMASK),
+    ]
+    private func reconcileModifiers(_ flags: NSEvent.ModifierFlags, changedKey: UInt16? = nil) {
+        if !flags.contains(.command) { suppressCommand = false }
+        let caps = flags.contains(.capsLock)
+        if capsLock != caps {
+            if let synchronizeCapsLock {
+                synchronizeCapsLock(caps)
+            } else if capsLock != nil || caps {
+                sendKey?(0x3A, true, false)
+                sendKey?(0x3A, false, false)
+            }
+            capsLock = caps
         }
-        let mapping: [UInt16: (Int, Bool, NSEvent.ModifierFlags)] = [
-            56: (0x2A, false, .shift), 60: (0x36, false, .shift), 59: (0x1D, false, .control),
-            62: (0x1D, true, .control), 58: (0x38, false, .option), 61: (0x38, true, .option),
-            55: (0x5B, true, .command), 54: (0x5C, true, .command),
-        ]
-        guard let code = mapping[event.keyCode] else { return }
-        // Each side of a modifier is toggled independently; releaseInput clears all on focus loss.
-        let down = modifierKeys[event.keyCode] == nil && event.modifierFlags.contains(code.2)
-        sendKey?(code.0, down, code.1)
-        if down {
-            modifierKeys[event.keyCode] = (code.0, code.1)
-        } else {
-            modifierKeys.removeValue(forKey: event.keyCode)
+        for (key, scan, extended, flag, mask) in Self.modifiers {
+            let familyMask = Self.modifiers.filter { $0.3 == flag }.reduce(0) { $0 | $1.4 }
+            let hasSides = flags.rawValue & UInt(familyMask) != 0
+            // Hardware events identify each side. Events without device bits retain
+            // known sides, choosing the changed (or left) key only on first entry.
+            let known = Self.modifiers.contains { $0.3 == flag && modifierKeys[$0.0] != nil }
+            let preferred =
+                Self.modifiers.first { $0.3 == flag && $0.0 == changedKey }?.0
+                ?? Self.modifiers.first { $0.3 == flag }?.0
+            let fallback =
+                modifierKeys[key] != nil || (!known && key == preferred)
+            let down =
+                flags.contains(flag) && (hasSides ? flags.rawValue & UInt(mask) != 0 : fallback)
+                && !(flag == .command && suppressCommand)
+            if down == (modifierKeys[key] != nil) { continue }
+            sendKey?(scan, down, extended)
+            if down { modifierKeys[key] = (scan, extended) } else { modifierKeys.removeValue(forKey: key) }
         }
     }
+    // US physical keys are used only when AppKit commits exactly their expected
+    // character. Other layouts, dead keys and IME commits retain Unicode input.
+    private static let printableKeys: [UInt16: String] = [
+        0: "aA", 1: "sS", 2: "dD", 3: "fF", 4: "hH", 5: "gG", 6: "zZ", 7: "xX", 8: "cC", 9: "vV",
+        11: "bB", 12: "qQ", 13: "wW", 14: "eE", 15: "rR", 16: "yY", 17: "tT", 18: "1!", 19: "2@",
+        20: "3#", 21: "4$", 22: "6^", 23: "5%", 24: "=+", 25: "9(", 26: "7&", 27: "-_", 28: "8*",
+        29: "0)", 30: "]}", 31: "oO", 32: "uU", 33: "[{", 34: "iI", 35: "pP", 37: "lL", 38: "jJ",
+        39: "'\"", 40: "kK", 41: ";:", 42: "\\|", 43: ",<", 44: "/?", 45: "nN", 46: "mM", 47: ".>", 49: "  ", 50: "`~",
+    ]
     func releaseInput() {
         if let point = lastPointerPoint {
             for button in pressedMouseButtons { sendPointer?(button, Int(point.x), Int(point.y)) }
@@ -414,10 +529,20 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         for code in modifierKeys.values { sendKey?(code.0, false, code.1) }
         pressedKeys.removeAll()
         modifierKeys.removeAll()
+        if synchronizeCapsLock != nil { capsLock = nil }
+        inputContext?.discardMarkedText()
+        unmarkText()
     }
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard inputEnabled, window?.firstResponder === self else { return false }
         let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        let editingShortcut = modifiers == .command && [UInt16(8), 9, 7, 0].contains(event.keyCode)
+        let appShortcut =
+            event.modifierFlags.contains(.command)
+            && (["w", "q", "n", "f"].contains(event.charactersIgnoringModifiers?.lowercased() ?? "")
+                || Self.menuContainsShortcut(NSApp.mainMenu, event: event))
+        if editingShortcut || appShortcut { suppressCommand = true }
+        reconcileModifiers(event.modifierFlags)
         if modifiers == [.command, .control], event.charactersIgnoringModifiers?.lowercased() == "f",
             let exitFullScreen
         {
@@ -434,11 +559,6 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
             let code = Self.scanCodes[event.keyCode]
         {
             // macOS editing shortcuts become Windows Control shortcuts.
-            for key in [UInt16(55), 54] {
-                if let command = modifierKeys.removeValue(forKey: key) {
-                    sendKey?(command.0, false, command.1)
-                }
-            }
             if event.keyCode == 9 { preparePaste?() }
             sendKey?(0x1D, true, false)
             sendKey?(code.0, true, code.1)
@@ -447,18 +567,43 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
             return true
         }
         // Keep application shortcuts available. Other shortcuts are sent when the desktop has focus.
-        if event.modifierFlags.contains(.command),
-            ["w", "q", "n", "f"].contains(event.charactersIgnoringModifiers?.lowercased() ?? "")
-        {
+        if appShortcut {
+            releaseInput()
+            suppressCommand = true
             return false
         }
         guard window?.firstResponder === self else { return false }
         keyDown(with: event)
         return true
     }
+    private static func menuContainsShortcut(_ menu: NSMenu?, event: NSEvent) -> Bool {
+        guard let menu else { return false }
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        for item in menu.items {
+            if menuContainsShortcut(item.submenu, event: event) { return true }
+            guard !item.keyEquivalent.isEmpty else { continue }
+            var expected = item.keyEquivalentModifierMask.intersection([.command, .control, .option, .shift])
+            if item.keyEquivalent.lowercased() != item.keyEquivalent { expected.insert(.shift) }
+            if expected == modifiers,
+                item.keyEquivalent.lowercased() == event.charactersIgnoringModifiers?.lowercased()
+            {
+                return true
+            }
+        }
+        return false
+    }
     func insertText(_ string: Any, replacementRange: NSRange) {
         guard inputEnabled else { return }
         let text = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
+        if let event = interpretingEvent, !hasMarkedText(), let pair = Self.printableKeys[event.keyCode] {
+            let characters = Array(pair)
+            let letter = characters[0].isLetter
+            let shifted = event.modifierFlags.contains(.shift) != (letter && event.modifierFlags.contains(.capsLock))
+            if text == String(characters[shifted ? 1 : 0]) {
+                sendPhysicalKey(event)
+                return
+            }
+        }
         if let sendText {
             sendText(text)
             marked = NSAttributedString(string: "")
@@ -470,7 +615,9 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         }
         marked = NSAttributedString(string: "")
     }
-    override func doCommand(by selector: Selector) {}
+    override func doCommand(by selector: Selector) {
+        if let event = interpretingEvent { sendPhysicalKey(event) }
+    }
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         marked = (string as? NSAttributedString) ?? NSAttributedString(string: (string as? String) ?? "")
     }
@@ -493,6 +640,9 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
 final class RDPViewport: NSScrollView {
     let desktop: RDPDesktopView
     private var layingOut = false
+    private var resizeViewportSize: CGSize?
+    private var resizeBackingScale: CGFloat?
+    private weak var resizeWindow: NSWindow?
     init(desktop: RDPDesktopView) {
         self.desktop = desktop
         super.init(frame: .zero)
@@ -507,6 +657,13 @@ final class RDPViewport: NSScrollView {
         desktop.viewport = self
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        resizeViewportSize = nil
+        resizeBackingScale = nil
+        resizeWindow = nil
+        layoutDesktop()
+    }
     override func layout() {
         super.layout()
         layoutDesktop()
@@ -548,6 +705,17 @@ final class RDPViewport: NSScrollView {
             contentView.scroll(to: NSPoint(x: 0, y: max(0, size.height - available.height)))
             reflectScrolledClipView(contentView)
             initializedScroll = true
+        }
+        // Reparenting can finish after Metal's move/size callbacks. Publish the
+        // destination viewport even if the surface already has the fitted size.
+        if let window, desktop.window === window,
+            resizeWindow !== window || resizeViewportSize != available
+                || resizeBackingScale != window.backingScaleFactor
+        {
+            resizeWindow = window
+            resizeViewportSize = available
+            resizeBackingScale = window.backingScaleFactor
+            desktop.requestResize()
         }
     }
     private var initializedScroll = false

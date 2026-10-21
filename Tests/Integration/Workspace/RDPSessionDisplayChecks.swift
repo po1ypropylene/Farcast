@@ -64,16 +64,16 @@ import Foundation
         let first = make(allMonitors: false)
         wait(8) { first.state == .connected && first.fullScreenPresented }
         precondition(first.desktop?.desktopSize == CGSize(width: 800, height: 600))
-        precondition(first.desktop!.isPaused && workspace.activeSession === first)
+        precondition(first.desktop!.renderingSuspended && workspace.activeSession === first)
         first.exitFullScreen()
-        precondition(first.state == .connected && !first.fullScreenPresented && !first.desktop!.isPaused)
+        precondition(first.state == .connected && !first.fullScreenPresented && !first.desktop!.renderingSuspended)
         for _ in 0..<3 {
             first.enterFullScreen()
-            precondition(first.state == .connected && first.fullScreenPresented && first.desktop!.isPaused)
+            precondition(first.state == .connected && first.fullScreenPresented && first.desktop!.renderingSuspended)
             first.enterFullScreen()
             precondition(app.windows.filter { $0.title == "Farcast remote desktop" && $0.isVisible }.count == 1)
             first.exitFullScreen()
-            precondition(first.state == .connected && !first.fullScreenPresented && !first.desktop!.isPaused)
+            precondition(first.state == .connected && !first.fullScreenPresented && !first.desktop!.renderingSuspended)
         }
         workspace.close(first)
         first.enterFullScreen()
@@ -85,19 +85,19 @@ import Foundation
         wait(8) { windowed.state == .connected && windowed.desktop?.desktopSize == CGSize(width: 640, height: 480) }
         precondition(!windowed.fullScreenPresented)
         windowed.enterFullScreen()
-        precondition(windowed.fullScreenPresented && windowed.desktop!.isPaused)
+        precondition(windowed.fullScreenPresented && windowed.desktop!.renderingSuspended)
         let surface = app.windows.first { $0.title == "Farcast remote desktop" && $0.isVisible }!.contentView!.subviews
             .compactMap { $0 as? RDPDesktopView }.first!
         precondition(surface.expectedDesktopSize == CGSize(width: 640, height: 480))
         precondition(surface.sourceRect == CGRect(x: 0, y: 0, width: 640, height: 480))
         windowed.exitFullScreen()
-        precondition(windowed.state == .connected && !windowed.desktop!.isPaused)
+        precondition(windowed.state == .connected && !windowed.desktop!.renderingSuspended)
         workspace.close(windowed)
         print("PASS windowed startup enters full screen using the existing negotiated desktop dimensions")
         let second = make(allMonitors: true)
         wait(10) { second.state == .connected && second.displayMessage.contains("did not confirm") }
         precondition(!second.fullScreenPresented && second.desktop?.desktopSize == CGSize(width: 2080, height: 720))
-        precondition(!second.desktop!.isPaused && workspace.prompts.isEmpty)
+        precondition(!second.desktop!.renderingSuspended && workspace.prompts.isEmpty)
         second.enterFullScreen()
         precondition(
             !second.fullScreenPresented && second.state == .connected && second.displayMessage.contains("not confirmed")

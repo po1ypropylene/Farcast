@@ -21,7 +21,18 @@ import SwiftData
     func disconnect() { state = .disconnected }
     func focus() {}
 }
-@MainActor final class DesktopDouble { func releaseInput() {} }
+@MainActor final class DesktopDouble {
+    var window: NSWindow? { nil }
+    var desktopSize: CGSize { .zero }
+    var retinaDisplay: Bool { false }
+    var viewport: ViewportDouble? { nil }
+    func releaseInput() {}
+}
+@MainActor final class ViewportDouble {
+    var window: NSWindow? { nil }
+    let contentView = NSView()
+    func layoutDesktop() {}
+}
 struct TestServerImportRequest {
     let document: TestServerDocument
 }

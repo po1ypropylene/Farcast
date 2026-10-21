@@ -68,6 +68,7 @@ import CoreGraphics
             surface.inputEnabled = desktop.inputEnabled
             surface.sendKey = desktop.sendKey
             surface.sendUnicode = desktop.sendUnicode
+            surface.synchronizeCapsLock = desktop.synchronizeCapsLock
             surface.sendText = desktop.sendText
             surface.typeClipboard = desktop.typeClipboard
             surface.sendPointer = desktop.sendPointer

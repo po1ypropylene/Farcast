@@ -168,6 +168,9 @@ import UniformTypeIdentifiers
             return
         }
         let slot = UUID()
+        let screen = session.desktop?.window?.screen ?? mainWindow?.screen ?? NSScreen.main
+        let remoteSize = session.desktop?.desktopSize
+        let retina = session.desktop?.retinaDisplay ?? false
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
@@ -178,7 +181,32 @@ import UniformTypeIdentifiers
         detachedSessions[slot] = session.id
         sessionWindows[slot] = window
         window.contentView = content(slot)
-        window.center()
+        window.contentView?.layoutSubtreeIfNeeded()
+        if let remoteSize, let desktop = session.desktop, let viewport = desktop.viewport, viewport.window === window {
+            viewport.layoutDesktop()
+            let scale = retina ? (screen?.backingScaleFactor ?? 1) : 1
+            let chrome = CGSize(
+                width: max(0, window.contentLayoutRect.width - viewport.contentView.bounds.width),
+                height: max(0, window.contentLayoutRect.height - viewport.contentView.bounds.height))
+            let desired = CGSize(
+                width: remoteSize.width / scale + chrome.width,
+                height: remoteSize.height / scale + chrome.height)
+            let visible = screen?.visibleFrame ?? window.frame
+            let available = window.contentRect(forFrameRect: visible).size
+            let size = CGSize(width: min(desired.width, available.width), height: min(desired.height, available.height))
+            window.minSize = CGSize(width: min(720, size.width), height: min(480, size.height))
+            window.setContentSize(size)
+            window.contentView?.layoutSubtreeIfNeeded()
+            viewport.layoutDesktop()
+            if let screen {
+                window.setFrameOrigin(
+                    CGPoint(
+                        x: screen.visibleFrame.midX - window.frame.width / 2,
+                        y: screen.visibleFrame.midY - window.frame.height / 2))
+            }
+        } else {
+            window.center()
+        }
         if selectedSessionID == session.id { selectedSessionID = attachedSessions.first?.id }
         focusedDetachedSlot = slot
         updateActiveSession()

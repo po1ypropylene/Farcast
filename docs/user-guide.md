@@ -441,7 +441,9 @@ See [local testing](local-testing.md) for the optional test-server import workfl
 ## Connection windows and file-access setup
 
 Use **Pop Out Connection** in the active connection toolbar to move SSH/SFTP or RDP
-to a separate resizable window. The existing connection stays authenticated. Use
+to a separate resizable window. Desktop windows start at the current remote resolution,
+accounting for Retina density and native controls, up to the screen's usable area.
+The existing connection stays authenticated. Use
 **Return to Workspace**, or close that window, to return the live connection to its
 tab. **Session → Close Session** disconnects and closes it. Session commands act on
 the focused connection window. Window placement is not restored at next launch.

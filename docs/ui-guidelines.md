@@ -50,6 +50,10 @@ future design task; do not apply a 44-point touch baseline to the Mac interface.
   system glass. Do not reuse fixed-size IconActionButton inside the native toolbar.
   Group Quick Connect, session actions (Reconnect/Disconnect), and view actions
   (Full Screen/Connection Details/Pop Out), with native fixed toolbar spacers.
+  Session actions share adaptive colours in main and detached windows: amber Quick Connect,
+  green Reconnect, red Disconnect, teal Full Screen, blue Details and purple Pop Out/Return.
+  Use darker light-mode and lighter dark-mode shades, strengthened with Increase Contrast;
+  disabled actions remain grey. Target at least 3:1 against the toolbar background.
   Toolbar commands have menu items and shortcuts. Confirm interruption only when
   file work or tunnels are active. Show sidebar state with accessible labels and
   uptime; keep only the protocol icon and omit marketing taglines.

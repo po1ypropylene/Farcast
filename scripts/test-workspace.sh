@@ -48,6 +48,7 @@ xcrun swiftc -parse-as-library -module-name Farcast -target arm64-apple-macos27.
   -L Vendor/Native/lib -lssh2 -lfreerdp3 -lfreerdp-client3 -lwinpr3 -lcrypto -lssl -lz \
   -Xlinker -rpath -Xlinker "$PWD/Vendor/Native/lib" -o "$fixture_root/display-client"
 "$fixture_root/display-client"
+scripts/test-rdp-window-return.sh
 
 # Terminal interactions use synthetic output, a private pasteboard and preferences.
 xcrun swiftc -parse-as-library -module-name Farcast -target arm64-apple-macos27.0 \

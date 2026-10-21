@@ -27,17 +27,17 @@ scripts/prepare-rdp-fixture.sh
 | `scripts/test-sftp.sh` | Same-session files, file-only fallback, conflicts, recursion, moves, source races, progress and cancellation; synthetic navigation, cache expiry/eviction/invalidation, stale replies and filtering |
 | `scripts/test-sftp-throughput.sh` | Byte-verified upload-window comparison under controlled latency |
 | `scripts/test-sftp-terminal-latency.sh` | Terminal echo latency during shared-transport transfers and mode changes |
-| `scripts/test-rdp.sh`, then `scripts/test-rdp-nla.sh` | TLS/NLA, frames, clipboard/drive channels, monitor/DPI negotiation and pointer input |
+| `scripts/test-rdp.sh`, then `scripts/test-rdp-nla.sh` | TLS/NLA, frames, clipboard/drive channels, monitor/DPI negotiation, pointer input and ordered keyboard/toggle PDUs and suspended-input retention/resumption |
 | `scripts/test-rdp-health.sh` | Idle desktop health, a deliberately blocked protocol worker, cancellation, abrupt TLS peer loss and retry classification |
 | `scripts/test-rdp-reconnect.sh` | Three-attempt recovery, flapping/cancellation, stale-callback rejection, cleanup ordering and real TLS reauthentication in the same session; also run by the workspace suite |
 | `scripts/test-rdp-files.sh` | Clipboard codecs, paths/quotas, sparse ranges, 50 MB pipelined byte equality, short/reordered/duplicate replies, Copy and idle offers without content requests, demand-only fulfillment/cancellation, UI event servicing, multi-item providers, ownership loss before demand, stalled-paste replacement and private-pasteboard ownership across focus/session changes |
 | `scripts/test-rdp-drives.sh` | Owned-root filesystem requests, strict decoding of all four directory wire formats, Unicode pagination, independent streamed cursors above 20,000 entries, list-access checks, literal bracket searches, queued-operation cancellation before shutdown, empty/continuation searches, read-only denial, metadata, sharing, rename/delete and traversal refusal |
-| `scripts/test-rdp-audio.sh`, `scripts/test-rdp-keyboard.sh` | Mac output initialization with silence; synthetic keyboard/input transforms |
-| `scripts/test-rdp-resize.sh` | Actual Display Control PDUs, graphics reactivation, pixels and post-resize pointer input |
+| `scripts/test-rdp-audio.sh`, `scripts/test-rdp-keyboard.sh` | Mac output initialization with silence; modifier snapshots, shifted physical letters, focus cleanup, Caps Lock, Unicode, native key repeat/menu routing, input transforms and late viewport layout after surface sizing |
+| `scripts/test-rdp-resize.sh` | Actual Display Control PDUs, graphics reactivation, pixels, post-resize pointer input and repeated detached-window returns with Retina on/off |
 | `scripts/test-rdp-display-session.sh` | Production full-screen startup, exit/re-entry, missing confirmation and worker cleanup |
 | `scripts/test-display-migration.sh`, `scripts/test-wireguard-migration.sh`, `scripts/test-library-migration.sh` | Pre-feature/old-module store migration, IDs/defaults/bookmarks, opt-in credentials and reopening |
 | `scripts/test-connection-ui.sh` | In-memory native connection/tunnel hosts, deferred validation, explicit URL ports, long-list field navigation, light/dark and wide-window layout; optional FARCAST_UI_REVIEW=1 and a directory pause synthetic scenes for native inspection |
-| `scripts/test-workspace.sh` | Tabs/reconnect, prompts, sign-in retry, AppKit shutdown, detached surfaces, cropped Metal frames, terminal menus and controlled RDP retry/stall/cancellation callbacks |
+| `scripts/test-workspace.sh`, `scripts/test-rdp-window-return.sh` | Tabs/reconnect, prompts, sign-in retry, AppKit shutdown, detached surfaces, exact desktop pop-out sizing, repeated macOS full-screen close with changing frames and input, cropped Metal frames, terminal menus and controlled RDP retry/stall/cancellation callbacks |
 | `scripts/test-wireguard.sh`, `scripts/test-wireguard-rdp.sh`, `scripts/test-wireguard-sessions.sh`, `scripts/test-wireguard-lifecycle.sh` | Go race checks, encrypted RDP, concurrent production SSH/SFTP/forwarding/RDP/VNC sessions sharing one helper, forwarded byte equality, endpoint identity, fail-closed routing and shared-lease lifecycle |
 | `scripts/test-signing-continuity.sh` | Changed binaries retain certificate requirement and synthetic Keychain access |
 | `python3 -m unittest discover -s Tests/Maintenance -v` | Cleanup, update rollback, signing rules and harness teardown |
@@ -55,7 +55,7 @@ the same RDP suite concurrently.
 
 Tracked sources in `Tests/Integration` exercise distinct regressions. The SSH
 fixture imports `sftp_fixture.py`; the RDP sample-server preparation consumes the
-four protocol fixture headers. Keep `Tests/Fixtures/servers.example.json` because
+protocol fixture headers. Keep `Tests/Fixtures/servers.example.json` because
 setup and hygiene checks depend on its blank, disabled entries. Fixtures are not
 app seed data.
 
