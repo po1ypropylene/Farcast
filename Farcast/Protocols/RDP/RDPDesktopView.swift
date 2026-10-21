@@ -98,6 +98,15 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     var displayMode = RDPDisplayMode.fit
     weak var viewport: RDPViewport?
     private var initialSizeReady: ((CGSize) -> Void)?
+    private var initialSizeTask: DispatchWorkItem?
+    private var settleInitialSize = false
+    private var lastViewportSize: CGSize?
+    private var lastViewportBackingScale: CGFloat?
+    private(set) var initialDesktopScale = 100
+    func inheritViewportGeometry(from desktop: RDPDesktopView) {
+        lastViewportSize = desktop.lastViewportSize
+        lastViewportBackingScale = desktop.lastViewportBackingScale
+    }
     func setDesktopSize(_ size: CGSize) {
         frameSize = size
         viewport?.layoutDesktop()
@@ -111,28 +120,79 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         }
         setDesktopSize(size)
     }
-    func withInitialSize(width: Int, height: Int, matchWindow: Bool? = nil, completion: @escaping (CGSize) -> Void) {
+    func withInitialSize(
+        width: Int, height: Int, matchWindow: Bool? = nil, settle: Bool = false,
+        completion: @escaping (CGSize) -> Void
+    ) {
+        initialSizeTask?.cancel()
+        initialSizeReady = nil
+        settleInitialSize = settle
         if !(matchWindow ?? (displayMode == .matchWindow)) {
             completion(CGSize(width: width, height: height))
         } else {
             initialSizeReady = completion
-            viewport?.prepareInitialSize()
+            if settle, window == nil, let lastViewportSize {
+                // A background reconnect has no mounted surface. Retain its last
+                // actual viewport rather than waiting for the tab to be selected.
+                completeInitialSize(lastViewportSize)
+            } else {
+                viewport?.prepareInitialSize()
+            }
         }
     }
     func cancelPendingDisplayWork() {
         initialSizeReady = nil
+        initialSizeTask?.cancel()
         resizeTask?.cancel()
     }
     var awaitsInitialSize: Bool { initialSizeReady != nil }
     func viewportDidLayout(_ size: CGSize) {
-        guard size.width > 0, size.height > 0, let completion = initialSizeReady else { return }
+        if size.width > 0, size.height > 0, let window {
+            lastViewportSize = size
+            lastViewportBackingScale = window.backingScaleFactor
+        }
+        guard size.width > 0, size.height > 0, initialSizeReady != nil else { return }
+        guard settleInitialSize else {
+            completeInitialSize(size)
+            return
+        }
+        // Negotiate the final window geometry rather than a preset followed by
+        // a Display Control resize. Wait for attachment and quiet layout first.
+        initialSizeTask?.cancel()
+        // Switching tabs during this wait must still allow connection to finish.
+        guard let target = window != nil ? size : lastViewportSize else { return }
+        let task = DispatchWorkItem { [weak self] in
+            self?.completeInitialSize(target)
+        }
+        initialSizeTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: task)
+    }
+    private func completeInitialSize(_ size: CGSize) {
+        guard let completion = initialSizeReady else { return }
+        if !settleInitialSize {
+            initialSizeReady = nil
+            let scale = retinaDisplay ? window?.backingScaleFactor ?? 1 : 1
+            let initial = CGSize(
+                width: min(
+                    8192, max(200, retinaDisplay ? floor(size.width * scale / 2) * 2 : size.width.rounded(.down))),
+                height: min(8192, max(200, floor(size.height * scale))))
+            setDesktopSize(initial)
+            completion(initial)
+            return
+        }
+        let factor = window?.backingScaleFactor ?? lastViewportBackingScale ?? 1
+        let backing =
+            window != nil
+            ? convertToBacking(CGRect(origin: .zero, size: size)).size
+            : CGSize(width: size.width * factor, height: size.height * factor)
+        let request = RDPResizeRequest(
+            points: size, backing: backing, backingScale: factor, retina: retinaDisplay)
+        guard let request else { return }
         initialSizeReady = nil
-        let scale = retinaDisplay ? window?.backingScaleFactor ?? 1 : 1
-        let initial = CGSize(
-            width: min(8192, max(200, retinaDisplay ? floor(size.width * scale / 2) * 2 : size.width.rounded(.down))),
-            height: min(8192, max(200, floor(size.height * scale))))
-        setDesktopSize(initial)
-        completion(initial)
+        initialSizeTask = nil
+        initialDesktopScale = request.scale
+        setDesktopSize(request.size)
+        completion(request.size)
     }
     var desktopSize: CGSize { frameSize }
     private(set) var texture: MTLTexture?

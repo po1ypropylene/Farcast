@@ -553,19 +553,23 @@ import SwiftTerm
             } else {
                 desktop.withInitialSize(
                     width: profile.desktopWidth, height: profile.desktopHeight,
-                    matchWindow: profile.displayMode == .matchWindow
+                    matchWindow: profile.dynamicResolution || profile.displayMode == .matchWindow,
+                    settle: profile.dynamicResolution
                 ) {
                     [weak desktop] size in
                     let factor =
                         self.profile.retinaDisplay
                         ? desktop?.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1 : 1
                     let requested =
-                        self.profile.displayMode == .matchWindow
+                        self.profile.dynamicResolution || self.profile.displayMode == .matchWindow
                         ? size
                         : CGSize(
                             width: self.profile.retinaDisplay ? floor(size.width * factor / 2) * 2 : size.width,
                             height: floor(size.height * factor))
-                    connect(requested, Int((factor * 100).rounded()))
+                    connect(
+                        requested,
+                        self.profile.dynamicResolution
+                            ? desktop?.initialDesktopScale ?? 100 : Int((factor * 100).rounded()))
                 }
             }
         }

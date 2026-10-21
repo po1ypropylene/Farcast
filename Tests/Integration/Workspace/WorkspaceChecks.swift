@@ -27,6 +27,7 @@ import SwiftData
     var retinaDisplay: Bool { false }
     var viewport: ViewportDouble? { nil }
     func releaseInput() {}
+    func inheritViewportGeometry(from desktop: DesktopDouble) {}
 }
 @MainActor final class ViewportDouble {
     var window: NSWindow? { nil }

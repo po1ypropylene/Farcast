@@ -459,7 +459,7 @@ struct ConnectionEditor: View {
             }
             caption(displayCaption).help(
                 draft.dynamicResolution ? displayCaption : draft.displayMode.explanation)
-            if draft.displayMode != .matchWindow {
+            if !draft.dynamicResolution && draft.displayMode != .matchWindow {
                 row(
                     draft.retinaDisplay
                         ? "Logical size"
@@ -512,9 +512,7 @@ struct ConnectionEditor: View {
     }
     private var displayCaption: String {
         if draft.dynamicResolution {
-            return draft.displayMode == .matchWindow
-                ? "Start at the window’s size, then resize with the window."
-                : "Start at the selected resolution, then resize with the window."
+            return "Start at the window’s size, then resize with the window."
         }
         switch draft.displayMode {
         case .actualSize:

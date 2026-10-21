@@ -5,6 +5,7 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Negotiate the settled window size before connecting when RDP Resize with window is enabled, avoiding an immediate resolution change after connection.
 - Keep RDP desktop frames and input responsive after closing a popped-out macOS full-screen window back to the workspace.
 - Size popped-out desktop windows to the current remote resolution and Retina density, including native controls and capping them to the usable screen area.
 

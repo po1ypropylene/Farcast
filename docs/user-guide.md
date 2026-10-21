@@ -322,9 +322,11 @@ See [known limits](validation.md) for remaining interoperability checks.
   Fit scales the entire desktop. The separate **Resize with window** checkbox
   requests server resizing and takes precedence over the Display menu, fitting the
   desktop while waiting or when unsupported. It is off by default for new connections
-  and always editable. Match window at connection still uses the current window for
-  the initial resolution and hides the resolution controls; subsequent resizing follows
-  the window. Other modes start at the selected resolution. Turn resizing off to restore
+  and always editable. With resizing enabled, the initial resolution uses the settled
+  window size in every Display mode, and subsequent resizing follows the window.
+  With resizing off, Match window at connection uses the current window for the
+  initial resolution and hides the resolution controls; other modes start at the
+  selected resolution. Turn resizing off to restore
   fixed-resolution behavior. 100% uses
   one remote pixel per Mac point, with your chosen desktop dimensions. Choose a
   preset in **Resolution / Initial resolution**, or **Custom…** to enter width and

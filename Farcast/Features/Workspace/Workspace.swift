@@ -309,6 +309,11 @@ import UniformTypeIdentifiers
             }
             let replacement = RemoteSession(profile: draft, workspace: self, persistent: persistent)
             let wasSelected = selectedSessionID == session.id
+            if !wasSelected, !detachedSessions.values.contains(session.id),
+                let desktop = session.desktop
+            {
+                replacement.desktop?.inheritViewportGeometry(from: desktop)
+            }
             session.disconnect()
             sessions[index] = replacement
             if let slot = detachedSessions.first(where: { $0.value == session.id })?.key {

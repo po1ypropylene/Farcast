@@ -269,8 +269,13 @@ The Display picker maps directly to existing stored modes. A separate Resize wit
 window checkbox edits `dynamicResolution`; new drafts default to false, while saved
 choices are preserved. The checkbox is always editable and takes precedence over the stored display mode:
 RDP sessions use effective Fit mode for presentation while resizing is enabled.
-Initial sizing independently honors the stored Match window mode, samples the viewport
-and applies Retina once; the editor hides preset/custom dimensions for that mode. The stored mode returns when resizing is disabled. Full-screen
+With resizing enabled, initial negotiation waits for an attached viewport and 200 ms
+of settled layout, using the same even-width geometry and Retina conversion as later
+resize requests. This avoids connecting at a preset and immediately changing resolution.
+Background reconnects reuse the last attached viewport size and backing density when
+the session tab has no mounted surface.
+With resizing disabled, initial sizing honors the stored Match window mode; the editor
+hides preset/custom dimensions for that mode. The stored mode returns when resizing is disabled. Full-screen
 and multi-monitor resize restrictions still apply. Explicit preset selection
 writes only width/height; unmatched dimensions use Custom and survive tab changes.
 Startup full screen disables windowed mode/resolution controls while preserving

@@ -29,6 +29,12 @@ stated scope; disabled live entries report SKIP.
 
 ## Known implementation limits
 
+RDP startup resize coverage uses owned native windows and a Display Control peer:
+stored Fit, Actual Size and Match window modes with resizing enabled negotiate the
+viewport initially, apply Retina once and send no redundant startup layout. Checks
+also cover layout settling, even-width normalization and cancellation before connection.
+Production Windows startup smoothness still requires live validation.
+
 - **Keychain:** synchronous operations can block UI callers during authorization
   or unlocking. The local-file fallback cannot help while a call is waiting.
   Moving I/O off the main actor needs an explicit prompt/cancellation policy.

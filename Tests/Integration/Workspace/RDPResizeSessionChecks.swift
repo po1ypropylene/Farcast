@@ -29,8 +29,8 @@ import SwiftUI
         draft.displayMode = mode == "actualSize" ? .actualSize : (mode == "matchWindow" ? .matchWindow : .fit)
         draft.dynamicResolution = true
         draft.retinaDisplay = mode == "retina"
-        draft.desktopWidth = 640
-        draft.desktopHeight = 480
+        draft.desktopWidth = 1600
+        draft.desktopHeight = 1000
         draft.clipboard = false
         draft.audioPlayback = false
         workspace.trust.remember(pin, for: draft.endpointKey)
@@ -91,6 +91,37 @@ import SwiftUI
                 initial == CGSize(width: 640 * window.backingScaleFactor, height: 480 * window.backingScaleFactor),
                 "Initial Retina size must scale the viewport once")
             desktop.retinaDisplay = draft.retinaDisplay
+            initial = nil
+            desktop.withInitialSize(width: 1600, height: 1000, matchWindow: true, settle: true) { initial = $0 }
+            _ = resize(701, 501)
+            precondition(initial == nil, "Connection must wait for viewport layout to settle")
+            wait(2) { initial != nil }
+            precondition(initial == CGSize(width: 700, height: 501), "Initial geometry must use the latest even width")
+            initial = nil
+            desktop.withInitialSize(width: 1600, height: 1000, matchWindow: true, settle: true) { initial = $0 }
+            desktop.cancelPendingDisplayWork()
+            let deadline = Date().addingTimeInterval(0.3)
+            while Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+            precondition(initial == nil, "Cancelled startup must not connect later")
+            _ = resize(640, 480)
+            desktop.retinaDisplay = true
+            desktop.withInitialSize(width: 1600, height: 1000, matchWindow: true, settle: true) { initial = $0 }
+            window.contentView = nil
+            wait(2) { initial != nil }
+            precondition(
+                initial == CGSize(width: 640 * window.backingScaleFactor, height: 480 * window.backingScaleFactor)
+                    && desktop.initialDesktopScale == Int(window.backingScaleFactor * 100),
+                "Background reconnect must retain the last viewport geometry and backing density")
+            let replacement = RDPDesktopView(frame: .zero)
+            replacement.retinaDisplay = true
+            replacement.inheritViewportGeometry(from: desktop)
+            initial = nil
+            replacement.withInitialSize(width: 1600, height: 1000, matchWindow: true, settle: true) { initial = $0 }
+            precondition(
+                initial == desktop.desktopSize && replacement.initialDesktopScale == desktop.initialDesktopScale,
+                "A replacement background session must inherit the previous viewport without waiting for selection")
+            desktop.retinaDisplay = draft.retinaDisplay
+            window.contentView = viewport
         }
         session.start(credential: ConnectionCredential(password: "fixture-password"))
         wait(8) { session.state == .connected }
@@ -98,6 +129,19 @@ import SwiftUI
         wait(2) { session.observedDesktopSize != nil }
         precondition(session.logs.contains { $0.message.contains("initial resolution requested") })
         precondition(session.logs.contains { $0.message.contains("initial desktop received") })
+        let startup = RDPResizeRequest(
+            points: viewport.contentView.bounds.size,
+            backing: desktop.convertToBacking(CGRect(origin: .zero, size: viewport.contentView.bounds.size)).size,
+            backingScale: window.backingScaleFactor, retina: draft.retinaDisplay)!
+        precondition(session.initialResolution == "\(startup.width) × \(startup.height) px, scale \(startup.scale)%")
+        precondition(
+            desktop.desktopSize == startup.size, "Initial negotiation must use viewport rather than saved preset")
+        let startupDeadline = Date().addingTimeInterval(1.6)
+        while Date() < startupDeadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        precondition(
+            !session.logs.contains { $0.message.contains("sending:") },
+            "Matching startup geometry must not send a redundant Display Control resize")
+        print("PASS \(mode) negotiates viewport initially without a post-connect resize")
         if mode == "matchWindow" {
             // The initial desktop already fits. Delayed Display Control capabilities
             // must not leave an availability timeout that later reports resize failure.
