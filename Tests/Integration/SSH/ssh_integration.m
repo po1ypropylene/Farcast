@@ -16,6 +16,8 @@ int main(int argc, char **argv) {
         NSMutableString *received = [NSMutableString new];
         __block BOOL sentExit = NO, shellEnded = NO;
         __block BOOL credentialsRejected = NO;
+        BOOL overflow = [mode isEqualToString:@"input-overflow"];
+        __block BOOL overflowReported = NO;
         __weak FCSSHClient *weakClient = client;
         client.onTerminalAvailability = ^(BOOL available) {
           if (!available && sentExit) {
@@ -51,6 +53,10 @@ int main(int argc, char **argv) {
         client.onStatus = ^(NSString *status, NSString *message) {
           if ([status isEqualToString:@"connected"]) {
               connected = YES;
+              if (overflow) {
+                  [weakClient sendData:[NSMutableData dataWithLength:1024 * 1024 + 1]];
+                  return;
+              }
               [weakClient resizeColumns:120 rows:40];
               [weakClient sendData:[@"integration-check\n" dataUsingEncoding:NSUTF8StringEncoding]];
               if ([mode isEqualToString:@"cancel"])
@@ -58,6 +64,7 @@ int main(int argc, char **argv) {
           }
           if ([status isEqualToString:@"failed"]) {
               failed = YES;
+              overflowReported = [message containsString:@"SSH input could not keep up"];
               printf("  %s\n", message.UTF8String);
           }
           if ([status isEqualToString:@"failed"] || [status isEqualToString:@"disconnected"])
@@ -91,7 +98,9 @@ int main(int argc, char **argv) {
             !timedOut && drained && trusted && (expectedFailure ? failed && !connected : connected && !failed);
         if ([mode isEqualToString:@"cancel-prompt"])
             passed = !timedOut && trusted && !failed && !connected && prompts == 1 && !credentialsRejected;
-        if (!expectedFailure && ![mode hasPrefix:@"cancel"])
+        if (overflow)
+            passed = !timedOut && drained && trusted && connected && failed && overflowReported;
+        if (!overflow && !expectedFailure && ![mode hasPrefix:@"cancel"])
             passed = passed && verifiedInput && resized && shellEnded;
         if ([mode isEqualToString:@"interactive"])
             passed = passed && prompts == 2;

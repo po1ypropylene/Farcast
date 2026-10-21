@@ -11,6 +11,14 @@ Farcast's original source is MIT-licensed in LICENSE. Dependency pins, checksums
 and separate licenses live in the build scripts, Go manifests and ThirdParty.
 No runtime Homebrew, external protocol client or SSH agent is required.
 
+Protocol input failures must not silently leave a session usable after losing
+ordered bytes or releases. SSH queue overflow ends the transport; PTY resize
+retries retain submitted dimensions until completion before sending newer desired
+geometry. RDP input send failure ends the current drain/transport and enters the
+existing bounded recovery policy, without retrying uncertain input delivery.
+Forwarded Command equivalents balance physical nonmodifier keys immediately,
+because AppKit may omit their key-up. Local shortcut routing is unchanged.
+
 libssh2 uses an immutable upstream master snapshot for unreleased security fixes;
 the preparation script and third-party inventory record its full commit. Dependency
 refreshes resolve master explicitly, and installed native outputs carry a hash of

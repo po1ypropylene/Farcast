@@ -21,6 +21,9 @@
     int _socket;
     NSInteger _columns, _rows;
     BOOL _resizePending;
+    BOOL _resizeInFlight;
+    int _submittedColumns, _submittedRows;
+    BOOL _inputOverflowed;
     BOOL _terminalUnavailable;
     NSString *_interactivePassword;
     BOOL _passwordResponseUsed;

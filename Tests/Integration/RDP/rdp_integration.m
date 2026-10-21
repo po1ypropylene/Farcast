@@ -1,6 +1,7 @@
 #import "RDPClient.h"
 #import <Foundation/Foundation.h>
 #include <freerdp/freerdp.h>
+#include <freerdp/input.h>
 #include <freerdp/settings.h>
 #import <math.h>
 #import <objc/runtime.h>
@@ -8,8 +9,25 @@
 // White-box pause uses the real worker/context on the owned peer; no production
 // testing API or user input is needed to exercise FreeRDP's silent-skip condition.
 @interface FCRDPClient (KeyboardQueueFixture)
-- (void)drainEvents:(void *)context;
+- (BOOL)drainEvents:(void *)context;
 @end
+static NSUInteger failedInputCalls;
+static BOOL failKey(rdpInput *input, UINT16 flags, UINT8 code) {
+    failedInputCalls++;
+    return FALSE;
+}
+static BOOL failUnicode(rdpInput *input, UINT16 flags, UINT16 code) {
+    failedInputCalls++;
+    return FALSE;
+}
+static BOOL failSynchronize(rdpInput *input, UINT32 flags) {
+    failedInputCalls++;
+    return FALSE;
+}
+static BOOL failPointer(rdpInput *input, UINT16 flags, UINT16 x, UINT16 y) {
+    failedInputCalls++;
+    return FALSE;
+}
 static freerdp *fixtureInstance(FCRDPClient *client) {
     Ivar field = class_getInstanceVariable(FCRDPClient.class, "_instance");
     freerdp *instance = NULL;
@@ -32,6 +50,11 @@ int main(int argc, char **argv) {
         dispatch_semaphore_t done = dispatch_semaphore_create(0);
         __block BOOL trusted = NO, connected = NO, failed = NO, frame = NO;
         BOOL inputOverflowTest = [mode isEqualToString:@"input-overflow"];
+        BOOL inputFailureTest = [mode hasPrefix:@"send-failure-"];
+        __block BOOL retryable = NO;
+        client.onStopped = ^(BOOL canRetry) {
+          retryable = canRetry;
+        };
         __block BOOL overloadReported = NO;
         BOOL monitorTest = [mode isEqualToString:@"monitors"];
         BOOL retinaTest = [mode isEqualToString:@"retina"];
@@ -201,13 +224,33 @@ int main(int argc, char **argv) {
               }
               return;
           }
-          if (frame && !inputOverflowTest && !driveTest && !fileTest &&
+          if (frame && !inputOverflowTest && !inputFailureTest && !driveTest && !fileTest &&
               (!clipboardTest || clipboardCount == samples.count))
               [weakClient disconnect];
         };
         client.onStatus = ^(NSString *state, NSString *message) {
           if ([state isEqualToString:@"connected"]) {
               connected = YES;
+              if (inputFailureTest) {
+                  freerdp *instance = fixtureInstance(weakClient);
+                  NSCAssert(instance && freerdp_is_active_state(instance->context), @"Owned active context required");
+                  rdpInput *input = instance->context->input;
+                  input->KeyboardEvent = failKey;
+                  input->UnicodeKeyboardEvent = failUnicode;
+                  input->SynchronizeEvent = failSynchronize;
+                  input->MouseEvent = failPointer;
+                  if ([mode hasSuffix:@"key"])
+                      [weakClient sendScanCode:0x1E pressed:NO extended:NO];
+                  else if ([mode hasSuffix:@"unicode"])
+                      [weakClient sendUnicode:0x61 pressed:NO];
+                  else if ([mode hasSuffix:@"sync"])
+                      [weakClient synchronizeCapsLock:NO];
+                  else
+                      [weakClient sendPointerFlags:0x1000 x:10 y:10];
+                  // A second event must never be sent after delivery fails.
+                  [weakClient sendUnicode:0x62 pressed:NO];
+                  return;
+              }
               if (inputOverflowTest) {
                   // This callback runs before the worker drains input. Saturate
                   // the bounded queue deterministically without sending keys.
@@ -297,6 +340,8 @@ int main(int argc, char **argv) {
         BOOL pass = !timeout && drained && trusted;
         if (inputOverflowTest)
             pass = pass && connected && failed && overloadReported;
+        else if (inputFailureTest)
+            pass = pass && connected && failed && retryable && failedInputCalls == 1;
         else if ([mode isEqualToString:@"reject"] || [mode isEqualToString:@"bad-password"])
             pass = pass && failed && !connected;
         else

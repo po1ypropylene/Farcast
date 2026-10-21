@@ -38,15 +38,24 @@
     int rows = (int)_rows;
     [_lock unlock];
     if (resize) {
-        int rc = libssh2_channel_request_pty_size(channel, cols, rows);
+        // libssh2 retains the encoded window-change packet across EAGAIN.
+        // A newer desired size must wait until that exact request completes.
+        if (!_resizeInFlight) {
+            _submittedColumns = cols;
+            _submittedRows = rows;
+            _resizeInFlight = YES;
+        }
+        int rc = libssh2_channel_request_pty_size(channel, _submittedColumns, _submittedRows);
         if (rc == 0) {
+            _resizeInFlight = NO;
             [_lock lock];
-            if (cols == _columns && rows == _rows)
+            if (_submittedColumns == _columns && _submittedRows == _rows)
                 _resizePending = NO;
             [_lock unlock];
         } else if (rc == LIBSSH2_ERROR_EAGAIN) {
             _terminalWaitDirections |= libssh2_session_block_directions(_workerSession);
-        }
+        } else
+            return NO;
     }
     char buffer[32768];
     for (int stream = 0; stream < 2; stream++) {

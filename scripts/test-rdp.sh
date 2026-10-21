@@ -21,7 +21,7 @@ xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -Wno-deprecated-declarations \
   -L Vendor/Native/lib -Wl,-rpath,"$PWD/Vendor/Native/lib" -framework Foundation -lfreerdp3 -lwinpr3 \
   Tests/Integration/RDP/display_settings.m -o "$fixture_root/display-settings"
 "$fixture_root/display-settings"
-modes=(accept keyboard keyboard-paused reject cancel input-overflow pointer-burst clipboard files drive drive-ro monitors retina)
+modes=(accept keyboard keyboard-paused reject cancel input-overflow send-failure-key send-failure-unicode send-failure-sync send-failure-pointer pointer-burst clipboard files drive drive-ro monitors retina)
 [[ -z "${FARCAST_FIXTURE_NLA:-}" ]] || modes+=(bad-password)
 for mode in "${modes[@]}"; do "$fixture_root"/client "$mode" "$fixture_port"; done
 

@@ -2,6 +2,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/test-support.sh ssh
+xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Farcast/Native/SSH -I Vendor/Native/include \
+  -L Vendor/Native/lib -Wl,-rpath,"$PWD/Vendor/Native/lib" -framework Foundation -lssh2 \
+  Farcast/Native/SSH/SSHClient.m Farcast/Native/SSH/SSHClient+SFTP.m \
+  Farcast/Native/SSH/SSHClient+SFTPTree.m Farcast/Native/SSH/SSHClient+Forwarding.m \
+  Tests/Integration/SSH/terminal_retry.m -o "$fixture_root/terminal-retry"
+"$fixture_root/terminal-retry"
 rm -f "$fixture_root"/port
 python_bin="${FARCAST_TEST_PYTHON:-.dependencies/test-venv/bin/python}"
 "$python_bin" Tests/Integration/SSH/ssh_fixture.py "$fixture_root" > "$fixture_root"/server.log 2>&1 &
@@ -10,7 +16,7 @@ fixture_pids+=("$!")
 for ((i=0; i<100; i++)); do [[ -f "$fixture_root"/port ]] && break; sleep 0.05; done
 xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Farcast/Native/SSH -I Farcast/Native/RDP -I Vendor/Native/include -L Vendor/Native/lib -Wl,-rpath,"$PWD/Vendor/Native/lib" -framework Foundation -lssh2 "${ssh_sources[@]}" Tests/Integration/SSH/ssh_integration.m -o "$fixture_root"/client
 fixture_port=$(cat "$fixture_root"/port)
-for mode in password key ed25519 interactive bad-password reject cancel; do
+for mode in password key ed25519 interactive bad-password reject cancel input-overflow; do
   key_file="$fixture_root"/user-key.pem
   [[ "$mode" != ed25519 ]] || key_file="$fixture_root"/ed25519-key
   "$fixture_root"/client "$mode" "$fixture_port" "$key_file"

@@ -149,6 +149,27 @@ import IOKit.hidsystem
         precondition(!desktop.performKeyEquivalent(with: event(.keyDown, key: 40, flags: .command, text: "k")))
         precondition(events.isEmpty, "Registered app shortcuts must not reach Windows")
         NSApp.mainMenu = previousMenu
+        desktop.flagsChanged(with: event(.flagsChanged, key: 55, flags: []))
+        desktop.releaseInput()
+        events.removeAll()
+        // Command equivalents may have no keyUp at all. Repeats must remain
+        // balanced taps without waiting for focus loss or releasing Command.
+        for repeatKey in [false, true] {
+            precondition(
+                desktop.performKeyEquivalent(
+                    with: event(.keyDown, key: 123, flags: .command, repeatKey: repeatKey)))
+        }
+        desktop.flagsChanged(with: event(.flagsChanged, key: 55, flags: []))
+        precondition(
+            events == [
+                "91:true:true", "75:true:true", "75:false:true",
+                "75:true:true", "75:false:true", "91:false:true",
+            ], "Forwarded Command equivalents must not leave the remote nonmodifier held")
+        let balanced = events
+        desktop.keyUp(with: event(.keyUp, key: 123, flags: []))
+        desktop.releaseInput()
+        precondition(events == balanced, "A late keyUp/focus release must not duplicate the balanced release")
+        events.removeAll()
         desktop.inputEnabled = false
         precondition(!desktop.performKeyEquivalent(with: event(.keyDown, key: 9, flags: .command, text: "v")))
         precondition(events.isEmpty)

@@ -5,6 +5,8 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Preserve the final SSH terminal size across backpressured resize retries, and disconnect explicitly if queued terminal input exceeds its safety limit.
+- Balance forwarded Command shortcuts when macOS omits key-up, and recover RDP transports when keyboard or pointer sends fail instead of silently losing input.
 - Negotiate the settled window size before connecting when RDP Resize with window is enabled, avoiding an immediate resolution change after connection.
 - Keep RDP desktop frames and input responsive after closing a popped-out macOS full-screen window back to the workspace.
 - Size popped-out desktop windows to the current remote resolution and Retina density, including native controls and capping them to the usable screen area.

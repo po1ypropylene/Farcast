@@ -76,7 +76,7 @@ typedef struct {
             scale:(NSInteger)scale
         clipboard:(BOOL)clipboard
     audioPlayback:(BOOL)audioPlayback;
-- (void)drainEvents:(FCContext *)context;
+- (BOOL)drainEvents:(FCContext *)context;
 - (BOOL)trackSocket:(int)fd;
 @end
 static dispatch_group_t workers(void) {
@@ -584,7 +584,8 @@ static void destroyContext(rdpContext *context) {
         while (!atomic_load(&_stopped) && !freerdp_shall_disconnect_context(context)) {
             @autoreleasepool {
                 atomic_store(&_lastWorkerTick, NSProcessInfo.processInfo.systemUptime);
-                [self drainEvents:(FCContext *)context];
+                if (![self drainEvents:(FCContext *)context])
+                    break;
                 if (atomic_load(&_stopped))
                     break;
                 [_clipboardBridge tick];
@@ -699,7 +700,7 @@ static void destroyContext(rdpContext *context) {
     }
     [_lock unlock];
 }
-- (void)drainEvents:(FCContext *)ctx {
+- (BOOL)drainEvents:(FCContext *)ctx {
     rdpContext *context = (rdpContext *)ctx;
     // FreeRDP reports success while silently skipping input during graphics
     // reactivation or suspension. Keep key/button releases queued until active.
@@ -726,19 +727,21 @@ static void destroyContext(rdpContext *context) {
         if (atomic_load(&_stopped))
             break;
         NSString *type = event[@"type"];
+        BOOL sent = YES;
         if ([type isEqualToString:@"key"])
-            freerdp_input_send_keyboard_event_ex(
+            sent = freerdp_input_send_keyboard_event_ex(
                 context->input, [event[@"pressed"] boolValue], [event[@"repeat"] boolValue],
                 [event[@"code"] unsignedIntValue] | ([event[@"extended"] boolValue] ? 0x100 : 0));
         else if ([type isEqualToString:@"unicode"])
-            freerdp_input_send_unicode_keyboard_event(context->input,
-                                                      [event[@"pressed"] boolValue] ? 0 : KBD_FLAGS_RELEASE,
-                                                      [event[@"code"] unsignedShortValue]);
+            sent = freerdp_input_send_unicode_keyboard_event(context->input,
+                                                             [event[@"pressed"] boolValue] ? 0 : KBD_FLAGS_RELEASE,
+                                                             [event[@"code"] unsignedShortValue]);
         else if ([type isEqualToString:@"synchronize"])
-            freerdp_input_send_synchronize_event(context->input, [event[@"caps"] boolValue] ? KBD_SYNC_CAPS_LOCK : 0);
+            sent = freerdp_input_send_synchronize_event(context->input,
+                                                        [event[@"caps"] boolValue] ? KBD_SYNC_CAPS_LOCK : 0);
         else if ([type isEqualToString:@"pointer"])
-            freerdp_input_send_mouse_event(context->input, [event[@"flags"] unsignedShortValue],
-                                           [event[@"x"] unsignedShortValue], [event[@"y"] unsignedShortValue]);
+            sent = freerdp_input_send_mouse_event(context->input, [event[@"flags"] unsignedShortValue],
+                                                  [event[@"x"] unsignedShortValue], [event[@"y"] unsignedShortValue]);
         else if ([type isEqualToString:@"resize"]) {
             _pendingResize = event;
         } else if ([type isEqualToString:@"cancelResize"]) {
@@ -750,9 +753,15 @@ static void destroyContext(rdpContext *context) {
         } else if ([type isEqualToString:@"clipboardActive"]) {
             [ctx->clipboardBridge setActive:[event[@"active"] boolValue]];
         }
+        if (!sent) {
+            // Delivery is uncertain; retrying could duplicate input. End this
+            // transport and let the existing recovery policy establish a new one.
+            freerdp_set_last_error(context, FREERDP_ERROR_CONNECT_TRANSPORT_FAILED);
+            return NO;
+        }
     }
     if (atomic_load(&_stopped))
-        return;
+        return YES;
     if (_pendingResize && ctx->display && ctx->displayCapsReady) {
         NSDictionary *event = _pendingResize;
         _pendingResize = nil;
@@ -777,6 +786,7 @@ static void destroyContext(rdpContext *context) {
         if (self.onResizeResult)
             self.onResizeResult([event[@"requestID"] integerValue], result);
     }
+    return YES;
 }
 - (void)resizeWidth:(NSInteger)width height:(NSInteger)height scale:(NSInteger)scale {
     [self resizeWidth:width height:height scale:scale requestID:0];

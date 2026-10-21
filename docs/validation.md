@@ -29,6 +29,14 @@ stated scope; disabled live entries report SKIP.
 
 ## Known implementation limits
 
+The [protocol review](../REVIEW_FINDINGS.md) and
+[item-by-item checklist](protocol-review-checklist.md) distinguish confirmed input
+fixes, existing safeguards, unsupported features and unperformed diagnostics.
+Deterministic regressions cover SSH submitted-versus-desired PTY resize through
+EAGAIN, partial-write ordering, explicit input overflow, omitted Command key-up,
+and failure of each RDP input send API. These do not reproduce a production
+long-session incident or establish physical network/sleep behavior.
+
 RDP startup resize coverage uses owned native windows and a Display Control peer:
 stored Fit, Actual Size and Match window modes with resizing enabled negotiate the
 viewport initially, apply Retina once and send no redundant startup layout. Checks

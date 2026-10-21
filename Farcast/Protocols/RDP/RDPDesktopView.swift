@@ -634,6 +634,11 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         }
         guard window?.firstResponder === self else { return false }
         keyDown(with: event)
+        // AppKit may omit keyUp for Command equivalents. Balance the physical
+        // nonmodifier now; repeated equivalents still produce repeated taps.
+        if modifiers.contains(.command), let code = pressedKeys.removeValue(forKey: event.keyCode) {
+            sendKey?(code.0, false, code.1)
+        }
         return true
     }
     private static func menuContainsShortcut(_ menu: NSMenu?, event: NSEvent) -> Bool {

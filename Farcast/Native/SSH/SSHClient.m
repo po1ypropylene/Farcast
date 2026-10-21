@@ -498,7 +498,11 @@ cleanup:
         close(_forwardWakeWrite);
     _forwardWakeRead = _forwardWakeWrite = -1;
     [_lock unlock];
-    if (_forwardFailure || (failure && !atomic_load(&_stopped)))
+    if (_inputOverflowed)
+        [self status:@"failed"
+             message:@"SSH input could not keep up. The session was disconnected to avoid losing input. Reconnect to "
+                     @"continue."];
+    else if (_forwardFailure || (failure && !atomic_load(&_stopped)))
         [self status:@"failed" message:_forwardFailure ?: failure];
     else
         [self status:@"disconnected" message:@"SSH disconnected"];
@@ -554,8 +558,16 @@ cleanup:
 }
 - (void)sendData:(NSData *)data {
     [_lock lock];
-    if (!_terminalUnavailable && !atomic_load(&_stopped) && _outgoing.length + data.length <= 1024 * 1024)
-        [_outgoing appendData:data];
+    if (!_terminalUnavailable && !atomic_load(&_stopped)) {
+        if (data.length <= 1024 * 1024 - _outgoing.length)
+            [_outgoing appendData:data];
+        else {
+            _inputOverflowed = YES;
+            atomic_store(&_stopped, true);
+            if (_socket >= 0)
+                shutdown(_socket, SHUT_RDWR);
+        }
+    }
     [_lock unlock];
 }
 - (void)resizeColumns:(NSInteger)columns rows:(NSInteger)rows {
