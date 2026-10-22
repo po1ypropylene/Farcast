@@ -63,10 +63,17 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     private var lastPointerPoint: CGPoint?
     private var pressedMouseButtons = Set<Int>()
     private var renderedSequence: UInt64?
+    private var renderInFlight = false
+    private var redrawPending = false
+    private var presentationTask: DispatchWorkItem?
+    private var lastPresentationTime: TimeInterval = 0
     private(set) var renderingSuspended = false
     func suspendRendering(_ suspended: Bool) {
         renderingSuspended = suspended
         if suspended {
+            presentationTask?.cancel()
+            presentationTask = nil
+            redrawPending = false
             texture = nil
             renderedSequence = nil
         } else {
@@ -78,11 +85,27 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     // drives rendering, coalesced by the shared mailbox, without reconnecting.
     func drawLatestFrame() {
         guard !renderingSuspended, let window, window.isVisible else { return }
-        // Manual delegate rendering must retire MTKView's cached drawable too;
-        // each presentation needs a fresh drawable after a window transfer.
-        releaseDrawables()
-        draw(in: self)
-        releaseDrawables()
+        // Network publications can greatly exceed the display refresh rate.
+        // Pace uploads too, retaining only the newest mailbox frame until due.
+        let interval = 1 / Double(max(1, window.screen?.maximumFramesPerSecond ?? 60))
+        let delay = lastPresentationTime + interval - ProcessInfo.processInfo.systemUptime
+        if delay > 0 {
+            guard presentationTask == nil else { return }
+            let task = DispatchWorkItem { [weak self] in
+                self?.presentationTask = nil
+                self?.drawLatestFrame()
+            }
+            presentationTask = task
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: task)
+            return
+        }
+        presentationTask?.cancel()
+        presentationTask = nil
+        lastPresentationTime = ProcessInfo.processInfo.systemUptime
+        // MTKView.draw() owns the drawable lifecycle. Calling the delegate
+        // directly and releasing all drawable resources for every frame bypasses
+        // that lifecycle and repeatedly rebuilds presentation resources.
+        draw()
     }
     var sendKey: ((Int, Bool, Bool) -> Void)?
     var sendText: ((String) -> Void)?
@@ -286,6 +309,12 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     }
     func draw(in view: MTKView) {
         guard !renderingSuspended else { return }
+        // Never overwrite a shared texture while the GPU reads it, or wait on
+        // GPU work on the main actor. Keep only the mailbox's newest update.
+        guard !renderInFlight else {
+            redrawPending = true
+            return
+        }
         if let (sequence, frame) = mailbox.snapshot(), sequence != renderedSequence, let device {
             let region = sourceRect ?? CGRect(x: 0, y: 0, width: frame.width, height: frame.height)
             guard region.minX >= 0, region.minY >= 0, region.maxX <= CGFloat(frame.width),
@@ -329,6 +358,18 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
             encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
         }
         encoder.endEncoding()
+        lastPresentationTime = ProcessInfo.processInfo.systemUptime
+        renderInFlight = true
+        buffer.addCompletedHandler { [weak self] _ in
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.renderInFlight = false
+                if self.redrawPending {
+                    self.redrawPending = false
+                    self.drawLatestFrame()
+                }
+            }
+        }
         buffer.present(drawable)
         buffer.commit()
     }
@@ -374,6 +415,10 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        releaseDrawables()
+        presentationTask?.cancel()
+        presentationTask = nil
+        lastPresentationTime = 0
         NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: NSApplication.didResignActiveNotification, object: nil)

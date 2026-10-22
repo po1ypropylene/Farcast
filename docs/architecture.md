@@ -111,7 +111,12 @@ frames instead of building an unbounded UI queue. Mailbox publication coalesces 
 main-queue notification for all live weakly registered surfaces. Rendering follows
 frame delivery and native invalidation rather than MTKView's periodic window-bound
 display link, which can stop after closing a full-screen window during reparenting.
-Presentation suspension is explicit and independent of the disabled periodic link.
+Uploads are paced to the destination screen's maximum refresh rate, with one
+pending redraw and one GPU command buffer per surface. GPU completion releases
+shared-texture ownership asynchronously; updates received meanwhile replace the
+mailbox frame. Explicit draws use MTKView's drawable lifecycle; drawable resources
+are released on window transfer rather than per frame. Presentation suspension
+cancels scheduled draws and is independent of the disabled periodic link.
 Trust/interactive callbacks wait on single-use PromptWaiter responses while the main
 actor presents sheets. Cancellation
 resolves pending prompts, interrupts transport work, invalidates callbacks and stops

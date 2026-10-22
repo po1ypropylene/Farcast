@@ -5,6 +5,10 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+## 2.0.2 — 2026-10-22
+
+- Pace RDP/VNC desktop uploads to the display refresh rate, coalesce updates during GPU work and preserve Metal drawable resources between frames to reduce presentation overhead.
+
 - Preserve the final SSH terminal size across backpressured resize retries, and disconnect explicitly if queued terminal input exceeds its safety limit.
 - Balance forwarded Command shortcuts when macOS omits key-up, and recover RDP transports when keyboard or pointer sends fail instead of silently losing input.
 - Negotiate the settled window size before connecting when RDP Resize with window is enabled, avoiding an immediate resolution change after connection.

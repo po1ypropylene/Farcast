@@ -193,3 +193,107 @@ script verifies the mounted bundle and emits its SHA256 sidecar.
 No full-app TSan/Zombies/Instruments or physical sleep/roaming/blackhole/server-layout
 matrix is claimed. UI layout, controls, styling, supported features and shortcut
 routing remain unchanged; only confirmed faulty protocol/input behavior is corrected.
+
+
+## RDP performance follow-up assessment
+
+### Outcome and scope
+
+The user confirms that build 33 restored the previous behavior. The regression
+was immediate across direct/VPN transports at approximately 1440 × 900 without
+Retina/full screen on Windows Server 2022 with a 60 Hz host display. Scrolling,
+keyboard/mouse response and cursor motion were affected while the rest of Farcast
+stayed responsive. This supports the shared renderer as the source of the slowdown;
+it does not isolate pacing, drawable lifecycle or GPU ownership as the sole cause.
+The original answers remain in [the performance document](docs/rdp-performance-questions.md).
+
+The supplied follow-up guidance is a set of diagnostic proposals, not evidence
+that dirty-region transport, GFX or a new stall detector is needed. No additional
+runtime change is justified by a currently reproduced failure. The rendering fix is the baseline app behavior for comparison.
+
+### Measurement requirements
+
+The existing fixture reports upload-load CPU time, run-loop gaps and final-pixel
+convergence. It does not measure displayed FPS, network/decode cost or causal
+input-to-visual latency. Its occlusion output must accompany any result; an
+occluded run cannot support a displayed-FPS claim. No direct-versus-tunnel FPS or
+input-latency results are available, so a comparison table would currently contain
+only unmeasured values.
+
+A future measurement pass should distinguish publication, upload, GPU completion
+and actual drawable presentation. Count each distinct mailbox sequence at most
+once per surface when recording presented frames; repeated presentations of an
+unchanged texture are not new remote frames. Track coalesced publications separately
+from failed/missed presentation. Use presentation timestamps for frame-interval
+percentiles and suspend FPS reporting during occlusion/suspension or transitions.
+Window visibility alone does not establish that all its pixels reached the screen.
+
+Signposts can measure enqueue/drain, snapshot and upload stages without payloads,
+server identifiers or credentials. Instrument native receive/decode boundaries
+before claiming those stages are measured. An input-send return is not a socket
+write, acknowledgement or remote application response; an unrelated PDU/frame is
+not a causal response to a keystroke. Input-to-visual measurements need a controlled
+owned target with a uniquely identifiable visual response. Do not type into a
+user's existing remote desktop as an automated probe.
+
+The proposed approximately 1 ms input-send target is not an existing guarantee:
+RDP currently drains input around a wait with a 16 ms timeout in
+`Farcast/Native/RDP/RDPClient.m`. Without a dedicated enqueue wake-up, idle input
+can wait for that timeout. Measure enqueue-to-drain first before changing worker
+wakeup behavior. A scoped process-activity assertion can reduce App Nap effects
+in a benchmark; it does not eliminate every power/thermal/display variable.
+Record p50/p95/p99, sample counts, geometry, refresh rate, occlusion and workload.
+
+### Dirty-region and graphics decisions
+
+Keep full-frame snapshots until a real workload profile justifies changing them.
+At the user's approximate 1440 × 900 geometry, one BGRA copy is 5,184,000 bytes;
+60 such copies per second are about 311 MB/s. The guidance's approximately 2 GB/s
+example applies to 4K at 60 updates/s, not this reported workload. Neither number
+is a measured update rate or CPU cost. The suggested 10–15% threshold is a
+profiling decision aid, not a measured finding. No production CPU/energy/thermal
+profile is available, so that gate has not been satisfied. Intel considerations
+are outside Farcast's arm64-only boundary.
+
+The proposed per-surface damage-generation design is plausible, but it also needs
+immutable snapshots or explicit decoder/renderer ownership. A generation counter
+alone cannot make concurrent reads of the mutable decoder framebuffer safe.
+Damage must remain available for every lagging surface or trigger a full refresh;
+resize, dropped-generation, multi-surface and occlusion-resume pixel comparisons
+are required before replacing the current coherent full-frame mailbox.
+
+Keep GFX/H.264 disabled. Windows Server 2022 identifies the server family but not
+its exact OS build, effective graphics policies or DVC/capability exchange.
+No same-server differential GFX test or first-GFX-frame fallback has been obtained
+or implemented. If investigated later, use a native compatible test client and
+synthetic/explicitly authorized sessions; no external protocol executable becomes
+an app dependency. A generic frame deadline cannot prove GFX failure on a static
+desktop: fallback must use protocol-specific activation/channel evidence and remain
+bounded, cancellable and generation-safe. Changing codec preference, adding a
+capability cache or reconnecting automatically requires separate implementation
+and compatibility validation.
+
+### Remote-path liveness
+
+Keep the earlier long-session stall separate from this resolved rendering
+regression. Current worker responsiveness detects local worker progress, not
+remote-path health. Per-layer counters/timestamps and actual presented-frame age
+would improve diagnosis; they are not currently exposed as a complete telemetry
+pipeline and no new UDP-drop test has been performed for this follow-up.
+
+The proposed layer table needs qualifications: a shared WireGuard peer can receive
+traffic for another session; that does not prove this RDP destination responds.
+WireGuard keepalive is configurable and zero is allowed in
+`Networking/WireGuard/main.go`. Receive silence without an expected response is
+not proof of a broken tunnel. ACK progress can legitimately stop when no data is
+outstanding, and a static desktop can have no new RDP frames. Diagnose outstanding
+work, retransmissions, keepalive policy and remote TCP state together. The local
+proxy socket's ACKs must not be mistaken for the gVisor connection's remote ACKs.
+Even remote TCP ACKs do not prove that the remote application is rendering.
+
+Future blackhole coverage should drop traffic inside an owned loopback WireGuard
+fixture, then test idle and active traffic, loss duration/recovery, UI state and
+cancellation against explicit deadlines. System-wide pf/dnctl changes are not
+necessary for that test. No current result establishes a 20-second remote-stall
+detection guarantee. Preserve the existing bounded recovery policy and avoid
+forcing reconnects solely because frames or shared-peer packets are quiet.

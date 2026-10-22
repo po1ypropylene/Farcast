@@ -29,6 +29,15 @@ stated scope; disabled live entries report SKIP.
 
 ## Known implementation limits
 
+The 4K desktop presentation load fixture checks final-frame convergence and reports
+CPU time/run-loop gaps under excess frame publication. Refresh pacing and GPU
+ownership are local renderer changes shared by RDP and VNC; they do not establish
+production frame rate or end-to-end input latency. The user reports restored
+performance on Windows Server 2022 at approximately 1440 × 900, without Retina or
+full screen, across the tested transport types. This is user-reported recovery,
+not an instrumented FPS/latency result. Answers and remaining evidence gaps are
+collected in [RDP performance questions](rdp-performance-questions.md).
+
 The [protocol review](../REVIEW_FINDINGS.md) and
 [item-by-item checklist](protocol-review-checklist.md) distinguish confirmed input
 fixes, existing safeguards, unsupported features and unperformed diagnostics.

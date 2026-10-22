@@ -132,6 +132,16 @@ remove the test Keychain; they never query saved user credentials.
 
 ## Performance tools
 
+`scripts/test-rdp-presentation-load.sh` publishes owned 4K frames at 250 updates
+per second. It reports process CPU time and main-run-loop heartbeat gaps, then
+asserts convergence to the final marked frame without a forced redraw. It isolates
+presentation scheduling; it does not measure network/decode cost or displayed FPS.
+Compare on the same screen with the same window and refresh settings. The
+fixture prints occlusion state; an occluded run measures upload scheduling only,
+not GPU presentation timing or displayed FPS.
+Run `scripts/test-rdp-window-return.sh` separately to cover native full-screen
+window transfers with the same presentation path.
+
 The latency fixture sends repeated input during 8 MiB uploads/downloads through a
 60 ms RTT / 512 KiB/s per-direction proxy. It requires at least 16 echoes, no missing
 input, maximum latency below 1.5 seconds and SHA256 equality. Files-to-Split cases
