@@ -24,6 +24,10 @@ text = text.replace('rdpsnd_server_context_free(context->rdpsnd);', 'fc_fixture_
 text = text.replace('/* Dynamic Virtual Channels */', 'if (!fc_fixture_clipboard_start(context)) return FALSE;\n    if (!fc_fixture_drive_start(context)) return FALSE;\n\n    /* Dynamic Virtual Channels */')
 text = text.replace('instance->Open(instance, nullptr, (UINT16)port)', 'instance->Open(instance, "127.0.0.1", (UINT16)port)')
 text = text.replace('freerdp_settings_set_bool(settings, FreeRDP_NlaSecurity, FALSE)', 'freerdp_settings_set_bool(settings, FreeRDP_NlaSecurity, getenv("FARCAST_FIXTURE_NLA") != nullptr)')
+# First activation may deliberately omit pixels to exercise one-shot GFX fallback.
+needle = 'static BOOL tf_peer_activate(freerdp_peer* client)\n{'
+assert needle in text
+text = text.replace(needle, needle + '\n    static LONG fc_activation_count;\n    if (getenv("FARCAST_FIXTURE_GFX_FALLBACK") && InterlockedIncrement(&fc_activation_count) == 1) return TRUE;', 1)
 text = text.replace('client->PostConnect = tf_peer_post_connect;', '''if (getenv("FARCAST_FIXTURE_SAM"))
         freerdp_settings_set_string(settings, FreeRDP_NtlmSamFile, getenv("FARCAST_FIXTURE_SAM"));
     client->PostConnect = tf_peer_post_connect;''')

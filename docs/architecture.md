@@ -106,8 +106,11 @@ The latest connection failure remains visible during recovery and after disconne
 Logs exclude credentials, clipboard/terminal contents and shared-folder paths.
 
 Each native worker owns its handles and bounded input/work queues. SSH sends output
-with main-thread backpressure. RDP uses a latest-frame mailbox, dropping superseded
-frames instead of building an unbounded UI queue. Mailbox publication coalesces one
+with main-thread backpressure. RDP uses a canonical framebuffer in a lock-owned latest-frame mailbox. Native
+workers publish immutable packed damage patches; Swift Data copy-on-write protects
+snapshots retained by renderers. A bounded 64-generation rectangle history lets each
+surface union missed damage; old generations, resize and new/resumed surfaces use
+a full upload. Superseded publications do not build an unbounded UI queue. Mailbox publication coalesces one
 main-queue notification for all live weakly registered surfaces. Rendering follows
 frame delivery and native invalidation rather than MTKView's periodic window-bound
 display link, which can stop after closing a full-screen window during reparenting.
@@ -851,3 +854,30 @@ decompression requires explicit import consent recorded in the protected profile
 Core uses asymmetric compression mode and never compresses outgoing traffic. Route exclusions
 and unsupported pushed tunnel settings fail rather than silently changing policy.
 Native logs are discarded; helper responses contain fixed error categories only.
+
+
+## Experimental RDP comparison behavior
+
+The comparison experiment requests GFX with AVC420/AVC444 support using linked,
+source-built OpenH264. Codec names are reported only after successful GFX surface
+commands; a requested path is distinct from an observed path. If no initial desktop
+frame arrives, or an opened GFX channel never completes its first frame within eight
+seconds, the worker retires that native context and retries once with compatible
+graphics. Manual disconnect cancels the retry. This per-client fallback does not
+persist a capability cache or reset the existing bounded session-recovery policy.
+
+A manual-reset event joins FreeRDP's wait set. Enqueue signals under the queue lock;
+drain resets under the same lock before selecting events. Input retained during
+suspension does not leave the event signaled. The 16 ms wait remains for periodic
+clipboard/worker work but no longer adds that polling delay to newly queued input.
+
+Release-enabled signposts record PDU receive, GFX surface decode, native snapshot,
+input queue drain, texture upload and distinct visible drawable presentation.
+Connection Details samples native activity ages and presentation interval percentiles.
+These contain no payloads or endpoints and do not infer remote health from silence.
+No remote TCP ACK or per-peer WireGuard receive telemetry is implemented.
+
+GFX channel events use `RDPGFX_DVC_CHANNEL_NAME`, not the short `rdpgfx` addin name.
+Connect initializes the GDI pipeline before installing measurement wrappers; close
+retires its codecs and clears active state and saved callback pointers. Channel
+name dispatch is covered by a negative-control initialization/cleanup regression.

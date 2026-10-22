@@ -197,6 +197,9 @@ routing remain unchanged; only confirmed faulty protocol/input behavior is corre
 
 ## RDP performance follow-up assessment
 
+This section records the release-baseline assessment. The later experimental
+implementation section describes the explicitly authorized departures from it.
+
 ### Outcome and scope
 
 The user confirms that build 33 restored the previous behavior. The regression
@@ -297,3 +300,122 @@ cancellation against explicit deadlines. System-wide pf/dnctl changes are not
 necessary for that test. No current result establishes a 20-second remote-stall
 detection guarantee. Preserve the existing bounded recovery policy and avoid
 forcing reconnects solely because frames or shared-peer packets are quiet.
+
+
+## Experimental implementation for comparison
+
+The user initially authorized an uncommitted experiment, including trying GFX and
+dirty-region transport without waiting for a production profile, then requested a
+separate branch and commit after the startup correction. This does not retroactively
+satisfy the original profiling gate. The committed release remains the baseline;
+experimental changes stay separate and are not promoted to a release or published.
+
+Implemented:
+
+- Manual-reset worker wake event, with reset/enqueue serialized by the input lock.
+  Suspended input is retained without a signaled-event busy loop.
+- Immutable native BGRA damage patches, a lock-owned canonical Swift framebuffer,
+  Data copy-on-write snapshots and a bounded 64-generation damage history. Each
+  surface independently unions missed changes or requests a full upload. Resize,
+  resume, new surfaces and old history force full uploads. `FARCAST_FULL_UPLOAD=1`
+  forces full copies/uploads for pixel comparisons.
+- Source-built OpenH264 2.7.0, directly linked as FreeRDP's H.264 backend and
+  shipped as a signed dylib. GFX requests AVC420/AVC444;
+  successful surface commands report the actually observed codec. This is software
+  H.264, not VideoToolbox hardware decoding.
+- An eight-second initial-frame/GFX-first-frame watchdog retires the native context
+  and retries once using compatible bitmap graphics. Manual disconnect cancels it.
+  No persistent host capability cache or new saved connection fields are added.
+- Release-enabled numeric signposts for input drain, PDU receipt, GFX surface
+  decode, native snapshot, texture upload and distinct visible presentation. Native
+  worker/PDU/paint ages and recent input queue delay appear in Connection Details.
+  Presentation samples reject retired window epochs and repeated frame sequences.
+
+The same current native source and owned TLS workload, with only the wake handle
+disabled for the polling control, produced:
+
+| Measurement | Polling baseline | Event wakeup |
+| --- | ---: | ---: |
+| Samples | 160 | 160 |
+| Enqueue-to-drain p50 | 8.696 ms | 0.166 ms |
+| Enqueue-to-drain p95 | 16.505 ms | 0.255 ms |
+| Enqueue-to-drain p99 | 16.801 ms | 0.315 ms |
+
+These are local native queue measurements, not network or input-to-visual latency.
+`scripts/test-rdp-input-latency.sh --polling-baseline` can isolate the wait behavior
+by compiling the same current source with only the wake handle disabled; the
+ordinary invocation measures the event path.
+
+The decoder test performs actual FreeRDP AVC420, AVC444v1 and AVC444v2 encode/decode
+at 320 × 240 and 1440 × 900 with mean channel errors between 1.00 and 1.51 on owned
+patterned pixels. Each codec starts an independent stream. This establishes a
+working backend, not Windows AVC420/AVC444 wire compatibility.
+Dirty-region tests compare exact pixels with immutable retained snapshots, dropped
+generations, independent crops, resize and suspension/resume, and repeat in forced
+full-upload mode. The watchdog fixture withholds the first activation's pixels and
+checks successful compatible retry plus cancellation.
+
+Still unavailable:
+
+| Requested evidence | Direct | VPN |
+| --- | --- | --- |
+| Production displayed frame interval p50/p95/p99 | Not measured | Not measured |
+| Production input-to-visual p50/p95/p99 | Not measured | Not measured |
+| Production snapshot CPU/energy/thermal profile | Not measured | Not measured |
+| Occlusion-valid presentation run | Not obtained | Not obtained |
+
+Per-peer WireGuard receives/handshakes, remote gVisor TCP ACK/retransmission state,
+production graphics policies, actual Windows codec selection, encrypted UDP-drop
+recovery and physical sleep/roaming remain unverified. No new remote-stall verdict
+is inferred from PDU/frame silence. The existing bounded recovery behavior remains;
+the experiment adds local observability rather than inventing remote health proof.
+
+The pinned WireGuard netstack's exported TCP connection adapter has no keepalive/
+endpoint-option setter, and its underlying stack is private. Adding remote TCP
+keepalive tuning/ACK telemetry would require a deliberate adapter extension or
+tracked upstream patch, not changing the local proxy's TCP options or using unsafe
+reflection. That transport change was left out of this comparison experiment.
+
+Final validation limit: the standalone native full-screen return fixture twice
+failed to observe actual macOS full-screen entry within its eight-second deadline.
+Both failures occurred before its subsequent frame assertions. Earlier workspace
+and standalone runs passed repeated full-screen return against the experimental
+renderer. The final repeat therefore does not establish a rendering regression,
+but it also cannot count as a final full-screen pass. Confirm native full-screen
+entry/return manually with the comparison build on an interactive desktop.
+
+
+## Experimental GFX startup correction
+
+Live testing on one explicitly authorized Windows Server 2022 direct profile
+reproduced the initial blank connection: authentication completed, no frames were
+published, and the eight-second watchdog retried with compatible bitmaps. That
+working fallback session reported compatible bitmap graphics. Its responsiveness
+therefore was not evidence that H.264 was active.
+
+The native channel callbacks compared event names with the addin name `rdpgfx`.
+FreeRDP publishes this dynamic channel under `RDPGFX_DVC_CHANNEL_NAME`, whose value
+is `Microsoft::Windows::RDS::Graphics`. The short-name comparison skipped GDI graphics
+pipeline initialization and left incoming GFX commands without the decoder handlers.
+Both connection and disconnection now use the protocol name; close retires the
+pipeline and clears saved handler pointers and active state.
+
+The focused regression dispatches that full event name through the actual private
+adapter callbacks, verifies installed decoder/measurement handlers, and checks
+close retirement. Its negative control changes only the comparison back to the
+short name and fails the same initialization assertion. TLS/NLA, fallback and
+dirty-region regressions remain successful.
+
+Three consecutive live starts with the corrected signed app connected on their
+first attempt, published/presented GFX updates in approximately five to six seconds
+from session start, and remained connected beyond the fallback deadline without a
+compatible retry or recovery attempt. Times come from second-resolution activity
+events, not a latency benchmark. The observed idle codec was non-AVC GFX; live H.264
+selection and active-workload throughput were not established. The probes sent no
+remote keyboard/mouse actions or commands, and the test sessions were disconnected
+and closed afterward. No server identifiers or desktop contents are retained here.
+
+This establishes a client initialization defect behind the observed forced fallback.
+It does not prove every intermittent three-attempt failure had the same cause or
+establish general production compatibility. The prior assumption that the server
+alone failed to start GFX was premature; the client-side channel dispatch was wrong.

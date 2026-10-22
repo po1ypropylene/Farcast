@@ -61,6 +61,11 @@ struct SessionInspector: View {
                             LabeledContent(
                                 "Resize with window", value: session.profile.dynamicResolution ? "On" : "Off")
                             LabeledContent("Retina", value: session.profile.retinaDisplay ? "On" : "Off")
+                            LabeledContent("Graphics", value: session.graphicsPath)
+                            if let desktop = session.desktop {
+                                DesktopPerformanceDetails(
+                                    desktop: desktop, protocolStatistics: { session.rdpPerformanceStatistics })
+                            }
                             LabeledContent("Clipboard", value: session.profile.clipboard ? "On" : "Off")
                             LabeledContent("Audio", value: session.profile.audioPlayback ? "On" : "Off")
                             LabeledContent("Shared folders", value: String(session.profile.redirectedFolders.count))
@@ -90,5 +95,42 @@ struct SessionInspector: View {
                 }.padding(20)
             }
         }.background(.background)
+    }
+}
+
+private struct DesktopPerformanceDetails: View {
+    let desktop: RDPDesktopView
+    let protocolStatistics: () -> [String: NSNumber]
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            let metrics = desktop.presentationMetrics
+            let intervals = metrics.intervals.sorted()
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Experimental presentation metrics").font(.callout)
+                if desktop.window?.occlusionState.contains(.visible) == true, !intervals.isEmpty {
+                    let p50 = intervals[(intervals.count - 1) / 2]
+                    let p95 = intervals[Int(Double(intervals.count - 1) * 0.95)]
+                    let p99 = intervals[Int(Double(intervals.count - 1) * 0.99)]
+                    Text(String(format: "Frame interval p50 / p95 / p99: %.1f / %.1f / %.1f ms", p50, p95, p99))
+                } else {
+                    Text("No visible presentation samples")
+                }
+                let statistics = protocolStatistics()
+                ForEach(["workerAge", "pduAge", "paintAge"], id: \.self) { key in
+                    let label =
+                        key == "workerAge" ? "Worker progress" : key == "pduAge" ? "Received PDU" : "Decoded paint"
+                    if let age = statistics[key]?.doubleValue, age >= 0 {
+                        Text(String(format: "%@: %.1f s ago", label, age))
+                    }
+                }
+                if let delay = statistics["inputQueueMS"]?.doubleValue, delay >= 0 {
+                    Text(String(format: "Latest input queue delay: %.2f ms", delay))
+                }
+                Text("Activity ages do not establish remote-path health.")
+                Text("Distinct presented updates: \(metrics.count)")
+                Text(String(format: "Uploaded: %.1f MiB", Double(desktop.uploadedBytes) / 1_048_576))
+                Text("Frame intervals include idle time; these are not input-to-visual latency measurements.")
+            }.font(.caption).foregroundStyle(.secondary)
+        }
     }
 }

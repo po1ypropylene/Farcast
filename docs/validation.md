@@ -55,7 +55,19 @@ Production Windows startup smoothness still requires live validation.
 - **Keychain:** synchronous operations can block UI callers during authorization
   or unlocking. The local-file fallback cannot help while a call is waiting.
   Moving I/O off the main actor needs an explicit prompt/cancellation policy.
-- **RDP display:** software bitmap negotiation supplies Metal frames. Dynamic
+- **RDP display:** the experimental build requests GFX/H.264 through source-built
+  OpenH264, with a one-shot initial-frame fallback to compatible bitmaps. Actual
+  CPU tradeoffs and Windows policy interoperability still require the user's
+  comparison. One authorized Windows Server 2022 direct profile established GFX
+  frame delivery on three consecutive first-attempt starts after correcting the
+  dynamic-channel event name. The idle codec observed was non-AVC GFX; this does
+  not prove live H.264 selection, active-workload throughput or universal startup
+  reliability. Dirty patches preserve a coherent canonical
+  image and bounded per-surface damage history; synthetic pixel equality does not
+  prove production visual correctness. The final standalone full-screen repeat
+  timed out before observing native entry; earlier workspace/return checks passed,
+  so final native entry/return still needs manual confirmation. Local activity ages are diagnostic signals,
+  not a complete remote-path liveness detector. Dynamic
   resizing requires server Display Control support; actual received geometry is
   authoritative. Multi-monitor presentation requires matching monitor confirmation.
   Live multi-monitor topology updates are unsupported; hotplug/rotation requires

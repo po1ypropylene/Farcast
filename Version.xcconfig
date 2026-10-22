@@ -2,4 +2,4 @@
 // Build scripts increment the build number by one per app build; never reset it.
 // Ordinary changes are staged in CHANGELOG.md under Unreleased.
 MARKETING_VERSION = 2.0.2
-CURRENT_PROJECT_VERSION = 34
+CURRENT_PROJECT_VERSION = 37

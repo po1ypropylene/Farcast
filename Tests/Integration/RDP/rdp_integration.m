@@ -5,6 +5,7 @@
 #include <freerdp/settings.h>
 #import <math.h>
 #import <objc/runtime.h>
+#import <winpr/synch.h>
 
 // White-box pause uses the real worker/context on the owned peer; no production
 // testing API or user input is needed to exercise FreeRDP's silent-skip condition.
@@ -41,6 +42,7 @@ int main(int argc, char **argv) {
         NSString *mode = @(argv[1]);
         NSInteger port = atoi(argv[2]);
         FCRDPClient *client = [FCRDPClient new];
+        client.experimentalGraphics = NSProcessInfo.processInfo.environment[@"FARCAST_RDP_EXPERIMENTAL_GFX"].boolValue;
         NSString *tunnelPort = NSProcessInfo.processInfo.environment[@"FARCAST_FIXTURE_TUNNEL_PORT"];
         if (tunnelPort) {
             client.tunnelPort = tunnelPort.integerValue;
@@ -290,6 +292,12 @@ int main(int argc, char **argv) {
                           object_getIvar(weakClient, class_getInstanceVariable(FCRDPClient.class, "_events"));
                       NSCAssert(pending.count == 19,
                                 @"Suspended input must remain queued while clipboard control drains");
+                      Ivar wakeField = class_getInstanceVariable(FCRDPClient.class, "_inputEvent");
+                      HANDLE wake = NULL;
+                      memcpy(&wake, (const uint8_t *)(__bridge const void *)weakClient + ivar_getOffset(wakeField),
+                             sizeof(wake));
+                      NSCAssert(wake && WaitForSingleObject(wake, 0) == WAIT_TIMEOUT,
+                                @"Suspended input must not spin the worker wake event");
                       freerdp_settings_set_bool(instance->context->settings, FreeRDP_SuspendInput, FALSE);
                       puts("PASS RDP suspended input retains releases and allows clipboard ownership changes");
                   }

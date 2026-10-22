@@ -29,6 +29,7 @@
 #import <openssl/err.h>
 #import <openssl/pem.h>
 #import <openssl/x509.h>
+#import <os/signpost.h>
 #import <poll.h>
 #import <stdatomic.h>
 #import <sys/socket.h>
@@ -44,7 +45,13 @@ typedef struct {
     CliprdrClientContext *clipboard;
     FCRDPClipboard *__unsafe_unretained clipboardBridge;
     double lastFrame;
+    int snapshotWidth, snapshotHeight;
+    BOOL graphicsConnected, gfxFrameReceived, bitmapReported;
+    UINT32 observedCodecs;
+    pcRdpgfxSurfaceCommand surfaceCommand;
+    pcRdpgfxEndFrame gfxEndFrame;
     pTCPConnect directTCPConnect;
+    pTransportRWFkt directReadPdu;
     const char *identityHost;
     int identityPort;
 } FCContext;
@@ -63,7 +70,14 @@ typedef struct {
     atomic_bool _running;
     atomic_bool _stalled;
     _Atomic(double) _lastWorkerTick;
+    _Atomic(double) _lastPDU;
+    _Atomic(double) _lastPaint;
+    _Atomic(double) _lastInputDelay;
     int _interruptSocket;
+    HANDLE _inputEvent;
+    BOOL _compatibleGraphics;
+    BOOL _graphicsFallback;
+    BOOL _forceFullSnapshots;
 }
 @property(nonatomic, copy) NSString *tunnelFailure;
 - (BOOL)runHost:(NSString *)host
@@ -78,6 +92,9 @@ typedef struct {
     audioPlayback:(BOOL)audioPlayback;
 - (BOOL)drainEvents:(FCContext *)context;
 - (BOOL)trackSocket:(int)fd;
+- (void)recordPDU;
+- (void)recordPaint;
+- (BOOL)forceFullSnapshots;
 @end
 static dispatch_group_t workers(void) {
     static dispatch_group_t group;
@@ -122,6 +139,24 @@ static int monitoredTCPConnect(rdpContext *context, rdpSettings *settings, const
     return -1;
 }
 
+static os_log_t performanceLog(void) {
+    static os_log_t log;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+      log = os_log_create("com.peterpo.farcast", "RDPPerformance");
+    });
+    return log;
+}
+static int measuredReadPdu(rdpTransport *transport, wStream *stream) {
+    rdpContext *context = transport_get_context(transport);
+    FCContext *ctx = (FCContext *)context;
+    int result = ctx->directReadPdu(transport, stream);
+    if (result > 0) {
+        [owner(context) recordPDU];
+        os_signpost_event_emit(performanceLog(), OS_SIGNPOST_ID_EXCLUSIVE, "PDUReceived", "bytes=%d", result);
+    }
+    return result;
+}
 static BOOL beginPaint(rdpContext *context) {
     if (context->gdi) {
         context->gdi->primary->hdc->hwnd->invalid->null = TRUE;
@@ -136,9 +171,42 @@ static BOOL endPaint(rdpContext *context) {
     // Snapshot bytes while FreeRDP owns the buffer; the renderer never reads
     // native mutable memory.
     FCRDPClient *client = owner(context);
-    if (client.onFrame)
+    FCContext *ctx = (FCContext *)context;
+    ctx->lastFrame = NSProcessInfo.processInfo.systemUptime;
+    [client recordPaint];
+    if (!ctx->graphicsConnected && !ctx->bitmapReported) {
+        ctx->bitmapReported = YES;
+        if (client.onGraphicsPath)
+            client.onGraphicsPath(@"Compatible bitmap graphics");
+    }
+    os_signpost_id_t signpost = os_signpost_id_generate(performanceLog());
+    os_signpost_interval_begin(performanceLog(), signpost, "Snapshot");
+    BOOL full = [client forceFullSnapshots] || ctx->snapshotWidth != gdi->width || ctx->snapshotHeight != gdi->height;
+    HGDI_RGN invalid = gdi->primary->hdc->hwnd->invalid;
+    if (client.onFrameRegion) {
+        if (!full && invalid->null) {
+            os_signpost_interval_end(performanceLog(), signpost, "Snapshot");
+            return TRUE;
+        }
+        int x = full ? 0 : MAX(0, invalid->x);
+        int y = full ? 0 : MAX(0, invalid->y);
+        int right = full ? gdi->width : MIN((int64_t)gdi->width, (int64_t)invalid->x + invalid->w);
+        int bottom = full ? gdi->height : MIN((int64_t)gdi->height, (int64_t)invalid->y + invalid->h);
+        if (right > x && bottom > y) {
+            int width = right - x, height = bottom - y;
+            NSMutableData *patch = [NSMutableData dataWithLength:(NSUInteger)width * height * 4];
+            for (int row = 0; row < height; row++)
+                memcpy((BYTE *)patch.mutableBytes + (NSUInteger)row * width * 4,
+                       gdi->primary_buffer + (NSUInteger)(y + row) * gdi->stride + x * 4, (size_t)width * 4);
+            client.onFrameRegion(patch, gdi->width, gdi->height, x, y, width, height);
+            ctx->snapshotWidth = gdi->width;
+            ctx->snapshotHeight = gdi->height;
+        }
+    } else if (client.onFrame) {
         client.onFrame([NSData dataWithBytes:gdi->primary_buffer length:(NSUInteger)gdi->stride * gdi->height],
                        gdi->width, gdi->height, gdi->stride);
+    }
+    os_signpost_interval_end(performanceLog(), signpost, "Snapshot");
     return TRUE;
 }
 static BOOL desktopResize(rdpContext *context) {
@@ -220,11 +288,62 @@ static BOOL pointerNull(rdpContext *context) {
         client.onCursor([NSMutableData dataWithLength:4], 1, 1, 0, 0);
     return TRUE;
 }
+static UINT measuredSurfaceCommand(RdpgfxClientContext *gfx, const RDPGFX_SURFACE_COMMAND *cmd) {
+    rdpGdi *gdi = gfx->custom;
+    FCContext *ctx = (FCContext *)gdi->context;
+    os_signpost_id_t signpost = os_signpost_id_generate(performanceLog());
+    os_signpost_interval_begin(performanceLog(), signpost, "GFXDecode", "codec=%u", cmd->codecId);
+    UINT result = ctx->surfaceCommand(gfx, cmd);
+    os_signpost_interval_end(performanceLog(), signpost, "GFXDecode");
+    if (result == CHANNEL_RC_OK) {
+        UINT32 bit = 1;
+        if (cmd->codecId == RDPGFX_CODECID_AVC420)
+            bit = 2;
+        if (cmd->codecId == RDPGFX_CODECID_AVC444 || cmd->codecId == RDPGFX_CODECID_AVC444v2)
+            bit = 4;
+        // A server may mix codecs within a frame. Report each newly observed
+        // family once, rather than enqueueing UI/log work on every switch.
+        if (!(ctx->observedCodecs & bit)) {
+            ctx->observedCodecs |= bit;
+            NSMutableArray *names = [NSMutableArray new];
+            if (ctx->observedCodecs & 1)
+                [names addObject:@"non-AVC"];
+            if (ctx->observedCodecs & 2)
+                [names addObject:@"AVC420"];
+            if (ctx->observedCodecs & 4)
+                [names addObject:@"AVC444"];
+            NSString *path = [@"GFX: " stringByAppendingString:[names componentsJoinedByString:@", "]];
+            if (ctx->observedCodecs & 6)
+                path = [path stringByAppendingString:@" (OpenH264)"];
+            FCRDPClient *client = owner(gdi->context);
+            if (client.onGraphicsPath)
+                client.onGraphicsPath(path);
+        }
+    }
+    return result;
+}
+static UINT measuredGfxEndFrame(RdpgfxClientContext *gfx, const RDPGFX_END_FRAME_PDU *frame) {
+    rdpGdi *gdi = gfx->custom;
+    FCContext *ctx = (FCContext *)gdi->context;
+    UINT result = ctx->gfxEndFrame(gfx, frame);
+    if (result == CHANNEL_RC_OK)
+        ctx->gfxFrameReceived = YES;
+    return result;
+}
 static void channelConnected(void *context, const ChannelConnectedEventArgs *event) {
     FCContext *ctx = context;
-    if (!strcmp(event->name, "rdpgfx"))
-        gdi_graphics_pipeline_init(((rdpContext *)context)->gdi, event->pInterface);
-    else if (!strcmp(event->name, DISP_DVC_CHANNEL_NAME)) {
+    if (!strcmp(event->name, RDPGFX_DVC_CHANNEL_NAME)) {
+        RdpgfxClientContext *gfx = event->pInterface;
+        ctx->graphicsConnected = gdi_graphics_pipeline_init(((rdpContext *)context)->gdi, gfx);
+        if (ctx->graphicsConnected) {
+            ctx->surfaceCommand = gfx->SurfaceCommand;
+            ctx->gfxEndFrame = gfx->EndFrame;
+            gfx->SurfaceCommand = measuredSurfaceCommand;
+            gfx->EndFrame = measuredGfxEndFrame;
+        }
+        os_signpost_event_emit(performanceLog(), OS_SIGNPOST_ID_EXCLUSIVE, "GFXChannel", "active=%d",
+                               ctx->graphicsConnected);
+    } else if (!strcmp(event->name, DISP_DVC_CHANNEL_NAME)) {
         ctx->display = event->pInterface;
         ctx->display->custom = ctx;
         ctx->display->DisplayControlCaps = displayCapabilities;
@@ -236,9 +355,13 @@ static void channelConnected(void *context, const ChannelConnectedEventArgs *eve
 }
 static void channelDisconnected(void *context, const ChannelDisconnectedEventArgs *event) {
     FCContext *ctx = context;
-    if (!strcmp(event->name, "rdpgfx"))
-        gdi_graphics_pipeline_uninit(((rdpContext *)context)->gdi, event->pInterface);
-    else if (!strcmp(event->name, DISP_DVC_CHANNEL_NAME)) {
+    if (!strcmp(event->name, RDPGFX_DVC_CHANNEL_NAME)) {
+        if (ctx->graphicsConnected)
+            gdi_graphics_pipeline_uninit(((rdpContext *)context)->gdi, event->pInterface);
+        ctx->graphicsConnected = NO;
+        ctx->surfaceCommand = NULL;
+        ctx->gfxEndFrame = NULL;
+    } else if (!strcmp(event->name, DISP_DVC_CHANNEL_NAME)) {
         if (ctx->display) {
             ctx->display->custom = NULL;
             ctx->display->DisplayControlCaps = NULL;
@@ -392,9 +515,18 @@ static void destroyContext(rdpContext *context) {
         atomic_init(&_running, false);
         atomic_init(&_stalled, false);
         atomic_init(&_lastWorkerTick, 0);
+        atomic_init(&_lastPDU, 0);
+        atomic_init(&_lastPaint, 0);
+        atomic_init(&_lastInputDelay, -1);
         _interruptSocket = -1;
+        _inputEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+        _forceFullSnapshots = [NSProcessInfo.processInfo.environment[@"FARCAST_FULL_UPLOAD"] isEqualToString:@"1"];
     }
     return self;
+}
+- (void)dealloc {
+    if (_inputEvent)
+        CloseHandle(_inputEvent);
 }
 - (void)status:(NSString *)state message:(NSString *)message {
     if (self.onStatus)
@@ -413,16 +545,22 @@ static void destroyContext(rdpContext *context) {
     dispatch_group_enter(workers());
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
       @autoreleasepool {
-          BOOL retryable = [self runHost:host
-                                    port:port
-                                username:username
-                                  domain:domain
-                                password:password
-                                   width:width
-                                  height:height
-                                   scale:scale
-                               clipboard:clipboard
-                           audioPlayback:audioPlayback];
+          BOOL retryable;
+          do {
+              self->_graphicsFallback = NO;
+              retryable = [self runHost:host
+                                   port:port
+                               username:username
+                                 domain:domain
+                               password:password
+                                  width:width
+                                 height:height
+                                  scale:scale
+                              clipboard:clipboard
+                          audioPlayback:audioPlayback];
+              if (self->_graphicsFallback)
+                  self->_compatibleGraphics = YES;
+          } while (self->_graphicsFallback && !atomic_load(&self->_stopped));
           if (self.onStopped)
               self.onStopped(retryable);
       }
@@ -463,6 +601,8 @@ static void destroyContext(rdpContext *context) {
         return NO;
     }
     ((FCContext *)context)->owner = (__bridge void *)self;
+    atomic_store(&_lastPDU, 0);
+    atomic_store(&_lastPaint, 0);
     _clipboardBridge = [FCRDPClipboard new];
     [_clipboardBridge setActive:atomic_load(&_clipboardActive)];
     ((FCContext *)context)->clipboardBridge = _clipboardBridge;
@@ -496,6 +636,8 @@ static void destroyContext(rdpContext *context) {
         rdpTransportIo callbacks = *freerdp_get_io_callbacks(context);
         ctx->directTCPConnect = callbacks.TCPConnect;
         callbacks.TCPConnect = monitoredTCPConnect;
+        ctx->directReadPdu = callbacks.ReadPdu;
+        callbacks.ReadPdu = measuredReadPdu;
         if (!freerdp_set_io_callbacks(context, &callbacks)) {
             destroyContext(context);
             [self status:@"failed" message:@"Could not initialize the RDP transport."];
@@ -556,14 +698,16 @@ static void destroyContext(rdpContext *context) {
     freerdp_settings_set_bool(s, FreeRDP_SupportDynamicChannels, TRUE);
     freerdp_settings_set_bool(s, FreeRDP_SupportDisplayControl, TRUE);
     freerdp_settings_set_bool(s, FreeRDP_DynamicResolutionUpdate, TRUE);
-    // The supplied real server completed authentication but never started the
-    // negotiated GFX channel. Standard software bitmap updates deliver its desktop.
-    // Keep display control available independently of graphics-pipeline negotiation.
-    freerdp_settings_set_bool(s, FreeRDP_SupportGraphicsPipeline, FALSE);
+    // Experimental GFX/AVC uses the source-built OpenH264 backend. Retry once
+    // with compatible bitmap graphics if the initial desktop produces no frames.
+    // Display Control remains available on either path.
+    freerdp_settings_set_bool(s, FreeRDP_SupportGraphicsPipeline, self.experimentalGraphics && !_compatibleGraphics);
     freerdp_settings_set_bool(s, FreeRDP_RemoteFxCodec, TRUE);
     freerdp_settings_set_bool(s, FreeRDP_NSCodec, TRUE);
-    freerdp_settings_set_bool(s, FreeRDP_GfxH264, FALSE);
-    freerdp_settings_set_bool(s, FreeRDP_GfxProgressive, FALSE);
+    freerdp_settings_set_bool(s, FreeRDP_GfxH264, self.experimentalGraphics && !_compatibleGraphics);
+    freerdp_settings_set_bool(s, FreeRDP_GfxAVC444, self.experimentalGraphics && !_compatibleGraphics);
+    freerdp_settings_set_bool(s, FreeRDP_GfxAVC444v2, self.experimentalGraphics && !_compatibleGraphics);
+    freerdp_settings_set_bool(s, FreeRDP_GfxProgressive, self.experimentalGraphics && !_compatibleGraphics);
     freerdp_settings_set_uint32(s, FreeRDP_TcpConnectTimeout, 20000);
     freerdp_settings_set_uint32(s, FreeRDP_TcpAckTimeout, 20000);
     freerdp_settings_set_bool(s, FreeRDP_TcpKeepAlive, TRUE);
@@ -580,7 +724,10 @@ static void destroyContext(rdpContext *context) {
     if (connected) {
         atomic_store(&_lastWorkerTick, NSProcessInfo.processInfo.systemUptime);
         atomic_store(&_running, true);
-        [self status:@"connected" message:@"RDP connected"];
+        [self status:@"connected"
+             message:(self.experimentalGraphics && !_compatibleGraphics) ? @"RDP connected · experimental GFX requested"
+                                                                         : @"RDP connected · compatible graphics"];
+        double connectedAt = NSProcessInfo.processInfo.systemUptime;
         while (!atomic_load(&_stopped) && !freerdp_shall_disconnect_context(context)) {
             @autoreleasepool {
                 atomic_store(&_lastWorkerTick, NSProcessInfo.processInfo.systemUptime);
@@ -589,9 +736,19 @@ static void destroyContext(rdpContext *context) {
                 if (atomic_load(&_stopped))
                     break;
                 [_clipboardBridge tick];
+                if (self.experimentalGraphics && !_compatibleGraphics &&
+                    (!((FCContext *)context)->lastFrame ||
+                     (((FCContext *)context)->graphicsConnected && !((FCContext *)context)->gfxFrameReceived)) &&
+                    NSProcessInfo.processInfo.systemUptime - connectedAt > 8) {
+                    _graphicsFallback = YES;
+                    break;
+                }
                 HANDLE handles[64];
-                DWORD count = freerdp_get_event_handles(context, handles, 64);
-                if (!count || WaitForMultipleObjects(count, handles, FALSE, 16) == WAIT_FAILED ||
+                DWORD offset = _inputEvent ? 1 : 0;
+                if (_inputEvent)
+                    handles[0] = _inputEvent;
+                DWORD count = freerdp_get_event_handles(context, handles + offset, 64 - offset);
+                if (!count || WaitForMultipleObjects(count + offset, handles, FALSE, 16) == WAIT_FAILED ||
                     !freerdp_check_event_handles(context))
                     break;
             }
@@ -621,7 +778,9 @@ static void destroyContext(rdpContext *context) {
     }
     [_lock unlock];
     // Publish loss before channel/drive teardown, which can take time.
-    if (atomic_load(&_stalled))
+    if (_graphicsFallback)
+        [self status:@"connecting" message:@"No initial graphics frame; retrying once with compatible graphics…"];
+    else if (atomic_load(&_stalled))
         [self status:@"stale" message:@"The RDP connection stopped responding. Closing the old connection…"];
     else if (failure)
         [self status:@"failed" message:failure];
@@ -656,6 +815,25 @@ static void destroyContext(rdpContext *context) {
     [_lock unlock];
     return ready;
 }
+- (BOOL)forceFullSnapshots {
+    return _forceFullSnapshots;
+}
+- (void)recordPDU {
+    atomic_store(&_lastPDU, NSProcessInfo.processInfo.systemUptime);
+}
+- (void)recordPaint {
+    atomic_store(&_lastPaint, NSProcessInfo.processInfo.systemUptime);
+}
+- (NSDictionary<NSString *, NSNumber *> *)performanceStatistics {
+    double now = NSProcessInfo.processInfo.systemUptime;
+    double pdu = atomic_load(&_lastPDU), paint = atomic_load(&_lastPaint), worker = atomic_load(&_lastWorkerTick);
+    return @{
+        @"pduAge" : @(pdu > 0 ? now - pdu : -1),
+        @"paintAge" : @(paint > 0 ? now - paint : -1),
+        @"workerAge" : @(worker > 0 ? now - worker : -1),
+        @"inputQueueMS" : @(atomic_load(&_lastInputDelay))
+    };
+}
 - (BOOL)responsive {
     return !atomic_load(&_running) || NSProcessInfo.processInfo.systemUptime - atomic_load(&_lastWorkerTick) < 30;
 }
@@ -688,9 +866,11 @@ static void destroyContext(rdpContext *context) {
         }];
         [_events removeObjectsAtIndexes:old];
     }
-    if (_events.count < 4096)
-        [_events addObject:event];
-    else {
+    if (_events.count < 4096) {
+        NSMutableDictionary *timed = [event mutableCopy];
+        timed[@"queuedAt"] = @(NSProcessInfo.processInfo.systemUptime);
+        [_events addObject:timed];
+    } else {
         // Silent loss could leave a key/button pressed or discard clipboard
         // deactivation. Bound memory by terminating the session explicitly.
         _eventQueueOverflowed = YES;
@@ -698,6 +878,8 @@ static void destroyContext(rdpContext *context) {
         if (_instance)
             freerdp_abort_connect_context(_instance->context);
     }
+    if (_inputEvent)
+        SetEvent(_inputEvent);
     [_lock unlock];
 }
 - (BOOL)drainEvents:(FCContext *)ctx {
@@ -707,6 +889,10 @@ static void destroyContext(rdpContext *context) {
     BOOL inputReady =
         freerdp_is_active_state(context) && !freerdp_settings_get_bool(context->settings, FreeRDP_SuspendInput);
     [_lock lock];
+    // Reset under the enqueue lock: an arrival after this snapshot stays signaled.
+    // Retained suspended input must not leave the event permanently signaled.
+    if (_inputEvent)
+        ResetEvent(_inputEvent);
     NSArray *events;
     if (inputReady) {
         events = [_events copy];
@@ -727,6 +913,15 @@ static void destroyContext(rdpContext *context) {
         if (atomic_load(&_stopped))
             break;
         NSString *type = event[@"type"];
+        BOOL isInput = [type isEqualToString:@"key"] || [type isEqualToString:@"unicode"] ||
+                       [type isEqualToString:@"pointer"] || [type isEqualToString:@"synchronize"];
+        if (isInput) {
+            double queueMS = (NSProcessInfo.processInfo.systemUptime - [event[@"queuedAt"] doubleValue]) * 1000;
+            atomic_store(&_lastInputDelay, queueMS);
+            os_signpost_event_emit(performanceLog(), OS_SIGNPOST_ID_EXCLUSIVE, "InputDrain", "queue_ms=%f", queueMS);
+            if (self.onInputQueueDelay)
+                self.onInputQueueDelay(queueMS);
+        }
         BOOL sent = YES;
         if ([type isEqualToString:@"key"])
             sent = freerdp_input_send_keyboard_event_ex(

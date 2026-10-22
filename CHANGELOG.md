@@ -5,6 +5,12 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Fix experimental GFX startup by recognizing the full protocol channel name, so the decoder initializes before receiving graphics frames.
+
+- Experimental comparison build: wake the RDP worker immediately for queued input; accumulate dirty desktop patches and upload only missed damage.
+- Experiment with GFX/H.264 using source-built OpenH264, retrying once with compatible graphics if no initial frames arrive; show the observed graphics codec and local pipeline diagnostics in Connection Details.
+- Actual visible drawable presentations and stage signposts support measurement; idle activity ages do not establish remote-path health.
+
 ## 2.0.2 — 2026-10-22
 
 - Pace RDP/VNC desktop uploads to the display refresh rate, coalesce updates during GPU work and preserve Metal drawable resources between frames to reduce presentation overhead.

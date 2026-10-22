@@ -21,7 +21,17 @@ fetch() {
 fetch OpenSSL https://github.com/openssl/openssl.git openssl-3.6.5 c8bd5a57108599ac650bbae77fcabe3109dab2e8
 fetch libssh2 https://github.com/libssh2/libssh2.git master 3209951db4e47ef902db047d12f9f464f835c27e
 fetch FreeRDP https://github.com/FreeRDP/FreeRDP.git 3.32.1 bf217a504e54cc719880c228e82353382cd7d4fa
+fetch OpenH264 https://github.com/cisco/openh264.git v2.7.0 1bca62311e447fd9c39fc93de2c4b96cd5ce971c
 jobs="$(sysctl -n hw.ncpu)"
+mkdir -p .dependencies/build/openh264
+(
+  cd .dependencies/build/openh264
+  export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+  MACOSX_DEPLOYMENT_TARGET=27.0 make -f "$source_root/OpenH264/Makefile" -j "$jobs" \
+    ARCH=arm64 OS=darwin PREFIX="$install_root" CC="$(xcrun --find clang)" CXX="$(xcrun --find clang++)" libraries
+  MACOSX_DEPLOYMENT_TARGET=27.0 make -f "$source_root/OpenH264/Makefile" \
+    ARCH=arm64 OS=darwin PREFIX="$install_root" install-shared
+)
 [[ "$(uname -m)" == arm64 ]] || { echo "Farcast requires Apple silicon." >&2; exit 1; }
 openssl_target=darwin64-arm64-cc
 (
@@ -41,7 +51,7 @@ cmake -S "$source_root/FreeRDP" -B .dependencies/build/freerdp -DCMAKE_BUILD_TYP
   -DBUILD_SHARED_LIBS=ON -DWITH_CLIENT=OFF -DWITH_CLIENT_COMMON=ON -DWITH_SERVER=OFF \
   -DWITH_SAMPLE=OFF -DWITH_SDL=OFF -DWITH_X11=OFF -DWITH_FUSE=OFF -DWITH_CUPS=OFF \
   -DWITH_PCSC=OFF -DWITH_FFMPEG=OFF -DWITH_DSP_FFMPEG=OFF -DWITH_SWSCALE=OFF \
-  -DWITH_OPENH264=OFF -DWITH_GSM=OFF -DWITH_FAAC=OFF -DWITH_FAAD2=OFF -DWITH_LAME=OFF \
+  -DWITH_OPENH264=ON -DWITH_OPENH264_LOADING=OFF -DOPENH264_ROOT="$install_root" -DWITH_GSM=OFF -DWITH_FAAC=OFF -DWITH_FAAD2=OFF -DWITH_LAME=OFF \
   -DWITH_OPUS=OFF -DWITH_VORBIS=OFF -DWITH_ALSA=OFF -DWITH_PULSE=OFF \
   -DWITH_GSSAPI=OFF -DWITH_KRB5=OFF -DWITH_WEBVIEW=OFF -DWITH_MANPAGES=OFF \
   -DCHANNEL_URBDRC=OFF -DWITH_MACAUDIO=ON -DWITH_AAD=OFF -DWITH_JSON_DISABLED=ON \

@@ -66,7 +66,26 @@ for the technical recommendations and their evidence limits.
 
 Basically, after this build, it has improved and behaves like before.
 
+## Startup follow-up
+
+The experimental startup delay was reproduced and a wrong client-side Graphics
+channel event name was corrected. Three subsequent authorized direct starts
+connected on the first attempt and presented GFX frames without the eight-second
+compatible retry. The observed idle codec was non-AVC GFX, so live H.264 selection
+and active-workload improvements still need confirmation. See the
+[startup correction findings](../REVIEW_FINDINGS.md#experimental-gfx-startup-correction).
+
 ## Remaining technical uncertainties
+
+The comparison experiment now attempts dirty-region transport and source-built
+H.264/GFX, and adds native queue/pipeline diagnostics. See the
+[experimental implementation and measured queue results](../REVIEW_FINDINGS.md#experimental-implementation-for-comparison).
+The original uncertainties below describe the baseline investigation; production
+FPS/latency, Windows codec interoperability and remote-path health still need evidence.
+The final standalone full-screen repeat also timed out before observing native
+entry, despite earlier successful workspace/return checks. Please include native
+full-screen entry and close/return in the manual comparison.
+
 
 - The protected live-server probe could not validate the supplied configuration:
   it reported invalid entries or missing SSH fingerprints. This is a test-input

@@ -2,6 +2,14 @@
 #import <Foundation/Foundation.h>
 NS_ASSUME_NONNULL_BEGIN
 @interface FCRDPClient : NSObject
+// Experimental build: requested by session composition, never stored in profiles.
+@property(nonatomic) BOOL experimentalGraphics;
+@property(nonatomic, copy, nullable) void (^onGraphicsPath)(NSString *path);
+@property(nonatomic, copy, nullable) void (^onInputQueueDelay)(double milliseconds);
+// Immutable packed BGRA patch; a geometry change always starts with a full patch.
+@property(nonatomic, copy, nullable) void (^onFrameRegion)
+    (NSData *pixels, NSInteger desktopWidth, NSInteger desktopHeight, NSInteger x, NSInteger y, NSInteger width,
+     NSInteger height);
 // Initial geometry only; one connection owns all monitors. Empty retains legacy behavior.
 @property(nonatomic, copy) NSArray<NSDictionary *> *monitorDefinitions;
 @property(nonatomic, copy, nullable) void (^onDesktopSize)(NSInteger width, NSInteger height);
@@ -17,6 +25,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, copy, nullable) void (^onStopped)(BOOL retryable);
 // Worker progress, independent of incoming frames (an idle desktop is healthy).
 @property(nonatomic, readonly) BOOL responsive;
+// Ages in seconds; -1 means not observed. Silence is not a liveness verdict.
+@property(nonatomic, readonly) NSDictionary<NSString *, NSNumber *> *performanceStatistics;
 - (void)interruptStalledConnection;
 @property(nonatomic, copy) void (^onFrame)(NSData *pixels, NSInteger width, NSInteger height, NSInteger stride);
 @property(nonatomic, copy) BOOL (^onTrust)(NSString *fingerprint, NSString *details);

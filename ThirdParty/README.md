@@ -6,6 +6,7 @@ below. Redistributed builds must retain both Farcast's license and these notices
 
 | Component | Pinned release/revision | License | Upstream |
 |---|---|---|---|
+| OpenH264 | 2.7.0 `1bca62311e447fd9c39fc93de2c4b96cd5ce971c` | BSD-2-Clause | https://github.com/cisco/openh264 |
 | FreeRDP / WinPR | 3.32.1 | Apache-2.0 | https://github.com/FreeRDP/FreeRDP |
 | libssh2 | master `3209951db4e47ef902db047d12f9f464f835c27e` (1.11.2_DEV) | BSD-3-Clause | https://github.com/libssh2/libssh2 |
 | OpenSSL | 3.6.5 | Apache-2.0 | https://github.com/openssl/openssl |

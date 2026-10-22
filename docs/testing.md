@@ -205,3 +205,31 @@ Run `scripts/test-sidebar-migration.sh` to migrate an owned database written wit
 pre-sidebar folder/profile fields. It retains entity and profile identity, defaults
 old folders to expanded roots, then verifies collapse persistence after renaming.
 Core tests also cover nested folder metadata and retained legacy favorite metadata.
+
+
+## Experimental RDP comparison checks
+
+- `scripts/test-rdp-h264.sh`: real FreeRDP AVC420/AVC444v1/AVC444v2 encode/decode at 320 × 240 and
+  1440 × 900 through the linked OpenH264 backend, checking decoded channel error.
+- `scripts/test-rdp-dirty-regions.sh`: exact immutable snapshots, missed generations,
+  independent crops, upload byte bounds, resize and resume, repeated with
+  `FARCAST_FULL_UPLOAD=1` to force full copies/uploads.
+- `scripts/test-rdp-input-latency.sh [adapter-source|--polling-baseline]`: 160 owned TLS enqueue-to-drain
+  samples with p50/p95/p99. A comparison source must include the same timing callback;
+  this does not measure network RTT or input-to-visual latency.
+- `scripts/test-rdp-gfx-fallback.sh`: the first owned activation withholds pixels;
+  the second sends the desktop, proving one-shot compatible retry and cancellation.
+  This tests the watchdog, not Windows GFX/AVC interoperability.
+- `FARCAST_RDP_EXPERIMENTAL_GFX=1 scripts/test-rdp.sh`: requests experimental graphics
+  in the native TLS client while retaining the peer's existing channel/input checks.
+
+The presentation load fixture holds a scoped process-activity assertion and reports
+actual drawable presentation intervals only with visible key-window samples.
+Occluded runs explicitly mark displayed-FPS measurement invalid. Intervals between
+remote updates include idle periods; they are not input-to-visual latency or a
+measurement of maximum achievable frame rate.
+
+`scripts/test-rdp-gfx-channel.sh` dispatches the protocol-defined Graphics DVC name
+through the private native callbacks and verifies GDI codec initialization,
+measurement wrappers and complete channel-close retirement. The short addin name
+`rdpgfx` is not the name published in channel-connected events.

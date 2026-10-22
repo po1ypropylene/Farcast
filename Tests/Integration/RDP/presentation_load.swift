@@ -22,6 +22,10 @@ import MetalKit
                 RunLoop.main.run(until: Date().addingTimeInterval(0.001))
             }
         }
+        let activity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleSystemSleepDisabled],
+            reason: "Owned desktop performance measurement")
+        defer { ProcessInfo.processInfo.endActivity(activity) }
         settle(1)
         print("Presentation window unoccluded: \(window.occlusionState.contains(.visible))")
         let pixels = Data(repeating: 73, count: 3840 * 2160 * 4)
@@ -70,6 +74,21 @@ import MetalKit
                 $0.baseAddress!, bytesPerRow: 4, from: MTLRegionMake2D(0, 0, 1, 1), mipmapLevel: 0)
         }
         precondition(pixel[0] == 91, "Latest frame must converge after overload")
+        let metrics = desktop.presentationMetrics
+        let intervals = metrics.intervals.sorted()
+        if window.occlusionState.contains(.visible), window.isKeyWindow, !intervals.isEmpty {
+            func percentile(_ fraction: Double) -> Double {
+                intervals[min(intervals.count - 1, Int(Double(intervals.count - 1) * fraction))]
+            }
+            print(
+                String(
+                    format: "Distinct presented updates=%llu frame interval p50=%.2f p95=%.2f p99=%.2fms",
+                    metrics.count, percentile(0.5), percentile(0.95), percentile(0.99)))
+        } else {
+            print(
+                "INVALID displayed-FPS measurement: no unoccluded key-window presentation samples; upload-load result only"
+            )
+        }
         print("PASS 4K presentation overload converges to final frame")
     }
 }

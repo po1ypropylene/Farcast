@@ -2,9 +2,10 @@ import AppKit
 import IOKit.hidsystem
 import MetalKit
 import SwiftUI
+import os.signpost
 
 struct DesktopFrame {
-    let pixels: Data
+    var pixels: Data
     let width: Int
     let height: Int
     let stride: Int
@@ -13,6 +14,7 @@ final class FrameMailbox: @unchecked Sendable {
     private let lock = NSLock()
     private var frame: DesktopFrame?
     private var sequence: UInt64 = 0
+    private var damage: [(UInt64, CGRect)] = []
     private var notificationPending = false
     @MainActor private var views: [WeakDesktop] = []
     @MainActor private final class WeakDesktop {
@@ -34,10 +36,63 @@ final class FrameMailbox: @unchecked Sendable {
         lock.lock()
         frame = next
         sequence &+= 1
+        damage = [(sequence, CGRect(x: 0, y: 0, width: next.width, height: next.height))]
         let schedule = !notificationPending
         notificationPending = true
         lock.unlock()
         if schedule { DispatchQueue.main.async { self.publish() } }
+    }
+    // Canonical framebuffer is lock-owned. Data's copy-on-write preserves any
+    // immutable snapshots retained by renderers while patches accumulate.
+    func patch(_ pixels: Data, desktopWidth: Int, desktopHeight: Int, rect: CGRect) {
+        let x = Int(rect.minX)
+        let y = Int(rect.minY)
+        let w = Int(rect.width)
+        let h = Int(rect.height)
+        guard desktopWidth > 0, desktopHeight > 0,
+            desktopWidth <= RDPDisplayLimits.dimension, desktopHeight <= RDPDisplayLimits.dimension,
+            desktopWidth * desktopHeight <= RDPDisplayLimits.pixels,
+            x >= 0, y >= 0, w > 0, h > 0, x + w <= desktopWidth, y + h <= desktopHeight,
+            pixels.count == w * h * 4
+        else { return }
+        lock.lock()
+        if frame?.width != desktopWidth || frame?.height != desktopHeight {
+            guard x == 0, y == 0, w == desktopWidth, h == desktopHeight else {
+                lock.unlock()
+                return
+            }
+            frame = DesktopFrame(
+                pixels: Data(count: desktopWidth * desktopHeight * 4),
+                width: desktopWidth, height: desktopHeight, stride: desktopWidth * 4)
+            damage.removeAll()
+        }
+        let stride = frame!.stride
+        pixels.withUnsafeBytes { source in
+            frame!.pixels.withUnsafeMutableBytes { destination in
+                for row in 0..<h {
+                    destination.baseAddress!.advanced(by: (y + row) * stride + x * 4)
+                        .copyMemory(from: source.baseAddress!.advanced(by: row * w * 4), byteCount: w * 4)
+                }
+            }
+        }
+        sequence &+= 1
+        damage.append((sequence, rect))
+        if damage.count > 64 { damage.removeFirst(damage.count - 64) }
+        let schedule = !notificationPending
+        notificationPending = true
+        lock.unlock()
+        if schedule { DispatchQueue.main.async { self.publish() } }
+    }
+    func update(after previous: UInt64?) -> (UInt64, DesktopFrame, CGRect)? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let frame else { return nil }
+        let full = CGRect(x: 0, y: 0, width: frame.width, height: frame.height)
+        guard let previous, previous < sequence,
+            let first = damage.first, previous >= first.0 - 1
+        else { return (sequence, frame, full) }
+        let region = damage.filter { $0.0 > previous }.reduce(CGRect.null) { $0.union($1.1) }
+        return (sequence, frame, region.width * region.height > full.width * full.height / 2 ? full : region)
     }
     func snapshot() -> (UInt64, DesktopFrame)? {
         lock.lock()
@@ -63,14 +118,27 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     private var lastPointerPoint: CGPoint?
     private var pressedMouseButtons = Set<Int>()
     private var renderedSequence: UInt64?
+    private var uploadedSequence: UInt64?
     private var renderInFlight = false
     private var redrawPending = false
     private var presentationTask: DispatchWorkItem?
     private var lastPresentationTime: TimeInterval = 0
+    private let forceFullUploads = ProcessInfo.processInfo.environment["FARCAST_FULL_UPLOAD"] == "1"
+    private let performanceLog = OSLog(subsystem: "com.peterpo.farcast", category: "DesktopPerformance")
+    private(set) var uploadedBytes: UInt64 = 0
+    private(set) var presentedFrames: UInt64 = 0
+    private var lastPresentedSequence: UInt64?
+    private var presentedTimes: [Double] = []
+    private var presentationEpoch: UInt64 = 0
+    var presentationMetrics: (count: UInt64, intervals: [Double]) {
+        (presentedFrames, zip(presentedTimes.dropFirst(), presentedTimes).map { ($0 - $1) * 1000 })
+    }
     private(set) var renderingSuspended = false
     func suspendRendering(_ suspended: Bool) {
         renderingSuspended = suspended
         if suspended {
+            presentedTimes.removeAll()
+            presentationEpoch &+= 1
             presentationTask?.cancel()
             presentationTask = nil
             redrawPending = false
@@ -315,7 +383,9 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
             redrawPending = true
             return
         }
-        if let (sequence, frame) = mailbox.snapshot(), sequence != renderedSequence, let device {
+        if let (sequence, frame, damage) = mailbox.update(after: renderedSequence),
+            sequence != renderedSequence, let device
+        {
             let region = sourceRect ?? CGRect(x: 0, y: 0, width: frame.width, height: frame.height)
             guard region.minX >= 0, region.minY >= 0, region.maxX <= CGFloat(frame.width),
                 region.maxY <= CGFloat(frame.height), region.width > 0, region.height > 0,
@@ -326,7 +396,8 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
             }
             let width = Int(region.width)
             let height = Int(region.height)
-            if texture?.width != width || texture?.height != height {
+            let fullUpload = texture?.width != width || texture?.height != height
+            if fullUpload {
                 let descriptor = MTLTextureDescriptor.texture2DDescriptor(
                     pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false)
                 descriptor.usage = .shaderRead
@@ -334,13 +405,25 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
                 texture = device.makeTexture(descriptor: descriptor)
                 setDesktopSize(CGSize(width: width, height: height))
             }
-            frame.pixels.withUnsafeBytes { bytes in
-                if let base = bytes.baseAddress {
-                    texture?.replace(
-                        region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0,
-                        withBytes: base.advanced(by: Int(region.minY) * frame.stride + Int(region.minX) * 4),
-                        bytesPerRow: frame.stride)
+            let upload =
+                (fullUpload || forceFullUploads)
+                ? region : damage.intersection(region)
+            if !upload.isNull && !upload.isEmpty {
+                let signpost = OSSignpostID(log: performanceLog)
+                os_signpost(.begin, log: performanceLog, name: "TextureUpload", signpostID: signpost)
+                frame.pixels.withUnsafeBytes { bytes in
+                    if let base = bytes.baseAddress {
+                        texture?.replace(
+                            region: MTLRegionMake2D(
+                                Int(upload.minX - region.minX), Int(upload.minY - region.minY),
+                                Int(upload.width), Int(upload.height)), mipmapLevel: 0,
+                            withBytes: base.advanced(by: Int(upload.minY) * frame.stride + Int(upload.minX) * 4),
+                            bytesPerRow: frame.stride)
+                    }
                 }
+                uploadedSequence = sequence
+                uploadedBytes &+= UInt64(upload.width * upload.height * 4)
+                os_signpost(.end, log: performanceLog, name: "TextureUpload", signpostID: signpost)
             }
             renderedSequence = sequence
         }
@@ -368,6 +451,22 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
                     self.redrawPending = false
                     self.drawLatestFrame()
                 }
+            }
+        }
+        let sequence = uploadedSequence
+        let epoch = presentationEpoch
+        drawable.addPresentedHandler { [weak self] presented in
+            let time = presented.presentedTime
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let sequence, time > 0, self.presentationEpoch == epoch, !self.renderingSuspended,
+                    self.window?.occlusionState.contains(.visible) == true,
+                    self.lastPresentedSequence.map({ sequence > $0 }) ?? true
+                else { return }
+                self.lastPresentedSequence = sequence
+                self.presentedFrames &+= 1
+                self.presentedTimes.append(time)
+                if self.presentedTimes.count > 512 { self.presentedTimes.removeFirst() }
+                os_signpost(.event, log: self.performanceLog, name: "FramePresented")
             }
         }
         buffer.present(drawable)
@@ -419,6 +518,8 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         presentationTask?.cancel()
         presentationTask = nil
         lastPresentationTime = 0
+        presentedTimes.removeAll()
+        presentationEpoch &+= 1
         NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: NSApplication.didResignActiveNotification, object: nil)
@@ -435,7 +536,11 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         requestResize()
         DispatchQueue.main.async { [weak self] in self?.drawLatestFrame() }
     }
-    @objc private func windowVisibilityChanged(_ notification: Notification) { drawLatestFrame() }
+    @objc private func windowVisibilityChanged(_ notification: Notification) {
+        presentedTimes.removeAll()
+        presentationEpoch &+= 1
+        drawLatestFrame()
+    }
     @objc private func inputFocusLost(_ notification: Notification) { releaseInput() }
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
