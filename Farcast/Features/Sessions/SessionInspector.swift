@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SessionInspector: View {
+    @AppStorage("experimentalRDP") private var experimentalRDP = false
     @ObservedObject var session: RemoteSession
     @Binding var isPinned: Bool
     @Binding var isPresented: Bool
@@ -61,10 +62,12 @@ struct SessionInspector: View {
                             LabeledContent(
                                 "Resize with window", value: session.profile.dynamicResolution ? "On" : "Off")
                             LabeledContent("Retina", value: session.profile.retinaDisplay ? "On" : "Off")
-                            LabeledContent("Graphics", value: session.graphicsPath)
-                            if let desktop = session.desktop {
-                                DesktopPerformanceDetails(
-                                    desktop: desktop, protocolStatistics: { session.rdpPerformanceStatistics })
+                            if experimentalRDP && session.experimentalRDPEnabled {
+                                LabeledContent("Graphics", value: session.graphicsPath)
+                                if let desktop = session.desktop {
+                                    DesktopPerformanceDetails(
+                                        desktop: desktop, protocolStatistics: { session.rdpPerformanceStatistics })
+                                }
                             }
                             LabeledContent("Clipboard", value: session.profile.clipboard ? "On" : "Off")
                             LabeledContent("Audio", value: session.profile.audioPlayback ? "On" : "Off")
@@ -128,7 +131,7 @@ private struct DesktopPerformanceDetails: View {
                 }
                 Text("Activity ages do not establish remote-path health.")
                 Text("Distinct presented updates: \(metrics.count)")
-                Text(String(format: "Uploaded: %.1f MiB", Double(desktop.uploadedBytes) / 1_048_576))
+                Text(String(format: "GPU texture writes: %.1f MiB", Double(desktop.uploadedBytes) / 1_048_576))
                 Text("Frame intervals include idle time; these are not input-to-visual latency measurements.")
             }.font(.caption).foregroundStyle(.secondary)
         }

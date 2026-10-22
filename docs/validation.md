@@ -15,7 +15,7 @@ stated scope; disabled live entries report SKIP.
 | SSH forwarding | Local/remote/SOCKS byte equality, live add/edit/remove including initially empty sessions, concurrency, IPv6, server-only DNS, malformed/fragmented messages, backpressure and EOF, policy denial, ports, stop/restart, forwarding-only sessions, file conflicts/cancellation, WireGuard sharing/reconnect/failure and signed sandboxed listeners | Owned loopback/encrypted peers and native off-screen controls; production policy and throughput unverified |
 | VNC | RFB versions/security, DES challenge, TLS trust/refusal, raw/CopyRect/Hextile/Zlib/resize, Unicode key pairs, pointer, typing cancellation and malformed input | Owned synthetic peers; production interoperability is unverified |
 | RDP channels | TLS/NLA, frames, clipboard text/files, folder drives, Display Control PDUs, initial monitor attributes and pointer input | Synthetic peers; channel submission does not prove Windows acceptance |
-| RDP keyboard | Left/right and duplicate modifier snapshots, overlapping Shifts, physical shifted letters, missed-release repair, focus/activation cleanup, Caps Lock synchronization, native window key repeat, menu routing and Unicode pairs; suspended-input retention with clipboard-control progress; TLS/NLA peer decodes ordered keyboard PDUs before and after resumption | Owned AppKit windows and loopback peers; production intermittent failure and Windows Sticky Keys behavior remain unverified. See [keyboard review](rdp-keyboard.md) |
+| RDP keyboard | Left/right and duplicate modifier snapshots, overlapping Shifts, physical shifted letters, missed-release repair, focus/activation cleanup, Caps Lock synchronization, native window key repeat, menu routing and Unicode pairs; suspended-input retention with clipboard-control progress; TLS/NLA peer decodes ordered keyboard PDUs before and after resumption | Owned AppKit windows and loopback peers; production intermittent failure and Windows Sticky Keys behavior remain unverified. See [keyboard input contract](rdp-keyboard.md) |
 | RDP recovery | Idle worker health, stalled-worker interruption, abrupt peer loss, visible stale/failed/reconnecting state, three-attempt backoff, cancellation, teardown ordering, callback generations and same-tab TLS reauthentication | Owned TLS peer and controlled native callbacks; production long-session failure reproduction remains pending |
 | RDP folder browsing | Packed directory formats, compatibility padding at enumeration end, Unicode pagination, trailing separators and nested files; direct/WireGuard fixtures | Signed app on one authorized Windows server with direct transport: complete visible root count and repeated browsing through two subfolder levels. Real writes and other server policies remain unverified |
 | RDP presentation | Cropped Metal uploads, inverse input mapping, letterbox/stale-frame rejection, full-screen startup/exit/re-entry and teardown; closing actual macOS full-screen windows repeatedly preserves first/subsequent frame uploads, latest-frame bursts and keyboard/mouse input without forced test redraws; production pop-out desktop bounds match remote resolution when it fits; matching initial geometry stays free of fallback notices past the deadline during mouse movement and delayed capabilities; genuine missing/ignored/restricted resize fallback; resize opt-in overrides all stored display modes and repeated pop-out/resize/close returns converge on server geometry with Retina on/off against an owned Display Control peer | Marked frames and owned off-screen windows |
@@ -32,15 +32,8 @@ stated scope; disabled live entries report SKIP.
 The 4K desktop presentation load fixture checks final-frame convergence and reports
 CPU time/run-loop gaps under excess frame publication. Refresh pacing and GPU
 ownership are local renderer changes shared by RDP and VNC; they do not establish
-production frame rate or end-to-end input latency. The user reports restored
-performance on Windows Server 2022 at approximately 1440 × 900, without Retina or
-full screen, across the tested transport types. This is user-reported recovery,
-not an instrumented FPS/latency result. Answers and remaining evidence gaps are
-collected in [RDP performance questions](rdp-performance-questions.md).
+production frame rate or end-to-end input latency.
 
-The [protocol review](../REVIEW_FINDINGS.md) and
-[item-by-item checklist](protocol-review-checklist.md) distinguish confirmed input
-fixes, existing safeguards, unsupported features and unperformed diagnostics.
 Deterministic regressions cover SSH submitted-versus-desired PTY resize through
 EAGAIN, partial-write ordering, explicit input overflow, omitted Command key-up,
 and failure of each RDP input send API. These do not reproduce a production
@@ -55,18 +48,15 @@ Production Windows startup smoothness still requires live validation.
 - **Keychain:** synchronous operations can block UI callers during authorization
   or unlocking. The local-file fallback cannot help while a call is waiting.
   Moving I/O off the main actor needs an explicit prompt/cancellation policy.
-- **RDP display:** the experimental build requests GFX/H.264 through source-built
+- **RDP display:** the optional experimental RDP mode requests GFX/H.264 through source-built
   OpenH264, with a one-shot initial-frame fallback to compatible bitmaps. Actual
   CPU tradeoffs and Windows policy interoperability still require the user's
-  comparison. One authorized Windows Server 2022 direct profile established GFX
-  frame delivery on three consecutive first-attempt starts after correcting the
-  dynamic-channel event name. The idle codec observed was non-AVC GFX; this does
-  not prove live H.264 selection, active-workload throughput or universal startup
-  reliability. Dirty patches preserve a coherent canonical
-  image and bounded per-surface damage history; synthetic pixel equality does not
-  prove production visual correctness. The final standalone full-screen repeat
-  timed out before observing native entry; earlier workspace/return checks passed,
-  so final native entry/return still needs manual confirmation. Local activity ages are diagnostic signals,
+  comparison. Synthetic codec tests prove AVC420/AVC444 decoding support, not
+  Windows server codec selection or production startup reliability. Dirty patches
+  preserve a coherent canonical image and bounded per-surface damage history;
+  synthetic pixel equality does not prove production visual correctness. Native
+  full-screen entry and return still require manual confirmation on the final
+  build. Local activity ages are diagnostic signals,
   not a complete remote-path liveness detector. Dynamic
   resizing requires server Display Control support; actual received geometry is
   authoritative. Multi-monitor presentation requires matching monitor confirmation.
@@ -191,3 +181,12 @@ and VPN Connections.
 
 Use only authorized, redacted [live probes](local-testing.md). Do not infer broad
 compatibility from a successful connection, channel write or synthetic renderer test.
+
+Experimental RDP features are controlled by the off-by-default switch in Settings.
+Each RDP connection snapshots it: disabled uses compatible bitmap graphics, full
+frame snapshots/uploads and polling input; enabled uses GFX/H.264 negotiation with
+startup fallback, immediate input wakeups and dirty-region snapshots/uploads.
+Changes take effect on the next connection or reconnect; disabling immediately
+hides experimental Connection Details. Baseline refresh pacing and drawable
+lifecycle fixes remain active in both modes. OpenH264 remains bundled as an
+optional software decoder; the server selects the actual codec.

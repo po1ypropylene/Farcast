@@ -58,6 +58,12 @@ private final class ControlledRDPClient: FCRDPClient {
         }
         let session = makeSession()
         let first = clients.last!
+        let experimental = UserDefaults.standard.bool(forKey: "experimentalRDP")
+        precondition(session.experimentalRDPEnabled == experimental)
+        precondition(first.experimentalGraphics == experimental)
+        precondition(first.inputWakeEnabled == experimental)
+        precondition((first.onFrameRegion != nil) == experimental)
+        print("PASS RDP app preference configures graphics, input wakeups and dirty patches: \(experimental)")
         first.connected()
         wait { session.state == .connected }
         precondition(session.desktop?.inputEnabled == true)

@@ -519,6 +519,7 @@ static void destroyContext(rdpContext *context) {
         atomic_init(&_lastPaint, 0);
         atomic_init(&_lastInputDelay, -1);
         _interruptSocket = -1;
+        _inputWakeEnabled = YES;
         _inputEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
         _forceFullSnapshots = [NSProcessInfo.processInfo.environment[@"FARCAST_FULL_UPLOAD"] isEqualToString:@"1"];
     }
@@ -744,8 +745,8 @@ static void destroyContext(rdpContext *context) {
                     break;
                 }
                 HANDLE handles[64];
-                DWORD offset = _inputEvent ? 1 : 0;
-                if (_inputEvent)
+                DWORD offset = self.inputWakeEnabled && _inputEvent ? 1 : 0;
+                if (offset)
                     handles[0] = _inputEvent;
                 DWORD count = freerdp_get_event_handles(context, handles + offset, 64 - offset);
                 if (!count || WaitForMultipleObjects(count + offset, handles, FALSE, 16) == WAIT_FAILED ||

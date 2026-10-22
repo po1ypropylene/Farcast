@@ -388,7 +388,7 @@ Keyboard surfaces reconcile left/right modifier snapshots and release tracked in
 responder, window/app activation, reparenting and input-disable transitions. Ordinary
 US text commits retain physical scan-code pairs; other committed text keeps Unicode
 pairs. Caps Lock uses ordered RDP Synchronize events. See the
-[keyboard review](rdp-keyboard.md) for event routing, evidence and layout limits.
+[keyboard input contract](rdp-keyboard.md) for event routing, evidence and layout limits.
 The bounded native event queue coalesces consecutive pure pointer motion while
 preserving key/button/wheel ordering. During FreeRDP reactivation/input suspension,
 keyboard/pointer/toggle events remain queued rather than entering APIs that silently
@@ -856,9 +856,9 @@ and unsupported pushed tunnel settings fail rather than silently changing policy
 Native logs are discarded; helper responses contain fixed error categories only.
 
 
-## Experimental RDP comparison behavior
+## Optional experimental RDP behavior
 
-The comparison experiment requests GFX with AVC420/AVC444 support using linked,
+Experimental RDP mode requests GFX with AVC420/AVC444 support using linked,
 source-built OpenH264. Codec names are reported only after successful GFX surface
 commands; a requested path is distinct from an observed path. If no initial desktop
 frame arrives, or an opened GFX channel never completes its first frame within eight
@@ -881,3 +881,12 @@ GFX channel events use `RDPGFX_DVC_CHANNEL_NAME`, not the short `rdpgfx` addin n
 Connect initializes the GDI pipeline before installing measurement wrappers; close
 retires its codecs and clears active state and saved callback pointers. Channel
 name dispatch is covered by a negative-control initialization/cleanup regression.
+
+Experimental RDP features are controlled by the off-by-default switch in Settings.
+Each RDP connection snapshots it: disabled uses compatible bitmap graphics, full
+frame snapshots/uploads and polling input; enabled uses GFX/H.264 negotiation with
+startup fallback, immediate input wakeups and dirty-region snapshots/uploads.
+Changes take effect on the next connection or reconnect; disabling immediately
+hides experimental Connection Details. Baseline refresh pacing and drawable
+lifecycle fixes remain active in both modes. OpenH264 remains bundled as an
+optional software decoder; the server selects the actual codec.

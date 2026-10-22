@@ -5,6 +5,7 @@ struct AppSettings: View {
     @AppStorage("appearance") private var appearance = "System"
     @AppStorage("restoreWorkspace") private var restoreWorkspace = true
     @AppStorage(SSHInteractionView.rightClickPreference) private var sshRightClickAction = "menu"
+    @AppStorage("experimentalRDP") private var experimentalRDP = false
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             FormSection(title: "General") {
@@ -35,17 +36,19 @@ struct AppSettings: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            FormSection(title: "Security") {
-                Label(
-                    "Credentials use Keychain when available, with owner-only local files for development builds. Local files are not encrypted.",
-                    systemImage: "lock"
+            FormSection(title: "Remote Desktop") {
+                Toggle("Experimental RDP features", isOn: $experimentalRDP)
+                Text(
+                    "Enables GFX/H.264, immediate input wakeups, dirty-region updates and diagnostic metrics. Off by default. Applies when connecting or reconnecting."
                 )
                 .font(.caption).foregroundStyle(.secondary)
             }
             FormSection(title: "About") {
-                FormRow(label: "Protocols") { Text("SSH · SFTP · RDP · VNC").foregroundStyle(.secondary) }
                 FormRow(label: "Version") {
-                    Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown")
+                    let version =
+                        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
+                    let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown"
+                    Text("\(version) (Build \(build))")
                         .foregroundStyle(.secondary).textSelection(.enabled)
                 }
             }

@@ -2,8 +2,9 @@
 #import <Foundation/Foundation.h>
 NS_ASSUME_NONNULL_BEGIN
 @interface FCRDPClient : NSObject
-// Experimental build: requested by session composition, never stored in profiles.
+// Set before connecting; session composition snapshots the app preference.
 @property(nonatomic) BOOL experimentalGraphics;
+@property(nonatomic) BOOL inputWakeEnabled;
 @property(nonatomic, copy, nullable) void (^onGraphicsPath)(NSString *path);
 @property(nonatomic, copy, nullable) void (^onInputQueueDelay)(double milliseconds);
 // Immutable packed BGRA patch; a geometry change always starts with a full patch.

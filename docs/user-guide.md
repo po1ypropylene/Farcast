@@ -554,3 +554,11 @@ Hosts requiring ProxyJump or ProxyCommand are omitted. Include files, Match bloc
 keys, passwords, trust decisions and all other SSH options are not imported. No
 connection starts automatically; edit imported profiles before connecting. Existing
 SSH endpoints with the same username and port are skipped.
+
+## Experimental RDP features
+
+Farcast → Settings → Remote Desktop offers an off-by-default experimental switch
+for GFX/H.264, immediate input wakeups and dirty-region updates. Reconnect to apply
+a change. Disabling also hides experimental metrics in Connection Details
+immediately. GPU texture writes count cumulative local memory transfers, not
+network uploads or SSD writes. H.264 requires server support and selection.

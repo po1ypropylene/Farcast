@@ -1,32 +1,10 @@
-# RDP keyboard review
-
-## Symptoms and evidence
-
-Keyboard input and clipboard redirection take different paths. Desktop key events
-pass through AppKit, `RDPDesktopView`, the native input queue and FreeRDP input PDUs.
-Clipboard updates use `RDPClipboardBridge` and the `cliprdr` channel. A working
-mouse-driven Paste therefore does not prove that the view owns keyboard focus,
-that Windows has no held modifier, or that its keyboard input path is healthy.
-The reported intermittent Windows failure has not been reproduced on the user's
-server. The following defects were established by source inspection and owned
-AppKit/loopback regressions; their contribution to that incident remains an inference.
-
-| Finding | Consequence | Correction |
-| --- | --- | --- |
-| Modifier direction was inferred by toggling the last stored state on each `flagsChanged` notification. | Duplicate snapshots could alternate press/release. Left/right overlap and missed releases could desynchronize Windows. | Reconcile actual left/right device flags from Apple's `IOLLEvent.h`, emitting only state transitions. Aggregate-only synthetic events retain known sides. |
-| Printable text always used Unicode, even ordinary US letters, while physical Shift events were sent separately. | Typing capitals could leave a stream of physical Shift taps without physical letter events. This is a plausible trigger for Windows' Sticky Keys gesture. | When AppKit commits the expected US character for that physical key and Shift/Caps state, send its scan code and retain it until key-up. Other text commits retain paired UTF-16 Unicode events. No Shift release/repress is synthesized around each character. |
-| The native worker drained input even when FreeRDP was inactive/suspended. Its input API returns success while silently skipping those events. | Releases during graphics reactivation, including resize, could disappear despite the app believing they were delivered. | Retain scan-code, Unicode, pointer and synchronization events in the bounded queue until active input resumes. Process clipboard/control events meanwhile so ownership cancellation is not delayed. |
-| Resigning first responder released input, but retaining that responder while its window/app lost activation did not reliably do so. | A modifier released in another app could remain held remotely, making subsequent keys act like shortcuts. Clipboard and mouse input could continue working. | Observe the surface's own window losing key status and the application losing activation. Release tracked keys/buttons on those transitions, reparenting and input disable. Reconcile modifier snapshots on subsequent keyboard/pointer events to repair missed releases and recognize held modifiers on return. |
-| Marked input survived input release. | Abandoned composition could affect later typing after focus/session changes. | Discard the input context's marked text and clear the local marked state on release. |
-| Caps Lock toggled Windows for every notification rather than synchronizing an absolute state. | Repeated notifications and changes while unfocused could reverse its state unexpectedly. | Queue RDP Synchronize events on state changes and before input after focus return. Full-screen surfaces share the callback. |
-| Only a short hard-coded list of app shortcuts escaped the desktop's key-equivalent handler. | Commands such as Quick Connect could be consumed as remote keystrokes. | Also recognize registered native menu equivalents, release forwarded Command state, and let AppKit dispatch them locally. Keep Command-C/X/V/A mapped to balanced Windows Control shortcuts. |
-| Only left mouse-down explicitly reclaimed first responder. | Right-click interaction could leave keyboard focus on a local control. | All supported mouse-button presses reclaim the desktop responder. |
+# RDP keyboard input
 
 ## Input contract
 
 `RDPDesktopView` owns AppKit input state on the main actor. Windowed, detached and
 full-screen surfaces use the same implementation. Selection, presentation teardown,
-manual disconnect and recovery already call `releaseInput`; the view now additionally
+manual disconnect and recovery call `releaseInput`; the view also
 handles activation and responder changes locally. Releases are idempotent. A late
 key-up after release does not emit another remote release. Repeated physical
 key-down events remain repeated presses with one final key-up.
@@ -36,7 +14,7 @@ is appropriate. IME/other committed text is not guessed from the physical key:
 UTF-16 code units, including surrogate pairs, each have a down/up pair. Physical
 navigation, function keys, Control/Option shortcuts and Windows-key combinations
 retain the existing scan-code path. Mac Option continues to mean remote Alt;
-local Option dead-key composition is not added by this change. Command editing
+local Option dead-key composition is not supported. Command editing
 shortcuts suppress forwarded Windows keys until Command is actually released.
 App and session shortcuts release held input before handing control to AppKit.
 

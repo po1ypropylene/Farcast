@@ -5,11 +5,15 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
-- Fix experimental GFX startup by recognizing the full protocol channel name, so the decoder initializes before receiving graphics frames.
+## 2.1.0 — 2026-10-22
 
-- Experimental comparison build: wake the RDP worker immediately for queued input; accumulate dirty desktop patches and upload only missed damage.
-- Experiment with GFX/H.264 using source-built OpenH264, retrying once with compatible graphics if no initial frames arrive; show the observed graphics codec and local pipeline diagnostics in Connection Details.
-- Actual visible drawable presentations and stage signposts support measurement; idle activity ages do not establish remote-path health.
+- Add an off-by-default Settings switch for experimental RDP graphics, input wakeups and dirty-region updates; changes apply on the next connection. Hide experimental Connection Details when disabled and clarify GPU texture write metrics.
+- Remove superseded review reports and question-and-answer records; retain current architecture, procedures and validation limits.
+- Simplify Settings About to show the version and build number; remove the Protocols row and Security section.
+
+- Support optional GFX/H.264 with source-built OpenH264 and initialize its decoder on the protocol graphics channel; retry once with compatible graphics if initial frames fail to arrive.
+- Wake the RDP worker immediately for queued input and upload only missed desktop damage when experimental mode is enabled.
+- Show observed graphics codecs, local pipeline activity and visible presentation metrics for experimental sessions; activity ages do not establish remote-path health.
 
 ## 2.0.2 — 2026-10-22
 

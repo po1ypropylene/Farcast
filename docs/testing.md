@@ -233,3 +233,7 @@ measurement of maximum achievable frame rate.
 through the private native callbacks and verifies GDI codec initialization,
 measurement wrappers and complete channel-close retirement. The short addin name
 `rdpgfx` is not the name published in channel-connected events.
+
+The RDP reconnect suite runs session composition with experimental RDP disabled
+and enabled using process-local preference overrides. It checks graphics requests,
+input wakeups and patch callbacks without changing the user’s saved preference.

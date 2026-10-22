@@ -48,7 +48,8 @@ import SwiftTerm
     private let screenSnapshot: @MainActor (Bool, NSScreen?) -> [RDPDisplayScreen]
     @Published private(set) var observedDesktopSize: CGSize?
     @Published private(set) var initialResolution = ""
-    @Published private(set) var graphicsPath = "GFX / H.264 requested (experimental)"
+    @Published private(set) var experimentalRDPEnabled = false
+    @Published private(set) var graphicsPath = "Compatible bitmap graphics"
     @Published private(set) var latestFailure = ""
     private var confirmedMonitors = false
     private var startupPresentationPending = false
@@ -418,21 +419,26 @@ import SwiftTerm
                 DispatchQueue.main.async { self?.rdpStopped(retryable: retryable, attempt: attempt) }
             }
             client.onTrust = trustCallback(attempt: attempt)
-            graphicsPath = "GFX / H.264 requested (experimental)"
-            client.experimentalGraphics = true
+            experimentalRDPEnabled = UserDefaults.standard.bool(forKey: "experimentalRDP")
+            graphicsPath =
+                experimentalRDPEnabled ? "GFX / H.264 requested (experimental)" : "Compatible bitmap graphics"
+            client.experimentalGraphics = experimentalRDPEnabled
+            client.inputWakeEnabled = experimentalRDPEnabled
             client.onGraphicsPath = { [weak self] path in
                 DispatchQueue.main.async {
                     guard let self, self.generation == attempt, self.state.active else { return }
                     if self.graphicsPath != path {
                         self.graphicsPath = path
-                        self.record("Graphics: \(path)")
+                        if self.experimentalRDPEnabled { self.record("Graphics: \(path)") }
                     }
                 }
             }
-            client.onFrameRegion = { [weak desktop] data, width, height, x, y, w, h in
-                desktop?.mailbox.patch(
-                    data, desktopWidth: width, desktopHeight: height,
-                    rect: CGRect(x: x, y: y, width: w, height: h))
+            if experimentalRDPEnabled {
+                client.onFrameRegion = { [weak desktop] data, width, height, x, y, w, h in
+                    desktop?.mailbox.patch(
+                        data, desktopWidth: width, desktopHeight: height,
+                        rect: CGRect(x: x, y: y, width: w, height: h))
+                }
             }
             client.onFrame = { [weak desktop] data, width, height, stride in
                 desktop?.submit(data, width: width, height: height, stride: stride)
