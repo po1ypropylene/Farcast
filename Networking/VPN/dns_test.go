@@ -44,7 +44,7 @@ func TestSplitDNSUsesConfiguredResolverOutsideTunnel(t *testing.T) {
 	r, _ := fixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	dev, stack, allowed, err := start(ctx, r)
+	dev, stack, allowed, err := startWireGuard(ctx, r)
 	if err != nil {
 		t.Fatal("start")
 	}
@@ -67,7 +67,7 @@ func TestPrivateDNSUsesEncryptedTunnel(t *testing.T) {
 	r, server := fixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	dev, stack, allowed, err := start(ctx, r)
+	dev, stack, allowed, err := startWireGuard(ctx, r)
 	if err != nil {
 		t.Fatal("start")
 	}

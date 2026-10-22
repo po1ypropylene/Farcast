@@ -163,4 +163,23 @@ All generated paths above are Git-ignored. Command-line Xcode builds explicitly 
 
 After relocating the checkout, discard `.build`, `.dependencies/build`, `.dependencies/rdp-fixture` and `Vendor/Native`, then rebuild. Native build trees/install prefixes retain absolute paths. Recreate the test venv at its new location; virtual environments are not relocatable. Preserve `.local-testing`. Source checkouts and package/module downloads can remain.
 
+## VPN helper source migration
+
+The shared Go helper now lives in `Networking/VPN`, with Go module
+`com.peterpo.farcast/vpn`. A normal Git update includes the move. For an older
+source checkout maintained separately, stop builds and run the retained one-time
+script from the updated checkout:
+
+```sh
+python3 scripts/migrate-vpn-helper.py --root /path/to/older-checkout
+```
+
+It moves the old helper directory and updates the known build, test, dependency
+and documentation references, preserving local source edits. It refuses symlinked
+paths or a conflicting destination and is safe to rerun. Review the diff and
+rebuild; the script relocates sources, while the engine file split comes from the
+normal source update. It does not migrate installed app data: saved profile IDs,
+SwiftData identities, credentials, JSON messages and the signed `FarcastWireGuard`
+executable stay compatible. Existing installations need only the updated app.
+
 See [testing](testing.md) for repeatable checks and artifact cleanup, [packaging](packaging.md) for signing constraints, and [architecture](architecture.md) for ownership and security decisions.

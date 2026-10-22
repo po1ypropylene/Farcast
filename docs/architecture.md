@@ -43,10 +43,18 @@ the preparation script so changed pins or flags require rebuilding.
 | Protocols/RDP | Metal view, scrolling, input and latest-frame mailbox |
 | Native/SSH, Native/RDP, Native/VNC | Independently written Objective-C protocol adapters |
 | Native/Transport | Shared authenticated WireGuard socket handshake and redacted diagnostics |
-| Networking/WireGuard | Shared Go helper and gVisor stack with WireGuard and OpenVPN engines |
+| Networking/VPN | Shared Go helper and gVisor stack with WireGuard and OpenVPN engines |
 | Networking/OpenVPN | Independently written C++ OpenVPN Core adapter and private packet bridge |
 | Tests/CoreTests, Integration, Maintenance | Core, protocol/UI coordination and disposable script checks |
 | Tests/Fixtures | Blank disabled server-document example required by setup/import |
+
+The shared VPN helper lives in `Networking/VPN`: `main.go` owns request dispatch,
+session listeners and transport lifetime, `wireguard.go` owns WireGuard device
+setup, `openvpn.go` bridges OpenVPN Core, and `dns.go` owns shared DNS policy.
+Both engines use the Go/gVisor stack; C++ stays behind the OpenVPN packet bridge.
+The executable/signing identity and JSON messages remain compatible, as do saved
+profile/schema and credential identities. The source-only directory migration is
+documented in [development](development.md#vpn-helper-source-migration).
 
 App source folders are under Farcast. Xcode's synchronized group includes
 files there automatically; keep test-only tools/secrets outside it. Package.swift

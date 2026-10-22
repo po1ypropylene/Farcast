@@ -1,4 +1,4 @@
-com.peterpo.farcast/wireguard
+com.peterpo.farcast/vpn
 github.com/BurntSushi/toml v1.4.1-0.20240526193622-a339e1f7089c
 github.com/Microsoft/go-winio v0.6.0
 github.com/Microsoft/hcsshim v0.9.12

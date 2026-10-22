@@ -5,6 +5,8 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Clarify the shared VPN helper structure, separating WireGuard setup from shared session handling; retain existing saved profiles and helper compatibility.
+
 ## 2.1.0 — 2026-10-22
 
 - Add an off-by-default Settings switch for experimental RDP graphics, input wakeups and dirty-region updates; changes apply on the next connection. Hide experimental Connection Details when disabled and clarify GPU texture write metrics.

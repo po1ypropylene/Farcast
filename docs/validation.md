@@ -25,7 +25,7 @@ stated scope; disabled live entries report SKIP.
 | OpenVPN | Safe profile import, credential coding, ZIP/folder/manual companion import, UDP/TCP TLS negotiation, legacy AES-CBC/LZO framing, encrypted outbound IP delivery, certificate rejection, shared leases, route refusal and cancellation against an owned null-device peer | Synthetic certificates only; production interoperability and full desktop/file traffic remain unverified |
 | WireGuard | Encrypted loopback traffic, concurrent SSH/SFTP/RDP/VNC on one helper, independent disconnect/reconnect, DNS/route and host-key refusal, shared-helper failure/cleanup and schema migration | Generated keys and owned peers |
 | Packaging/signing | Platform, library closure, signatures, loader, sandboxed helper, certificate continuity, mounted bundle and SHA256 | Local development artifact; distribution is separate |
-| Maintenance | Cleanup boundaries, dependency rollback, signing policy, harness teardown and repository hygiene | Disposable files and mocked destructive operations |
+| Maintenance | Cleanup boundaries, dependency rollback, signing policy, harness teardown, VPN helper source migration and repository hygiene | Disposable files and mocked destructive operations |
 
 ## Known implementation limits
 

@@ -1,4 +1,4 @@
-module com.peterpo.farcast/wireguard
+module com.peterpo.farcast/vpn
 
 go 1.27.0
 

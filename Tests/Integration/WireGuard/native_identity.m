@@ -9,13 +9,35 @@ static int fakeConnect(rdpContext *context, rdpSettings *settings, const char *h
         strcmp(freerdp_settings_get_string(settings, FreeRDP_ServerHostname), "private.example") ||
         freerdp_settings_get_uint32(settings, FreeRDP_ServerPort) != 3389)
         return -1;
-    int pair[2];
-    if (socketpair(AF_UNIX, SOCK_STREAM, 0, pair))
+    // The monitored hook applies TCP options, so use an owned TCP pair rather
+    // than an AF_UNIX socketpair for its simulated helper connection.
+    int listener = socket(AF_INET, SOCK_STREAM, 0);
+    if (listener < 0)
         return -1;
-    peer = pair[1];
+    struct sockaddr_in address = {.sin_len = sizeof(address), .sin_family = AF_INET};
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    socklen_t length = sizeof(address);
+    if (bind(listener, (struct sockaddr *)&address, length) || listen(listener, 1) ||
+        getsockname(listener, (struct sockaddr *)&address, &length)) {
+        close(listener);
+        return -1;
+    }
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0 || connect(fd, (struct sockaddr *)&address, length)) {
+        if (fd >= 0)
+            close(fd);
+        close(listener);
+        return -1;
+    }
+    peer = accept(listener, NULL, NULL);
+    close(listener);
+    if (peer < 0) {
+        close(fd);
+        return -1;
+    }
     BYTE ack = reply;
     write(peer, &ack, 1);
-    return pair[0];
+    return fd;
 }
 int main(void) {
     @autoreleasepool {
@@ -37,9 +59,9 @@ int main(void) {
         ctx->directTCPConnect = fakeConnect;
         freerdp_settings_set_string(context->settings, FreeRDP_ServerHostname, "private.example");
         freerdp_settings_set_uint32(context->settings, FreeRDP_ServerPort, 3389);
-        BOOL pass = tunnelTCPConnect(context, context->settings, "other.example", 3389, 1000) < 0 && calls == 0;
-        pass = pass && tunnelTCPConnect(context, context->settings, "private.example", 3390, 1000) < 0 && calls == 0;
-        int fd = tunnelTCPConnect(context, context->settings, "private.example", 3389, 1000);
+        BOOL pass = monitoredTCPConnect(context, context->settings, "other.example", 3389, 1000) < 0 && calls == 0;
+        pass = pass && monitoredTCPConnect(context, context->settings, "private.example", 3390, 1000) < 0 && calls == 0;
+        int fd = monitoredTCPConnect(context, context->settings, "private.example", 3389, 1000);
         BYTE token[32];
         pass = pass && fd >= 0 && calls == 1 && read(peer, token, sizeof(token)) == 32;
         for (int i = 0; i < 32; i++)
@@ -51,7 +73,7 @@ int main(void) {
         for (BYTE code = 2; code <= 5; code++) {
             reply = code;
             client.tunnelFailure = nil;
-            int refused = tunnelTCPConnect(context, context->settings, "private.example", 3389, 1000);
+            int refused = monitoredTCPConnect(context, context->settings, "private.example", 3389, 1000);
             pass = pass && refused < 0 && client.tunnelFailure.length > 0 &&
                    [client.tunnelFailure rangeOfString:@"private.example"].location == NSNotFound;
             if (refused >= 0)

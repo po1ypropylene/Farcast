@@ -10,6 +10,8 @@ out = Path(sys.argv[1])
 for name in ['Domain/ConnectionDraft.swift', 'Persistence/SavedConnection.swift']:
     source = Path('Farcast') / name
     text = source.read_text()
+    # This computed property uses display fields omitted from the baseline model.
+    text = re.sub(r"    var effectiveDisplayMode: RDPDisplayMode \{.*?\n    \}\n", "", text, flags=re.S)
     text = re.sub(r"        if let data = saved.rdpFolderExports \{.*?\n        \}", "", text, flags=re.S)
     text = re.sub(r"        if kind == \.rdp \{.*?\n        \}", "", text, flags=re.S)
     text = re.sub(r"        if let data = saved.sshForwardingRules \{.*?\n        \}", "", text, flags=re.S)

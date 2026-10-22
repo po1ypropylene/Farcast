@@ -175,7 +175,7 @@ exit {status}
         module.PREPARE = self.root / 'scripts/prepare-dependencies.sh'
         module.PROJECT = self.root / 'Farcast.xcodeproj/project.pbxproj'
         module.RESOLVED = self.root / 'Package.resolved'
-        module.GO = self.root / 'Networking/WireGuard'
+        module.GO = self.root / 'Networking/VPN'
         self.git('init', '-q')
         old_library = self.root / 'Vendor/Native/lib/old.dylib'
         old_library.parent.mkdir(parents=True)
@@ -237,7 +237,7 @@ exit {status}
         for relative in ('scripts/update-dependencies.py', 'scripts/clean-project.py', 'scripts/prepare-dependencies.sh',
                          'Farcast.xcodeproj/project.pbxproj',
                          'Farcast.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved',
-                         'Networking/WireGuard/go.mod', 'Networking/WireGuard/go.sum',
+                         'Networking/VPN/go.mod', 'Networking/VPN/go.sum',
                          'ThirdParty/README.md', 'ThirdParty/WireGuard-build-modules.txt'):
             path = self.root / relative
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -247,7 +247,7 @@ exit {status}
         module.PREPARE = self.root / 'scripts/prepare-dependencies.sh'
         module.PROJECT = self.root / 'Farcast.xcodeproj/project.pbxproj'
         module.RESOLVED = self.root / 'Farcast.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved'
-        module.GO = self.root / 'Networking/WireGuard'
+        module.GO = self.root / 'Networking/VPN'
         self.git('init', '-q')
         before = {p: p.read_bytes() for p in self.root.rglob('*') if p.is_file() and '.git' not in p.parts}
         with patch('sys.argv', ['update', '--swiftterm', '1.21.0', '--apply']), \

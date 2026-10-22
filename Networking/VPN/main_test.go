@@ -178,7 +178,7 @@ func TestAllowedIPsAndCancellation(t *testing.T) {
 	r, _ := fixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	dev, stack, allowed, err := start(ctx, r)
+	dev, stack, allowed, err := startWireGuard(ctx, r)
 	if err != nil {
 		t.Fatal("start")
 	}
@@ -192,7 +192,7 @@ func TestAllowedIPsAndCancellation(t *testing.T) {
 		t.Fatal("cancelled dial succeeded")
 	}
 	r.Configuration.DNS = "10.112.0.1"
-	if dev, _, _, err := start(ctx, r); err != nil {
+	if dev, _, _, err := startWireGuard(ctx, r); err != nil {
 		t.Fatal("split-tunnel DNS rejected at startup")
 	} else {
 		dev.Close()

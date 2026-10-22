@@ -42,5 +42,5 @@ export FARCAST_WG_SESSION_SSH_PORT="$(cat "$fixture_root/ssh/port")"
 export FARCAST_WG_SESSION_RDP_PORT="$port"
 export FARCAST_WG_SESSION_VNC_PORT="$(cat "$fixture_root/vnc/port")"
 export GOCACHE="$PWD/.dependencies/go/build" GOMODCACHE="$PWD/.dependencies/go/modules"
-cd Networking/WireGuard
+cd Networking/VPN
 go test -race -count=1 -timeout=180s -run '^TestMixedProtocolSessions$' -v .

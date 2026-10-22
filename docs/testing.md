@@ -40,7 +40,7 @@ scripts/prepare-rdp-fixture.sh
 | `scripts/test-workspace.sh`, `scripts/test-rdp-window-return.sh` | Tabs/reconnect, prompts, sign-in retry, AppKit shutdown, detached surfaces, exact desktop pop-out sizing, repeated macOS full-screen close with changing frames and input, cropped Metal frames, terminal menus and controlled RDP retry/stall/cancellation callbacks |
 | `scripts/test-wireguard.sh`, `scripts/test-wireguard-rdp.sh`, `scripts/test-wireguard-sessions.sh`, `scripts/test-wireguard-lifecycle.sh` | Go race checks, encrypted RDP, concurrent production SSH/SFTP/forwarding/RDP/VNC sessions sharing one helper, forwarded byte equality, endpoint identity, fail-closed routing and shared-lease lifecycle |
 | `scripts/test-signing-continuity.sh` | Changed binaries retain certificate requirement and synthetic Keychain access |
-| `python3 -m unittest discover -s Tests/Maintenance -v` | Cleanup, update rollback, signing rules and harness teardown |
+| `python3 -m unittest discover -s Tests/Maintenance -v` | Cleanup, update rollback, signing rules, harness teardown and idempotent VPN helper source migration with collision/symlink refusal |
 | `scripts/test-live-fixtures.sh` | Redacted probe behavior against synthetic SSH/RDP servers |
 | `python3 scripts/check-repository-hygiene.py` | Ignore rules, blank fixture, protected-file permissions and secret-file exclusion |
 

@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parent.parent
 PREPARE = ROOT / 'scripts/prepare-dependencies.sh'
 PROJECT = ROOT / 'Farcast.xcodeproj/project.pbxproj'
 RESOLVED = ROOT / 'Farcast.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved'
-GO = ROOT / 'Networking/WireGuard'
+GO = ROOT / 'Networking/VPN'
 NATIVE = {
     'openssl': ('OpenSSL', 'https://github.com/openssl/openssl.git', 'openssl-'),
     'libssh2': ('libssh2', 'https://github.com/libssh2/libssh2.git', 'libssh2-'),
