@@ -35,11 +35,39 @@ static freerdp *fixtureInstance(FCRDPClient *client) {
     memcpy(&instance, (const uint8_t *)(__bridge const void *)client + ivar_getOffset(field), sizeof(instance));
     return instance;
 }
+static void checkControlAltDeleteOrdering(void) {
+    FCRDPClient *client = [FCRDPClient new];
+    dispatch_apply(100, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^(size_t index) {
+      [client sendControlAltDelete];
+      [client sendUnicode:0x61 pressed:NO];
+    });
+    NSArray<NSDictionary *> *events = object_getIvar(client, class_getInstanceVariable(FCRDPClient.class, "_events"));
+    NSCAssert(events.count == 700, @"Concurrent producers retain every event");
+    NSUInteger sequences = 0;
+    for (NSUInteger i = 0; i < events.count;) {
+        if ([events[i][@"type"] isEqual:@"unicode"]) {
+            i++;
+            continue;
+        }
+        NSArray *codes = @[ @0x1D, @0x38, @0x53, @0x53, @0x38, @0x1D ];
+        for (NSUInteger j = 0; j < codes.count; j++) {
+            NSCAssert(i + j < events.count && [events[i + j][@"type"] isEqual:@"key"] &&
+                          [events[i + j][@"code"] isEqual:codes[j]] && [events[i + j][@"pressed"] boolValue] == (j < 3),
+                      @"Ctrl-Alt-Delete must remain contiguous under concurrent input");
+        }
+        i += codes.count;
+        sequences++;
+    }
+    NSCAssert(sequences == 100, @"Every sequence is complete");
+    puts("PASS concurrent Ctrl-Alt-Delete queue ordering");
+}
 int main(int argc, char **argv) {
     @autoreleasepool {
         if (argc < 3)
             return 2;
         NSString *mode = @(argv[1]);
+        if ([mode isEqualToString:@"keyboard"])
+            checkControlAltDeleteOrdering();
         NSInteger port = atoi(argv[2]);
         FCRDPClient *client = [FCRDPClient new];
         client.experimentalGraphics = NSProcessInfo.processInfo.environment[@"FARCAST_RDP_EXPERIMENTAL_GFX"].boolValue;
@@ -53,6 +81,7 @@ int main(int argc, char **argv) {
         __block BOOL trusted = NO, connected = NO, failed = NO, frame = NO;
         BOOL inputOverflowTest = [mode isEqualToString:@"input-overflow"];
         BOOL inputFailureTest = [mode hasPrefix:@"send-failure-"];
+        BOOL clipboardTimeoutTest = [mode isEqualToString:@"clipboard-timeout"];
         __block BOOL retryable = NO;
         client.onStopped = ^(BOOL canRetry) {
           retryable = canRetry;
@@ -233,6 +262,15 @@ int main(int argc, char **argv) {
         client.onStatus = ^(NSString *state, NSString *message) {
           if ([state isEqualToString:@"connected"]) {
               connected = YES;
+              if (clipboardTimeoutTest) {
+                  FCRDPClipboard *clipboard =
+                      object_getIvar(weakClient, class_getInstanceVariable(FCRDPClient.class, "_clipboardBridge"));
+                  // Model an outstanding wire reply without waiting 30 real seconds.
+                  [clipboard setValue:@13 forKey:@"pendingFormat"];
+                  [clipboard setValue:@(NSProcessInfo.processInfo.systemUptime - 31) forKey:@"lastProgress"];
+                  [clipboard tick];
+                  return;
+              }
               if (inputFailureTest) {
                   freerdp *instance = fixtureInstance(weakClient);
                   NSCAssert(instance && freerdp_is_active_state(instance->context), @"Owned active context required");
@@ -348,6 +386,8 @@ int main(int argc, char **argv) {
         BOOL pass = !timeout && drained && trusted;
         if (inputOverflowTest)
             pass = pass && connected && failed && overloadReported;
+        else if (clipboardTimeoutTest)
+            pass = pass && connected && failed && retryable;
         else if (inputFailureTest)
             pass = pass && connected && failed && retryable && failedInputCalls == 1;
         else if ([mode isEqualToString:@"reject"] || [mode isEqualToString:@"bad-password"])

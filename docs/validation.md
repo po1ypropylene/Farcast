@@ -14,7 +14,7 @@ stated scope; disabled live entries report SKIP.
 | SSH/SFTP | Authentication/trust, fresh sign-in retry, file-only fallback, byte equality, overwrite/move safety, cancellation, terminal scheduling and throughput; navigation history, cache hits/expiry/eviction/invalidation, stale replies and filename filtering | Loopback peers, controlled proxies and explicit synthetic listing replies |
 | SSH forwarding | Local/remote/SOCKS byte equality, live add/edit/remove including initially empty sessions, concurrency, IPv6, server-only DNS, malformed/fragmented messages, backpressure and EOF, policy denial, ports, stop/restart, forwarding-only sessions, file conflicts/cancellation, WireGuard sharing/reconnect/failure and signed sandboxed listeners | Owned loopback/encrypted peers and native off-screen controls; production policy and throughput unverified |
 | VNC | RFB versions/security, DES challenge, TLS trust/refusal, raw/CopyRect/Hextile/Zlib/resize, Unicode key pairs, pointer, typing cancellation and malformed input | Owned synthetic peers; production interoperability is unverified |
-| RDP channels | TLS/NLA, frames, clipboard text/files, folder drives, Display Control PDUs, initial monitor attributes and pointer input | Synthetic peers; channel submission does not prove Windows acceptance |
+| RDP channels | TLS/NLA, frames, clipboard text/files, retained-batch quota, cancelled-generation format timeout, detach callbacks, reserved names and preservation of local text for unsupported formats; folder drives, Display Control PDUs, initial monitor attributes and pointer input | Synthetic peers; channel submission does not prove Windows acceptance |
 | RDP keyboard | Left/right and duplicate modifier snapshots, overlapping Shifts, physical shifted letters, missed-release repair, focus/activation cleanup, Caps Lock synchronization, native window key repeat, menu routing and Unicode pairs; suspended-input retention with clipboard-control progress; TLS/NLA peer decodes ordered keyboard PDUs before and after resumption | Owned AppKit windows and loopback peers; production intermittent failure and Windows Sticky Keys behavior remain unverified. See [keyboard input contract](rdp-keyboard.md) |
 | RDP recovery | Idle worker health, stalled-worker interruption, abrupt peer loss, visible stale/failed/reconnecting state, three-attempt backoff, cancellation, teardown ordering, callback generations and same-tab TLS reauthentication | Owned TLS peer and controlled native callbacks; production long-session failure reproduction remains pending |
 | RDP folder browsing | Packed directory formats, compatibility padding at enumeration end, Unicode pagination, trailing separators and nested files; direct/WireGuard fixtures | Signed app on one authorized Windows server with direct transport: complete visible root count and repeated browsing through two subfolder levels. Real writes and other server policies remain unverified |
@@ -74,7 +74,11 @@ Production Windows startup smoothness still requires live validation.
 - **RDP input and files:** physical scan codes use the US layout. Consecutive
   pointer moves coalesce; input queue overload disconnects explicitly. Folder redirection
   omits directory notifications, byte-range locking and ACL editing. Clipboard
-  batches are temporary, copy-only and limited to 8 GiB / 20,000 entries.
+  batches are temporary and copy-only. Live staging, retained completed batches and
+  their cleanup grace periods share an 8 GiB / 20,000-entry process budget.
+  Legacy immediate consumers retain their reservations until disconnect. Cleanup
+  after a crash remains the OS temporary-directory policy; the budget is not a
+  disk-free-space guarantee.
   Remote file offers are current-host-only, excluding Universal Clipboard sync.
   Copy advertises metadata only; delayed file-URL demand starts transfer and
   waits at most five minutes, servicing native events on the main thread. Only

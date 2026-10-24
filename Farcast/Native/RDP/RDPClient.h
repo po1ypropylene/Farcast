@@ -1,6 +1,8 @@
 #import "RDPClipboard.h"
 #import <Foundation/Foundation.h>
 NS_ASSUME_NONNULL_BEGIN
+// Single use: configure properties/callbacks before connect and keep them immutable
+// until onStopped. Reconnect constructs a fresh client; methods below enqueue work.
 @interface FCRDPClient : NSObject
 // Set before connecting; session composition snapshots the app preference.
 @property(nonatomic) BOOL experimentalGraphics;

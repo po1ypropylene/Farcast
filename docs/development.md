@@ -7,6 +7,13 @@ The first dependency build needs internet access. Install an Apple Development
 certificate in Xcode → Settings → Accounts → Manage Certificates; subsequent builds
 must retain the [pinned signing identity](packaging.md).
 
+Quit the development copy in `.build/Xcode/Build/Products/Release` before rebuilding
+it. Replacing a bundle while its previous process is running can make macOS reject
+that process's code identity and block saved Keychain credentials. If existing
+connections unexpectedly ask for passwords after a rebuild, quit that copy and
+reopen the verified app before changing or resaving credentials. An installed
+copy in `/Applications` is separate from the development copy.
+
 ```sh
 brew install cmake  # If needed
 xcodebuild -downloadComponent MetalToolchain  # If Xcode reports it missing

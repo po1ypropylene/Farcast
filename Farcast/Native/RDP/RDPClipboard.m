@@ -11,6 +11,10 @@
 static const UINT32 fileFormat = 0xC001, effectFormat = 0xC002;
 static const NSUInteger maxEntries = 20000, chunkSize = 256 * 1024;
 static const NSUInteger rangeWindow = 8;
+static const NSUInteger descriptorWireSize = 592; // MS-RDPECLIP packed FILEDESCRIPTORW, not native alignment.
+static const NSTimeInterval responseTimeout = 30;
+static const int64_t fileTimeEpoch = 11644473600LL;
+static const uint64_t fileTimeTicks = 10000000ULL;
 static const uint64_t maxCacheBytes = 8ULL * 1024 * 1024 * 1024;
 
 static BOOL safeComponent(NSString *name) {
@@ -20,10 +24,10 @@ static BOOL safeComponent(NSString *name) {
         [name rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound)
         return NO;
     NSString *stem = [[name componentsSeparatedByString:@"."].firstObject uppercaseString];
-    if ([@[ @"CON", @"PRN", @"AUX", @"NUL" ] containsObject:stem])
+    if ([@[ @"CON", @"PRN", @"AUX", @"NUL", @"CONIN$", @"CONOUT$" ] containsObject:stem])
         return NO;
     if (stem.length == 4 && ([stem hasPrefix:@"COM"] || [stem hasPrefix:@"LPT"]) &&
-        [@"123456789" containsString:[stem substringFromIndex:3]])
+        [@"0123456789¹²³" containsString:[stem substringFromIndex:3]])
         return NO;
     return YES;
 }
@@ -96,25 +100,71 @@ static BOOL makeDirectory(int root, NSString *path) {
 @implementation FCClipboardEntry
 @end
 
+// A process-wide reservation includes retained batches and their cleanup grace period.
+// Only the worker creates owning storage, immediately after mkdtemp.
+@interface FCClipboardStorage : NSObject
+@property(nonatomic, strong) NSURL *root;
+@property(nonatomic) uint64_t bytes;
+@property(nonatomic) NSUInteger entries;
+- (BOOL)reserveBytes:(uint64_t)bytes entries:(NSUInteger)entries;
+- (void)remove;
+@end
+@implementation FCClipboardStorage
+static uint64_t storageBytes;
+static NSUInteger storageEntries;
+- (BOOL)reserveBytes:(uint64_t)bytes entries:(NSUInteger)entries {
+    @synchronized(FCClipboardStorage.class) {
+        if (bytes > maxCacheBytes - storageBytes || entries > maxEntries - storageEntries)
+            return NO;
+        storageBytes += bytes;
+        storageEntries += entries;
+        _bytes += bytes;
+        _entries += entries;
+        return YES;
+    }
+}
+- (void)remove {
+    if (!_root)
+        return;
+    NSError *error = nil;
+    if (![NSFileManager.defaultManager removeItemAtURL:_root error:&error] && error.code != NSFileNoSuchFileError)
+        return; // Failed deletion must not release a reservation for files still on disk.
+    @synchronized(FCClipboardStorage.class) {
+        storageBytes -= _bytes;
+        storageEntries -= _entries;
+        _bytes = 0;
+        _entries = 0;
+    }
+    _root = nil;
+}
+- (void)dealloc {
+    [self remove];
+}
+@end
+
 @interface FCRDPClipboardFileBatch ()
-- (instancetype)initWithRoot:(NSURL *)root files:(NSArray<NSURL *> *)files pending:(BOOL)pending;
+- (instancetype)initWithStorage:(FCClipboardStorage *)storage files:(NSArray<NSURL *> *)files;
 - (void)finish:(BOOL)success;
 - (BOOL)takeRequest;
 @end
 @implementation FCRDPClipboardFileBatch {
-    NSURL *_root;
+    FCClipboardStorage *_storage;
     NSCondition *_condition;
     BOOL _finished, _success, _requested, _started;
 }
+// Public materialized batches borrow their URLs; they never delete caller-owned files.
 - (instancetype)initWithRoot:(NSURL *)root files:(NSArray<NSURL *> *)files {
-    return [self initWithRoot:root files:files pending:NO];
-}
-- (instancetype)initWithRoot:(NSURL *)root files:(NSArray<NSURL *> *)files pending:(BOOL)pending {
     if ((self = [super init])) {
-        _root = root;
         _files = [files copy];
         _condition = [NSCondition new];
-        _finished = _success = !pending;
+        _finished = _success = YES;
+    }
+    return self;
+}
+- (instancetype)initWithStorage:(FCClipboardStorage *)storage files:(NSArray<NSURL *> *)files {
+    if ((self = [self initWithRoot:storage.root files:files])) {
+        _storage = storage;
+        _finished = _success = NO;
     }
     return self;
 }
@@ -160,18 +210,20 @@ static BOOL makeDirectory(int root, NSString *path) {
     return success;
 }
 - (void)dealloc {
-    NSURL *root = _root;
+    FCClipboardStorage *storage = _storage;
+    if (!storage)
+        return;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 60 * NSEC_PER_SEC), dispatch_get_global_queue(QOS_CLASS_UTILITY, 0),
                    ^{
-                     [[NSFileManager defaultManager] removeItemAtURL:root error:NULL];
+                     [storage remove];
                    });
 }
 @end
 
 @interface FCClipboardRange : NSObject
-@property uint64_t offset;
-@property UINT32 length;
-@property NSTimeInterval sent;
+@property(nonatomic) uint64_t offset;
+@property(nonatomic) UINT32 length;
+@property(nonatomic) NSTimeInterval sent;
 @end
 @implementation FCClipboardRange
 @end
@@ -187,11 +239,12 @@ static BOOL makeDirectory(int root, NSString *path) {
     NSUInteger _generation, _requestGeneration;
     UINT32 _nextFormat, _pendingFormat, _remoteLock, _nextID, _expectedStream, _expectedLength;
     NSArray<FCClipboardEntry *> *_remote;
-    NSUInteger _index, _cacheEntries, _stageEntries;
-    uint64_t _position, _cacheBytes, _stageBytes;
+    NSUInteger _index, _stageEntries;
+    uint64_t _position;
     NSURL *_stage;
+    FCClipboardStorage *_storage;
     int _stageFD, _fileFD;
-    NSMutableArray<NSURL *> *_completed;
+    NSMutableArray<FCClipboardStorage *> *_completed;
     NSTimeInterval _lastProgress;
     NSTimeInterval _lastNotice;
     NSMutableDictionary<NSNumber *, FCClipboardRange *> *_ranges;
@@ -246,11 +299,16 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
     }
     return self;
 }
+- (NSTimeInterval)monotonicTime {
+    return NSProcessInfo.processInfo.systemUptime;
+}
 - (void)progress:(NSString *)message {
     if (self.onProgress)
         self.onProgress(message);
 }
 - (void)attach:(CliprdrClientContext *)channel {
+    if (_channel && _channel != channel)
+        [self detach];
     _channel = channel;
     channel->custom = (__bridge void *)self;
     channel->ServerCapabilities = receiveCaps;
@@ -281,17 +339,16 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
     if (_stageFD >= 0)
         close(_stageFD);
     _fileFD = _stageFD = -1;
-    if (_stage) {
-        [[NSFileManager defaultManager] removeItemAtURL:_stage error:NULL];
-        _cacheBytes -= _stageBytes;
-    }
-    _stageBytes = 0;
+    [_storage remove];
+    _storage = nil;
     _stage = nil;
     _stageEntries = 0;
     _remote = nil;
 }
 - (void)detach {
     [self cancelRemote];
+    if (_channel && _channel->custom == (__bridge void *)self)
+        _channel->custom = NULL;
     _channel = NULL;
     _ready = NO;
     _serverFlags = 0;
@@ -300,11 +357,12 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
     _local = nil;
     _descriptors = nil;
     [_locks removeAllObjects];
-    for (NSURL *url in _completed)
-        [[NSFileManager defaultManager] removeItemAtURL:url error:NULL];
+    for (FCClipboardStorage *storage in _completed)
+        [storage remove];
     [_completed removeAllObjects];
-    _cacheBytes = 0;
-    _cacheEntries = 0;
+}
+- (void)dealloc {
+    [self detach];
 }
 - (void)setActive:(BOOL)active {
     if (_active == active)
@@ -417,8 +475,9 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
                 FCClipboardEntry *entry = entries[i];
                 FILEDESCRIPTORW *d = &descriptors[i];
                 d->dwFlags = FD_ATTRIBUTES | FD_FILESIZE | FD_PROGRESSUI | FD_WRITESTIME;
-                uint64_t ticks = ((uint64_t)entry.metadata.st_mtimespec.tv_sec + 11644473600ULL) * 10000000ULL +
-                                 entry.metadata.st_mtimespec.tv_nsec / 100;
+                uint64_t ticks =
+                    ((uint64_t)entry.metadata.st_mtimespec.tv_sec + (uint64_t)fileTimeEpoch) * fileTimeTicks +
+                    entry.metadata.st_mtimespec.tv_nsec / 100;
                 d->ftLastWriteTime.dwHighDateTime = (UINT32)(ticks >> 32);
                 d->ftLastWriteTime.dwLowDateTime = (UINT32)ticks;
                 d->dwFileAttributes = entry.directory ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
@@ -429,8 +488,9 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
             }
             BYTE *bytes = NULL;
             UINT32 length = 0;
-            if (!cliprdr_serialize_file_list_ex(CB_STREAM_FILECLIP_ENABLED | CB_HUGE_FILE_SUPPORT_ENABLED, descriptors,
-                                                (UINT32)entries.count, &bytes, &length)) {
+            if (CHANNEL_RC_OK ==
+                cliprdr_serialize_file_list_ex(CB_STREAM_FILECLIP_ENABLED | CB_HUGE_FILE_SUPPORT_ENABLED, descriptors,
+                                               (UINT32)entries.count, &bytes, &length)) {
                 _descriptors = [NSData dataWithBytes:bytes length:length];
                 _local = entries;
             }
@@ -498,12 +558,12 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
     return [self advertise];
 }
 - (UINT)startRequest {
-    if (!_active || _pendingFormat || !_nextFormat)
+    if (!_channel || !_active || _pendingFormat || !_nextFormat)
         return CHANNEL_RC_OK;
     _pendingFormat = _nextFormat;
     _nextFormat = 0;
     _requestGeneration = _generation;
-    _lastProgress = NSDate.timeIntervalSinceReferenceDate;
+    _lastProgress = [self monotonicTime];
     if (_pendingFormat != CF_UNICODETEXT)
         [self progress:@"Waiting for Windows clipboard file details…"];
     if (_pendingFormat != CF_UNICODETEXT && (_serverFlags & CB_CAN_LOCK_CLIPDATA)) {
@@ -539,8 +599,7 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
         [self progress:@"This server does not support file clipboard sharing."];
     else
         [self progress:@""];
-    if (!_nextFormat && !files && self.onText)
-        self.onText(@"");
+    // Unsupported formats (for example images) preserve the local pasteboard.
     return [self startRequest];
 }
 - (UINT)request:(const CLIPRDR_FORMAT_DATA_REQUEST *)request {
@@ -566,16 +625,17 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
     return _channel->ClientFormatDataResponse(_channel, &response);
 }
 - (BOOL)beginFiles:(const CLIPRDR_FORMAT_DATA_RESPONSE *)response {
-    if (response->common.dataLen < 4 || response->common.dataLen > 4 + maxEntries * 592 ||
+    if (response->common.dataLen < 4 || response->common.dataLen > 4 + maxEntries * descriptorWireSize ||
         !response->requestedFormatData)
         return NO;
     UINT32 count = 0;
     memcpy(&count, response->requestedFormatData, 4);
     count = CFSwapInt32LittleToHost(count);
-    if (!count || count > maxEntries - _cacheEntries || response->common.dataLen != 4 + count * 592)
+    if (!count || count > maxEntries || response->common.dataLen != 4 + count * descriptorWireSize)
         return NO;
     FILEDESCRIPTORW *descriptors = NULL;
-    if (cliprdr_parse_file_list(response->requestedFormatData, response->common.dataLen, &descriptors, &count)) {
+    if (CHANNEL_RC_OK !=
+        cliprdr_parse_file_list(response->requestedFormatData, response->common.dataLen, &descriptors, &count)) {
         free(descriptors);
         return NO;
     }
@@ -631,7 +691,7 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
             parent = parent.stringByDeletingLastPathComponent;
         }
     }
-    if (!valid || prefixes.count > maxEntries - _cacheEntries)
+    if (!valid || prefixes.count > maxEntries)
         return NO;
     _stageEntries = prefixes.count;
     NSString *template = [NSTemporaryDirectory() stringByAppendingPathComponent:@"Farcast-RDP-XXXXXX"];
@@ -641,6 +701,10 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
         _stage = [NSURL fileURLWithFileSystemRepresentation:created isDirectory:YES relativeToURL:nil];
     free(buffer);
     if (!_stage)
+        return NO;
+    _storage = [FCClipboardStorage new];
+    _storage.root = _stage;
+    if (![_storage reserveBytes:0 entries:_stageEntries])
         return NO;
     _stageFD = open(_stage.fileSystemRepresentation, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     if (_stageFD < 0)
@@ -659,7 +723,7 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
                 [urls addObject:[_stage URLByAppendingPathComponent:top]];
             }
         }
-        _batch = [[FCRDPClipboardFileBatch alloc] initWithRoot:_stage files:urls pending:YES];
+        _batch = [[FCRDPClipboardFileBatch alloc] initWithStorage:_storage files:urls];
         // Publish metadata only. A provider's explicit request is consumed by
         // tick on this worker; no SIZE/RANGE requests or tree creation on Copy.
         self.onBatch(_batch);
@@ -736,11 +800,11 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
         FCClipboardRange *range = [FCClipboardRange new];
         range.offset = offset;
         range.length = request.cbRequested;
-        range.sent = NSDate.timeIntervalSinceReferenceDate;
+        range.sent = [self monotonicTime];
         _ranges[@(request.streamId)] = range;
         _requestedPosition += request.cbRequested;
     }
-    _lastProgress = NSDate.timeIntervalSinceReferenceDate;
+    _lastProgress = [self monotonicTime];
     return _channel->ClientFileContentsRequest(_channel, &request);
 }
 - (UINT)fillRanges {
@@ -769,15 +833,11 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
             [urls addObject:[_stage URLByAppendingPathComponent:top]];
         }
     }
-    NSURL *stage = _stage;
-    _stage = nil;
     FCRDPClipboardFileBatch *batch = _batch;
-    if (batch) {
-        _cacheBytes -= _stageBytes;
-    } else {
-        [_completed addObject:stage];
-        _cacheEntries += _stageEntries;
-    }
+    if (!batch)
+        [_completed addObject:_storage];
+    _storage = nil; // Batch or immediate consumer now owns the reservation.
+    _stage = nil;
     // Restore folder dates only after all descendants have been materialized.
     for (FCClipboardEntry *entry in _remote.reverseObjectEnumerator) {
         if (!entry.writeTime)
@@ -785,8 +845,8 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
         int fd = openRelative(_stageFD, entry.name, O_RDONLY, 0);
         if (fd >= 0) {
             struct timespec times[2] = {{0, UTIME_OMIT},
-                                        {(time_t)(entry.writeTime / 10000000ULL - 11644473600ULL),
-                                         (long)(entry.writeTime % 10000000ULL * 100)}};
+                                        {(time_t)((int64_t)(entry.writeTime / fileTimeTicks) - fileTimeEpoch),
+                                         (long)(entry.writeTime % fileTimeTicks * 100)}};
             futimens(fd, times);
             close(fd);
         }
@@ -813,7 +873,7 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
         return CHANNEL_RC_OK;
     }
     FCClipboardEntry *entry = _remote[_index];
-    _lastProgress = NSDate.timeIntervalSinceReferenceDate;
+    _lastProgress = [self monotonicTime];
     if (sizeResponse) {
         if (response->cbRequested != 8) {
             [self failedTransfer];
@@ -822,14 +882,16 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
         uint64_t size;
         memcpy(&size, response->requestedData, 8);
         size = CFSwapInt64LittleToHost(size);
-        if ((entry.size != UINT64_MAX && size != entry.size) || size > maxCacheBytes - _cacheBytes ||
+        if ((entry.size != UINT64_MAX && size != entry.size) || size > maxCacheBytes ||
             (size > UINT32_MAX && !(_serverFlags & CB_HUGE_FILE_SUPPORT_ENABLED))) {
             [self failedTransfer];
             return CHANNEL_RC_OK;
         }
         entry.size = size;
-        _cacheBytes += size;
-        _stageBytes += size;
+        if (![_storage reserveBytes:size entries:0]) {
+            [self failedTransfer];
+            return CHANNEL_RC_OK;
+        }
         _fileFD = openRelative(_stageFD, entry.name, O_WRONLY | O_CREAT | O_EXCL, 0600);
         if (_fileFD < 0) {
             [self failedTransfer];
@@ -962,14 +1024,20 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
     }
     BOOL stalledRange = NO;
     for (FCClipboardRange *range in _ranges.allValues)
-        if (NSDate.timeIntervalSinceReferenceDate - range.sent > 30)
+        if ([self monotonicTime] - range.sent > responseTimeout)
             stalledRange = YES;
-    if (stalledRange || (((_pendingFormat && _requestGeneration == _generation) || _expectedStream) &&
-                         NSDate.timeIntervalSinceReferenceDate - _lastProgress > 30)) {
-        // Keep a timed-out format response outstanding: the wire has no request ID.
-        // It must be drained before another format request can safely be issued.
+    if (stalledRange ||
+        ((_pendingFormat || _expectedStream) && [self monotonicTime] - _lastProgress > responseTimeout)) {
+        // A format reply has no request ID, so safely recovering requires a new channel.
+        BOOL formatTimedOut = _pendingFormat != 0;
         [self failedTransfer];
-        _lastProgress = NSDate.timeIntervalSinceReferenceDate;
+        if (formatTimedOut) {
+            [self detach];
+            [self progress:@"The remote clipboard did not respond. Reconnecting the desktop is required."];
+            if (self.onFailure)
+                self.onFailure();
+        }
+        _lastProgress = [self monotonicTime];
     }
 }
 @end

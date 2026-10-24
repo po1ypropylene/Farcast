@@ -5,6 +5,9 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Recover stalled RDP clipboard format requests, preserve local text when the remote copies unsupported formats, and retain temporary-storage accounting while completed file batches remain available.
+- Harden RDP setup/cleanup and clipboard file ownership; keep Ctrl–Alt–Delete ordered as one queued sequence and report rejected graphics setup in redacted diagnostics.
+
 - Clarify the shared VPN helper structure, separating WireGuard setup from shared session handling; retain existing saved profiles and helper compatibility.
 
 ## 2.1.0 — 2026-10-22

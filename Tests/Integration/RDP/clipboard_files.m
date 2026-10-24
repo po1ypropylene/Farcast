@@ -5,6 +5,16 @@
 #import <sys/stat.h>
 #import <unistd.h>
 
+// Control only elapsed time; protocol callbacks and filesystem operations stay real.
+@interface ReviewClipboard : FCRDPClipboard
+@property(nonatomic) NSTimeInterval elapsed;
+@end
+@implementation ReviewClipboard
+- (NSTimeInterval)monotonicTime {
+    return NSProcessInfo.processInfo.systemUptime + _elapsed;
+}
+@end
+
 static NSData *formatData, *fileData;
 static UINT16 formatFlags, fileFlags;
 static CLIPRDR_FILE_CONTENTS_REQUEST pending;
@@ -61,7 +71,11 @@ static void remoteDescriptors(CliprdrClientContext *c, NSData *bytes) {
 }
 static NSData *descriptor(NSString *name, UINT32 attributes, uint64_t size) {
     FILEDESCRIPTORW d = {0};
-    d.dwFlags = FD_ATTRIBUTES | FD_FILESIZE;
+    d.dwFlags = FD_ATTRIBUTES | FD_FILESIZE | FD_WRITESTIME;
+    // 1960-01-01 exercises signed conversion on receipt.
+    uint64_t ticks = (11644473600LL - 315619200LL) * 10000000ULL;
+    d.ftLastWriteTime.dwHighDateTime = (UINT32)(ticks >> 32);
+    d.ftLastWriteTime.dwLowDateTime = (UINT32)ticks;
     d.dwFileAttributes = attributes;
     d.nFileSizeHigh = (UINT32)(size >> 32);
     d.nFileSizeLow = (UINT32)size;
@@ -103,7 +117,7 @@ int main(int argc, char **argv) {
         channel.ClientFileContentsResponse = sendFileResponse;
         channel.ClientLockClipboardData = sendLock;
         channel.ClientUnlockClipboardData = sendUnlock;
-        FCRDPClipboard *bridge = [FCRDPClipboard new];
+        ReviewClipboard *bridge = [ReviewClipboard new];
         [bridge attach:&channel];
         __block NSArray<NSURL *> *received;
         __block NSString *message;
@@ -301,6 +315,22 @@ int main(int argc, char **argv) {
               "paste fulfillment wakes without a main-thread callback");
         NSURL *largeDownload = batch.files.firstObject;
         check([[NSData dataWithContentsOfURL:largeDownload] isEqual:large], "50 MB bytes preserved");
+        // A retained completed batch still consumes quota, even across new offers.
+        FCRDPClipboardFileBatch *retainedBatch = batch;
+        remoteFormat(&channel);
+        remoteDescriptors(&channel, descriptor(@"quota.bin", FILE_ATTRIBUTE_NORMAL, 8ULL << 30));
+        [batch requestContents];
+        [bridge tick];
+        uint64_t quotaSize = CFSwapInt64HostToLittle(8ULL << 30);
+        CLIPRDR_FILE_CONTENTS_RESPONSE quotaResponse = {0};
+        quotaResponse.common.msgFlags = CB_RESPONSE_OK;
+        quotaResponse.streamId = pending.streamId;
+        quotaResponse.cbRequested = sizeof(quotaSize);
+        quotaResponse.requestedData = (BYTE *)&quotaSize;
+        channel.ServerFileContentsResponse(&channel, &quotaResponse);
+        check(batch.isFinished && ![batch waitUntilReadyWithTimeout:0] && [retainedBatch waitUntilReadyWithTimeout:0] &&
+                  [fm fileExistsAtPath:largeDownload.path],
+              "retained completed batch remains charged to quota and readable");
         remoteFormat(&channel);
         [pendingRequests removeAllObjects];
         remoteDescriptors(&channel, descriptor(@"interrupted.bin", FILE_ATTRIBUTE_NORMAL, 100));
@@ -384,6 +414,51 @@ int main(int argc, char **argv) {
         [bridge detach];
         check(![fm fileExistsAtPath:download.path] && (!stage || ![fm fileExistsAtPath:stage.path]),
               "completed downloads removed on disconnect");
+        check(channel.custom == NULL, "detach clears unretained channel owner");
+        check(channel.ServerFormatList(&channel, &(CLIPRDR_FORMAT_LIST){0}) == CHANNEL_RC_OK,
+              "late callback after detach safely ignored");
+        [bridge attach:&channel];
+        channel.ServerCapabilities(&channel, &caps);
+        channel.MonitorReady(&channel, NULL);
+        __block NSUInteger texts = 0;
+        bridge.onText = ^(NSString *text) {
+          texts++;
+        };
+        CLIPRDR_FORMAT image = {.formatId = CF_DIB};
+        CLIPRDR_FORMAT_LIST imageList = {.numFormats = 1, .formats = &image};
+        channel.ServerFormatList(&channel, &imageList);
+        check(texts == 0, "unsupported image format preserves local text");
+        for (NSString *name in @[ @"CONIN$.txt", @"CONOUT$", @"COM¹.txt", @"LPT²", @"COM0", @"LPT0" ]) {
+            remoteFormat(&channel);
+            remoteDescriptors(&channel, descriptor(name, FILE_ATTRIBUTE_NORMAL, 1));
+            check([message hasPrefix:@"Clipboard file transfer failed"], "reserved device name rejected");
+        }
+        received = nil;
+        remoteFormat(&channel);
+        remoteDescriptors(&channel, descriptor(@"old.txt", FILE_ATTRIBUTE_NORMAL, 0));
+        uint64_t emptySize = 0;
+        CLIPRDR_FILE_CONTENTS_RESPONSE emptyResponse = {0};
+        emptyResponse.common.msgFlags = CB_RESPONSE_OK;
+        emptyResponse.streamId = pending.streamId;
+        emptyResponse.cbRequested = sizeof(emptySize);
+        emptyResponse.requestedData = (BYTE *)&emptySize;
+        channel.ServerFileContentsResponse(&channel, &emptyResponse);
+        struct stat oldInfo = {0};
+        check(received.count == 1 && stat(received.firstObject.fileSystemRepresentation, &oldInfo) == 0 &&
+                  oldInfo.st_mtimespec.tv_sec == -315619200LL,
+              "pre-1970 FILETIME preserved");
+        __block NSUInteger failures = 0;
+        bridge.onFailure = ^{
+          failures++;
+        };
+        remoteFormat(&channel);
+        [bridge setText:@"new local text"]; // Cancels the generation, but cannot cancel the wire reply.
+        bridge.elapsed = 31;
+        [bridge tick];
+        check(failures == 1 && channel.custom == NULL, "cancelled-generation format timeout retires channel");
+        [bridge tick];
+        check(failures == 1, "format timeout is reported once");
+        [bridge detach];
         printf("PASS %lu RDP file clipboard checks\n", (unsigned long)checks);
     }
     return 0;

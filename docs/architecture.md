@@ -413,8 +413,12 @@ quiescent and transfers use copy semantics. Last-write timestamps accompany file
 descriptors and are restored after staging (directories last).
 
 Remote files stream in 256 KiB requests with at most eight ranges in flight to
-private temporary trees (700/600), with an 8 GiB / 20,000-entry limit per batch
-and a 30-second deadline for each outstanding response. Stream IDs retain each
+private temporary trees (700/600), with an 8 GiB / 20,000-entry budget
+and a monotonic 30-second deadline for each outstanding response. A process-wide
+reservation follows owning staging storage through completed batches and their
+60-second cleanup grace period; disconnect does not release retained batch quota.
+Legacy immediate consumers retain storage until disconnect. Public materialized
+batches borrow URLs and never delete caller-owned roots. Stream IDs retain each
 range's offset and length; reordered responses use positional writes and short
 responses request only their missing suffix. Progress reports received bytes.
 Descriptor paths, collisions and file/directory conflicts are validated before
@@ -446,8 +450,11 @@ disconnect while the app and pasteboard provider remain alive. After ownership
 ends, cleanup waits 60 seconds for consumers already copying. App exit can leave
 OS temporary files pending system cleanup; this is not persistent file storage.
 Unidentified late format responses must drain before another request because that
-PDU carries no request ID; stream IDs reject late file responses. A silent peer may
-require reconnecting. Disk/codec work stays off the main actor. FreeRDP's Mac audio backend is bundled;
+PDU carries no request ID; stream IDs reject late file responses. A format timeout,
+including one cancelled by a newer local copy, retires the channel and transport
+through the existing bounded recovery policy. Unsupported remote formats preserve
+local text. Detach clears the channel's unretained owner before native teardown.
+Disk/codec work stays off the main actor. FreeRDP's Mac audio backend is bundled;
 playback defaults on, microphone capture stays off and changes apply after reconnect.
 
 ## VNC protocol adapter

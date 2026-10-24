@@ -23,17 +23,15 @@
 #import <winpr/wlog.h>
 #pragma clang diagnostic pop
 #import "RDPDisplay.h"
-#import <errno.h>
-#import <math.h>
+#import <fcntl.h>
 #import <netinet/tcp.h>
 #import <openssl/err.h>
 #import <openssl/pem.h>
 #import <openssl/x509.h>
 #import <os/signpost.h>
-#import <poll.h>
 #import <stdatomic.h>
 #import <sys/socket.h>
-#import <time.h>
+#import <sys/stat.h>
 #import <unistd.h>
 
 typedef struct {
@@ -66,6 +64,7 @@ typedef struct {
     BOOL _eventQueueOverflowed;
     freerdp *_instance;
     atomic_bool _stopped;
+    atomic_bool _started;
     atomic_bool _clipboardActive;
     atomic_bool _running;
     atomic_bool _stalled;
@@ -80,6 +79,7 @@ typedef struct {
     BOOL _forceFullSnapshots;
 }
 @property(nonatomic, copy) NSString *tunnelFailure;
+@property(nonatomic, copy) NSString *clipboardFailure;
 - (BOOL)runHost:(NSString *)host
              port:(NSInteger)port
          username:(NSString *)username
@@ -131,10 +131,12 @@ static int monitoredTCPConnect(rdpContext *context, rdpSettings *settings, const
             ^BOOL {
               return freerdp_shall_disconnect_context(context);
             },
-            &failure))
+            &failure)) {
         if ([client trackSocket:fd])
             return fd;
-    client.tunnelFailure = failure;
+    } else {
+        client.tunnelFailure = failure;
+    }
     close(fd);
     return -1;
 }
@@ -213,24 +215,32 @@ static BOOL desktopResize(rdpContext *context) {
     UINT32 width = freerdp_settings_get_uint32(context->settings, FreeRDP_DesktopWidth);
     UINT32 height = freerdp_settings_get_uint32(context->settings, FreeRDP_DesktopHeight);
     if (!width || !height || width > FCDisplayMaximumDimension || height > FCDisplayMaximumDimension ||
-        (UINT64)width * height > FCDisplayMaximumPixels)
+        (UINT64)width * height > FCDisplayMaximumPixels) {
+        os_log_error(performanceLog(), "RDP rejected graphics initialization or server geometry in %s", __func__);
         return FALSE;
-    if (!gdi_resize(context->gdi, width, height))
+    }
+    if (!gdi_resize(context->gdi, width, height)) {
+        os_log_error(performanceLog(), "RDP rejected graphics initialization or server geometry in %s", __func__);
         return FALSE;
+    }
     FCRDPClient *client = owner(context);
     if (client.onDesktopSize)
         client.onDesktopSize(width, height);
     return TRUE;
 }
 static BOOL remoteMonitors(rdpContext *context, UINT32 count, const MONITOR_DEF *monitors) {
-    if (count > 16)
+    if (count > 16) {
+        os_log_error(performanceLog(), "RDP rejected graphics initialization or server geometry in %s", __func__);
         return FALSE;
+    }
     NSMutableArray *definitions = [NSMutableArray new];
     for (UINT32 i = 0; i < count; i++) {
         const MONITOR_DEF *m = &monitors[i];
         INT64 width = (INT64)m->right - m->left + 1, height = (INT64)m->bottom - m->top + 1;
-        if (width < 200 || height < 200 || width > 8192 || height > 8192)
+        if (width < 200 || height < 200 || width > 8192 || height > 8192) {
+            os_log_error(performanceLog(), "RDP rejected graphics initialization or server geometry in %s", __func__);
             return FALSE;
+        }
         [definitions addObject:@{
             @"x" : @(m->left),
             @"y" : @(m->top),
@@ -259,8 +269,10 @@ static UINT displayCapabilities(DispClientContext *display, UINT32 count, UINT32
 }
 static BOOL pointerNew(rdpContext *context, rdpPointer *pointer) {
     FCPointer *p = (FCPointer *)pointer;
-    if (!pointer->width || !pointer->height || pointer->width > 512 || pointer->height > 512)
+    if (!pointer->width || !pointer->height || pointer->width > 512 || pointer->height > 512) {
+        os_log_error(performanceLog(), "RDP rejected graphics initialization or server geometry in %s", __func__);
         return FALSE;
+    }
     p->pixels = calloc(pointer->width * pointer->height, 4);
     return p->pixels && freerdp_image_copy_from_pointer_data(
                             p->pixels, PIXEL_FORMAT_BGRA32, pointer->width * 4, 0, 0, pointer->width, pointer->height,
@@ -389,10 +401,14 @@ static BOOL postConnect(freerdp *instance) {
         freerdp_settings_get_uint32(instance->context->settings, FreeRDP_DesktopHeight) > FCDisplayMaximumDimension ||
         (UINT64)freerdp_settings_get_uint32(instance->context->settings, FreeRDP_DesktopWidth) *
                 freerdp_settings_get_uint32(instance->context->settings, FreeRDP_DesktopHeight) >
-            FCDisplayMaximumPixels)
+            FCDisplayMaximumPixels) {
+        os_log_error(performanceLog(), "RDP rejected graphics initialization or server geometry in %s", __func__);
         return FALSE;
-    if (!gdi_init(instance, PIXEL_FORMAT_BGRA32))
+    }
+    if (!gdi_init(instance, PIXEL_FORMAT_BGRA32)) {
+        os_log_error(performanceLog(), "RDP rejected graphics initialization or server geometry in %s", __func__);
         return FALSE;
+    }
     instance->context->update->BeginPaint = beginPaint;
     instance->context->update->EndPaint = endPaint;
     instance->context->update->DesktopResize = desktopResize;
@@ -413,30 +429,10 @@ static void postDisconnect(freerdp *instance) {
     if (instance->context->gdi)
         gdi_free(instance);
 }
-static NSString *certificateFingerprint(const char *value, DWORD flags) {
-    if (!value)
-        return nil;
-    if (!(flags & VERIFY_CERT_FLAG_FP_IS_PEM))
-        return [NSString stringWithUTF8String:value];
-    BIO *bio = BIO_new_mem_buf(value, -1);
-    if (!bio)
-        return nil;
-    X509 *cert = PEM_read_bio_X509(bio, NULL, NULL, NULL);
-    BIO_free(bio);
-    if (!cert)
-        return nil;
-    unsigned char digest[EVP_MAX_MD_SIZE];
-    unsigned int length = 0;
-    BOOL ok = X509_digest(cert, EVP_sha256(), digest, &length);
-    X509_free(cert);
-    if (!ok)
-        return nil;
-    return [@"SHA256:" stringByAppendingString:[[[NSData dataWithBytes:digest
-                                                                length:length] base64EncodedStringWithOptions:0]
-                                                   stringByReplacingOccurrencesOfString:@"="
-                                                                             withString:@""]];
-}
 static int verifyX509(freerdp *instance, const BYTE *pem, size_t length, const char *host, UINT16 port, DWORD flags) {
+    NSString *hostname = host ? [NSString stringWithUTF8String:host] : nil;
+    if (!pem || !length || length > INT_MAX || !hostname.length)
+        return 0;
     BIO *bio = BIO_new_mem_buf(pem, (int)length);
     if (!bio)
         return 0;
@@ -459,7 +455,7 @@ static int verifyX509(freerdp *instance, const BYTE *pem, size_t length, const c
     ERR_clear_error();
     if (!certificates.count)
         return 0;
-    SecPolicyRef policy = SecPolicyCreateSSL(true, (__bridge CFStringRef)[NSString stringWithUTF8String:host]);
+    SecPolicyRef policy = SecPolicyCreateSSL(true, (__bridge CFStringRef)hostname);
     SecTrustRef trust = NULL;
     CFErrorRef error = NULL;
     OSStatus status = SecTrustCreateWithCertificates((__bridge CFArrayRef)certificates, policy, &trust);
@@ -474,8 +470,15 @@ static int verifyX509(freerdp *instance, const BYTE *pem, size_t length, const c
         error ? [CFBridgingRelease(error) localizedDescription] : @"The certificate could not be verified.";
     if (valid)
         return 1;
-    NSString *pemString = [[NSString alloc] initWithBytes:pem length:length encoding:NSUTF8StringEncoding];
-    NSString *hash = certificateFingerprint(pemString.UTF8String, VERIFY_CERT_FLAG_FP_IS_PEM);
+    NSData *leaf = CFBridgingRelease(SecCertificateCopyData((__bridge SecCertificateRef)certificates.firstObject));
+    unsigned char digest[EVP_MAX_MD_SIZE];
+    unsigned int digestLength = 0;
+    if (!EVP_Digest(leaf.bytes, leaf.length, digest, &digestLength, EVP_sha256(), NULL))
+        return 0;
+    NSString *hash = [@"SHA256:"
+        stringByAppendingString:[[[NSData dataWithBytes:digest length:digestLength] base64EncodedStringWithOptions:0]
+                                    stringByReplacingOccurrencesOfString:@"="
+                                                              withString:@""]];
     NSString *name =
         CFBridgingRelease(SecCertificateCopySubjectSummary((__bridge SecCertificateRef)certificates.firstObject));
     FCRDPClient *client = owner(instance->context);
@@ -496,6 +499,9 @@ static BOOL clientNew(freerdp *instance, rdpContext *context) {
 }
 static void destroyContext(rdpContext *context) {
     freerdp *instance = context->instance;
+    // The bridge is detached before this point, including early setup failures.
+    // Channel teardown must never message its borrowed Objective-C owner.
+    ((FCContext *)context)->clipboardBridge = nil;
     freerdp_context_free(instance);
     freerdp_free(instance);
 }
@@ -511,6 +517,7 @@ static void destroyContext(rdpContext *context) {
         _lock = [NSLock new];
         _events = [NSMutableArray new];
         atomic_init(&_stopped, false);
+        atomic_init(&_started, false);
         atomic_init(&_clipboardActive, true);
         atomic_init(&_running, false);
         atomic_init(&_stalled, false);
@@ -543,6 +550,9 @@ static void destroyContext(rdpContext *context) {
               scale:(NSInteger)scale
           clipboard:(BOOL)clipboard
       audioPlayback:(BOOL)audioPlayback {
+    bool expected = false;
+    if (!atomic_compare_exchange_strong(&_started, &expected, true))
+        return; // One client owns one connection, including its internal graphics fallback.
     dispatch_group_enter(workers());
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
       @autoreleasepool {
@@ -578,6 +588,14 @@ static void destroyContext(rdpContext *context) {
             scale:(NSInteger)scale
         clipboard:(BOOL)clipboard
     audioPlayback:(BOOL)audioPlayback {
+    self.tunnelFailure = nil;
+    self.clipboardFailure = nil;
+    if (!host.length || port < 1 || port > 65535 || width < 200 || height < 200 || width > FCDisplayMaximumDimension ||
+        height > FCDisplayMaximumDimension || (uint64_t)width * height > FCDisplayMaximumPixels || scale < 100 ||
+        scale > 500) {
+        [self status:@"failed" message:@"The requested RDP endpoint or display settings are invalid."];
+        return NO;
+    }
     static dispatch_once_t once;
     dispatch_once(&once, ^{
       [FCRDPDriveManager registerProvider];
@@ -629,7 +647,14 @@ static void destroyContext(rdpContext *context) {
       if (weakSelf.onClipboardProgress)
           weakSelf.onClipboardProgress(message);
     };
+    _clipboardBridge.onFailure = ^{
+      weakSelf.clipboardFailure = @"The remote clipboard stopped responding. Reconnecting the desktop…";
+      freerdp_abort_connect_context(context);
+      freerdp_set_last_error(context, FREERDP_ERROR_CONNECT_TRANSPORT_FAILED);
+    };
     rdpSettings *s = context->settings;
+    BOOL settingsOK = YES;
+    BOOL experimentalGraphics = self.experimentalGraphics && !_compatibleGraphics;
     {
         FCContext *ctx = (FCContext *)context;
         ctx->identityHost = host.UTF8String;
@@ -640,82 +665,109 @@ static void destroyContext(rdpContext *context) {
         ctx->directReadPdu = callbacks.ReadPdu;
         callbacks.ReadPdu = measuredReadPdu;
         if (!freerdp_set_io_callbacks(context, &callbacks)) {
+            [_clipboardBridge detach];
+            _clipboardBridge = nil;
             destroyContext(context);
             [self status:@"failed" message:@"Could not initialize the RDP transport."];
             return NO;
         }
     }
     if (self.tunnelPort != 0 || self.tunnelToken != nil) {
-        freerdp_settings_set_bool(s, FreeRDP_SupportMultitransport, FALSE);
-        freerdp_settings_set_uint32(s, FreeRDP_MultitransportFlags, 0);
-        freerdp_settings_set_bool(s, FreeRDP_GatewayEnabled, FALSE);
+        settingsOK &= freerdp_settings_set_bool(s, FreeRDP_SupportMultitransport, FALSE);
+        settingsOK &= freerdp_settings_set_uint32(s, FreeRDP_MultitransportFlags, 0);
+        settingsOK &= freerdp_settings_set_bool(s, FreeRDP_GatewayEnabled, FALSE);
     }
     NSString *configRoot = NSProcessInfo.processInfo.environment[@"FARCAST_RDP_CONFIG"];
     if (!configRoot)
         configRoot =
             [NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject
                 stringByAppendingPathComponent:@"Farcast/RDP"];
-    [[NSFileManager defaultManager] createDirectoryAtPath:configRoot
-                              withIntermediateDirectories:YES
-                                               attributes:@{NSFilePosixPermissions : @0700}
-                                                    error:NULL];
-    freerdp_settings_set_string(s, FreeRDP_ConfigPath, configRoot.UTF8String);
-    freerdp_settings_set_string(s, FreeRDP_ServerHostname, host.UTF8String);
-    freerdp_settings_set_uint32(s, FreeRDP_ServerPort, (UINT32)port);
-    freerdp_settings_set_string(s, FreeRDP_Username, username.UTF8String);
-    freerdp_settings_set_string(s, FreeRDP_Password, password.UTF8String);
-    freerdp_settings_set_string(s, FreeRDP_Domain, domain.UTF8String);
-    freerdp_settings_set_uint32(s, FreeRDP_DesktopWidth, (UINT32)width);
-    freerdp_settings_set_uint32(s, FreeRDP_DesktopHeight, (UINT32)height);
-    freerdp_settings_set_uint32(s, FreeRDP_DesktopScaleFactor, (UINT32)scale);
-    freerdp_settings_set_uint32(s, FreeRDP_DeviceScaleFactor, scale >= 200 ? 180 : 100);
+    BOOL configReady = [[NSFileManager defaultManager] createDirectoryAtPath:configRoot
+                                                 withIntermediateDirectories:YES
+                                                                  attributes:@{NSFilePosixPermissions : @0700}
+                                                                       error:NULL];
+    int configFD =
+        configReady ? open(configRoot.fileSystemRepresentation, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC) : -1;
+    configReady = configFD >= 0 && fchmod(configFD, 0700) == 0;
+    if (configFD >= 0)
+        close(configFD);
+    if (!configReady) {
+        [_clipboardBridge detach];
+        _clipboardBridge = nil;
+        destroyContext(context);
+        [self status:@"failed" message:@"Could not prepare private RDP configuration storage."];
+        return NO;
+    }
+    settingsOK &= freerdp_settings_set_string(s, FreeRDP_ConfigPath, configRoot.UTF8String);
+    settingsOK &= freerdp_settings_set_string(s, FreeRDP_ServerHostname, host.UTF8String);
+    settingsOK &= freerdp_settings_set_uint32(s, FreeRDP_ServerPort, (UINT32)port);
+    settingsOK &= freerdp_settings_set_string(s, FreeRDP_Username, username.UTF8String);
+    settingsOK &= freerdp_settings_set_string(s, FreeRDP_Password, password.UTF8String);
+    settingsOK &= freerdp_settings_set_string(s, FreeRDP_Domain, domain.UTF8String);
+    settingsOK &= freerdp_settings_set_uint32(s, FreeRDP_DesktopWidth, (UINT32)width);
+    settingsOK &= freerdp_settings_set_uint32(s, FreeRDP_DesktopHeight, (UINT32)height);
+    settingsOK &= freerdp_settings_set_uint32(s, FreeRDP_DesktopScaleFactor, (UINT32)scale);
+    settingsOK &= freerdp_settings_set_uint32(s, FreeRDP_DeviceScaleFactor, scale >= 200 ? 180 : 100);
     if (!FCConfigureMonitorDefinitions(s, self.monitorDefinitions ?: @[])) {
+        [_clipboardBridge detach];
+        _clipboardBridge = nil;
         destroyContext(context);
         [self status:@"failed" message:@"The requested RDP monitor layout is invalid."];
         return NO;
     }
-    freerdp_settings_set_uint32(s, FreeRDP_ColorDepth, 32);
-    freerdp_settings_set_uint32(s, FreeRDP_KeyboardLayout, 0x00000409);
-    freerdp_settings_set_bool(s, FreeRDP_SoftwareGdi, TRUE);
-    freerdp_settings_set_bool(s, FreeRDP_NlaSecurity, TRUE);
-    freerdp_settings_set_bool(s, FreeRDP_TlsSecurity, TRUE);
-    freerdp_settings_set_bool(s, FreeRDP_RdpSecurity, FALSE);
-    freerdp_settings_set_bool(s, FreeRDP_ExternalCertificateManagement, TRUE);
-    freerdp_settings_set_bool(s, FreeRDP_IgnoreCertificate, FALSE);
-    freerdp_settings_set_bool(s, FreeRDP_CertificateCallbackPreferPEM, TRUE);
+    settingsOK &= freerdp_settings_set_uint32(s, FreeRDP_ColorDepth, 32);
+    settingsOK &= freerdp_settings_set_uint32(s, FreeRDP_KeyboardLayout, 0x00000409);
+    settingsOK &= freerdp_settings_set_bool(s, FreeRDP_SoftwareGdi, TRUE);
+    settingsOK &= freerdp_settings_set_bool(s, FreeRDP_NlaSecurity, TRUE);
+    settingsOK &= freerdp_settings_set_bool(s, FreeRDP_TlsSecurity, TRUE);
+    settingsOK &= freerdp_settings_set_bool(s, FreeRDP_RdpSecurity, FALSE);
+    settingsOK &= freerdp_settings_set_bool(s, FreeRDP_ExternalCertificateManagement, TRUE);
+    settingsOK &= freerdp_settings_set_bool(s, FreeRDP_IgnoreCertificate, FALSE);
+    settingsOK &= freerdp_settings_set_bool(s, FreeRDP_CertificateCallbackPreferPEM, TRUE);
     _driveManager = [FCRDPDriveManager new];
     if (![_driveManager configure:self.redirectedFolders ?: @[] settings:s]) {
         [_driveManager close];
         _driveManager = nil;
+        [_clipboardBridge detach];
+        _clipboardBridge = nil;
         destroyContext(context);
         [self status:@"failed"
              message:@"A redirected folder is unavailable. Edit the connection and choose the folder again."];
         return NO;
     }
-    freerdp_settings_set_bool(s, FreeRDP_RedirectClipboard, clipboard);
-    freerdp_settings_set_bool(s, FreeRDP_AudioPlayback, audioPlayback);
-    freerdp_settings_set_bool(s, FreeRDP_RemoteConsoleAudio, FALSE);
-    freerdp_settings_set_bool(s, FreeRDP_AudioCapture, FALSE);
-    freerdp_settings_set_bool(s, FreeRDP_SupportDynamicChannels, TRUE);
-    freerdp_settings_set_bool(s, FreeRDP_SupportDisplayControl, TRUE);
-    freerdp_settings_set_bool(s, FreeRDP_DynamicResolutionUpdate, TRUE);
+    settingsOK &= freerdp_settings_set_bool(s, FreeRDP_RedirectClipboard, clipboard);
+    settingsOK &= freerdp_settings_set_bool(s, FreeRDP_AudioPlayback, audioPlayback);
+    settingsOK &= freerdp_settings_set_bool(s, FreeRDP_RemoteConsoleAudio, FALSE);
+    settingsOK &= freerdp_settings_set_bool(s, FreeRDP_AudioCapture, FALSE);
+    settingsOK &= freerdp_settings_set_bool(s, FreeRDP_SupportDynamicChannels, TRUE);
+    settingsOK &= freerdp_settings_set_bool(s, FreeRDP_SupportDisplayControl, TRUE);
+    settingsOK &= freerdp_settings_set_bool(s, FreeRDP_DynamicResolutionUpdate, TRUE);
     // Experimental GFX/AVC uses the source-built OpenH264 backend. Retry once
     // with compatible bitmap graphics if the initial desktop produces no frames.
     // Display Control remains available on either path.
-    freerdp_settings_set_bool(s, FreeRDP_SupportGraphicsPipeline, self.experimentalGraphics && !_compatibleGraphics);
-    freerdp_settings_set_bool(s, FreeRDP_RemoteFxCodec, TRUE);
-    freerdp_settings_set_bool(s, FreeRDP_NSCodec, TRUE);
-    freerdp_settings_set_bool(s, FreeRDP_GfxH264, self.experimentalGraphics && !_compatibleGraphics);
-    freerdp_settings_set_bool(s, FreeRDP_GfxAVC444, self.experimentalGraphics && !_compatibleGraphics);
-    freerdp_settings_set_bool(s, FreeRDP_GfxAVC444v2, self.experimentalGraphics && !_compatibleGraphics);
-    freerdp_settings_set_bool(s, FreeRDP_GfxProgressive, self.experimentalGraphics && !_compatibleGraphics);
-    freerdp_settings_set_uint32(s, FreeRDP_TcpConnectTimeout, 20000);
-    freerdp_settings_set_uint32(s, FreeRDP_TcpAckTimeout, 20000);
-    freerdp_settings_set_bool(s, FreeRDP_TcpKeepAlive, TRUE);
-    freerdp_settings_set_uint32(s, FreeRDP_TcpKeepAliveDelay, 15);
-    freerdp_settings_set_uint32(s, FreeRDP_TcpKeepAliveInterval, 5);
-    freerdp_settings_set_uint32(s, FreeRDP_TcpKeepAliveRetries, 3);
-    freerdp_settings_set_uint32(s, FreeRDP_ThreadingFlags, THREADING_FLAGS_DISABLE_THREADS);
+    settingsOK &= freerdp_settings_set_bool(s, FreeRDP_SupportGraphicsPipeline, experimentalGraphics);
+    settingsOK &= freerdp_settings_set_bool(s, FreeRDP_RemoteFxCodec, TRUE);
+    settingsOK &= freerdp_settings_set_bool(s, FreeRDP_NSCodec, TRUE);
+    settingsOK &= freerdp_settings_set_bool(s, FreeRDP_GfxH264, experimentalGraphics);
+    settingsOK &= freerdp_settings_set_bool(s, FreeRDP_GfxAVC444, experimentalGraphics);
+    settingsOK &= freerdp_settings_set_bool(s, FreeRDP_GfxAVC444v2, experimentalGraphics);
+    settingsOK &= freerdp_settings_set_bool(s, FreeRDP_GfxProgressive, experimentalGraphics);
+    settingsOK &= freerdp_settings_set_uint32(s, FreeRDP_TcpConnectTimeout, 20000);
+    settingsOK &= freerdp_settings_set_uint32(s, FreeRDP_TcpAckTimeout, 20000);
+    settingsOK &= freerdp_settings_set_bool(s, FreeRDP_TcpKeepAlive, TRUE);
+    settingsOK &= freerdp_settings_set_uint32(s, FreeRDP_TcpKeepAliveDelay, 15);
+    settingsOK &= freerdp_settings_set_uint32(s, FreeRDP_TcpKeepAliveInterval, 5);
+    settingsOK &= freerdp_settings_set_uint32(s, FreeRDP_TcpKeepAliveRetries, 3);
+    settingsOK &= freerdp_settings_set_uint32(s, FreeRDP_ThreadingFlags, THREADING_FLAGS_DISABLE_THREADS);
+    if (!settingsOK) {
+        [_clipboardBridge detach];
+        _clipboardBridge = nil;
+        [_driveManager close];
+        _driveManager = nil;
+        destroyContext(context);
+        [self status:@"failed" message:@"Could not configure the RDP connection."];
+        return NO;
+    }
     [_lock lock];
     _instance = context->instance;
     BOOL stopped = atomic_load(&_stopped);
@@ -762,7 +814,7 @@ static void destroyContext(rdpContext *context) {
                       error == FREERDP_ERROR_CONNECT_TRANSPORT_FAILED || error == FREERDP_ERROR_CONNECT_FAILED ||
                       error == FREERDP_ERROR_DNS_ERROR || error == FREERDP_ERROR_DNS_NAME_NOT_FOUND);
     if (!atomic_load(&_stopped) && (!connected || error)) {
-        failure = self.tunnelFailure
+        failure = self.tunnelFailure ?: self.clipboardFailure
                       ?: [NSString stringWithFormat:@"RDP connection failed (%s). Check credentials, "
                                                     @"server settings, and network access.",
                                                     freerdp_get_last_error_name(error) ?: "unknown error"];
@@ -788,11 +840,11 @@ static void destroyContext(rdpContext *context) {
     else
         [self status:@"disconnected" message:@"RDP disconnected"];
     freerdp_disconnect(context->instance);
+    [_clipboardBridge detach];
+    _clipboardBridge = nil;
     destroyContext(context);
     [_driveManager close];
     _driveManager = nil;
-    [_clipboardBridge detach];
-    _clipboardBridge = nil;
     [_lock lock];
     [_events removeAllObjects];
     _pendingResize = nil;
@@ -850,6 +902,9 @@ static void destroyContext(rdpContext *context) {
     [_lock unlock];
 }
 - (void)enqueue:(NSDictionary *)event {
+    [self enqueueEvents:@[ event ]];
+}
+- (void)enqueueEvents:(NSArray<NSDictionary *> *)events {
     [_lock lock];
     if (atomic_load(&_stopped)) {
         [_lock unlock];
@@ -857,27 +912,32 @@ static void destroyContext(rdpContext *context) {
     }
     // Only consecutive pure motion may be replaced. Buttons, wheel events and
     // keys are ordering barriers and must never disappear under backpressure.
-    NSDictionary *last = _events.lastObject;
-    if ([event[@"type"] isEqualToString:@"pointer"] && [event[@"flags"] unsignedIntValue] == PTR_FLAGS_MOVE &&
-        [last[@"type"] isEqualToString:@"pointer"] && [last[@"flags"] unsignedIntValue] == PTR_FLAGS_MOVE)
-        [_events removeLastObject];
-    if ([event[@"type"] isEqualToString:@"resize"]) {
-        NSIndexSet *old = [_events indexesOfObjectsPassingTest:^BOOL(NSDictionary *item, NSUInteger index, BOOL *stop) {
-          return [item[@"type"] isEqualToString:@"resize"];
-        }];
-        [_events removeObjectsAtIndexes:old];
-    }
-    if (_events.count < 4096) {
-        NSMutableDictionary *timed = [event mutableCopy];
-        timed[@"queuedAt"] = @(NSProcessInfo.processInfo.systemUptime);
-        [_events addObject:timed];
-    } else {
-        // Silent loss could leave a key/button pressed or discard clipboard
-        // deactivation. Bound memory by terminating the session explicitly.
-        _eventQueueOverflowed = YES;
-        atomic_store(&_stopped, true);
-        if (_instance)
-            freerdp_abort_connect_context(_instance->context);
+    for (NSDictionary *event in events) {
+        NSDictionary *last = _events.lastObject;
+        if ([event[@"type"] isEqualToString:@"pointer"] && [event[@"flags"] unsignedIntValue] == PTR_FLAGS_MOVE &&
+            [last[@"type"] isEqualToString:@"pointer"] && [last[@"flags"] unsignedIntValue] == PTR_FLAGS_MOVE)
+            [_events removeLastObject];
+        if ([event[@"type"] isEqualToString:@"resize"]) {
+            NSIndexSet *old =
+                [_events indexesOfObjectsPassingTest:^BOOL(NSDictionary *item, NSUInteger index, BOOL *stop) {
+                  return [item[@"type"] isEqualToString:@"resize"];
+                }];
+            [_events removeObjectsAtIndexes:old];
+        }
+        if (_events.count < 4096) {
+            NSMutableDictionary *timed = [event mutableCopy];
+            timed[@"queuedAt"] = @(NSProcessInfo.processInfo.systemUptime);
+            [_events addObject:timed];
+        } else {
+            // Silent loss could leave a key/button pressed or discard clipboard
+            // deactivation. Bound memory by terminating the session explicitly.
+            _eventQueueOverflowed = YES;
+            atomic_store(&_stopped, true);
+            if (_instance)
+                freerdp_abort_connect_context(_instance->context);
+        }
+        if (_eventQueueOverflowed)
+            break;
     }
     if (_inputEvent)
         SetEvent(_inputEvent);
@@ -1023,12 +1083,14 @@ static void destroyContext(rdpContext *context) {
     [self enqueue:@{@"type" : @"clipboardActive", @"active" : @(active)}];
 }
 - (void)sendControlAltDelete {
-    [self sendScanCode:0x1D pressed:YES extended:NO];
-    [self sendScanCode:0x38 pressed:YES extended:NO];
-    [self sendScanCode:0x53 pressed:YES extended:YES];
-    [self sendScanCode:0x53 pressed:NO extended:YES];
-    [self sendScanCode:0x38 pressed:NO extended:NO];
-    [self sendScanCode:0x1D pressed:NO extended:NO];
+    [self enqueueEvents:@[
+        @{@"type" : @"key", @"code" : @0x1D, @"pressed" : @YES, @"extended" : @NO},
+        @{@"type" : @"key", @"code" : @0x38, @"pressed" : @YES, @"extended" : @NO},
+        @{@"type" : @"key", @"code" : @0x53, @"pressed" : @YES, @"extended" : @YES},
+        @{@"type" : @"key", @"code" : @0x53, @"pressed" : @NO, @"extended" : @YES},
+        @{@"type" : @"key", @"code" : @0x38, @"pressed" : @NO, @"extended" : @NO},
+        @{@"type" : @"key", @"code" : @0x1D, @"pressed" : @NO, @"extended" : @NO}
+    ]];
 }
 - (void)disconnect {
     atomic_store(&_stopped, true);
