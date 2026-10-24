@@ -2,6 +2,13 @@
 NS_ASSUME_NONNULL_BEGIN
 // Independently implemented RFB worker. Callbacks run on its protocol queue.
 @interface FCVNCClient : NSObject
+@property(nonatomic) BOOL appleVirtualDisplay;
+@property(nonatomic) NSInteger desktopWidth;
+@property(nonatomic) NSInteger desktopHeight;
+@property(nonatomic) BOOL retinaDisplay;
+@property(nonatomic, copy, nullable) void (^onAppleLayout)
+    (NSInteger logicalWidth, NSInteger logicalHeight, NSInteger backingWidth, NSInteger backingHeight);
+- (void)resizeAppleWidth:(NSInteger)width height:(NSInteger)height;
 @property(nonatomic) NSInteger tunnelPort;
 @property(nonatomic, copy, nullable) NSString *tunnelToken;
 @property(nonatomic, copy, nullable) void (^onStatus)(NSString *state, NSString *message);

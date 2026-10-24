@@ -1,5 +1,6 @@
 #import "VNCClient.h"
 #import "../Transport/WireGuardSocket.h"
+#import "VNCAppleSession.h"
 #import <Security/Security.h>
 #import <arpa/inet.h>
 #import <fcntl.h>
@@ -40,7 +41,7 @@ static uint32_t KeySym(uint32_t scalar) {
 
 @implementation FCVNCClient {
     atomic_bool _cancelled, _ready;
-    BOOL _started, _reportedTyping;
+    BOOL _started, _reportedTyping, _reportedFrame;
     int _fd;
     SSL_CTX *_context;
     SSL *_tls;
@@ -54,6 +55,9 @@ static uint32_t KeySym(uint32_t scalar) {
     z_stream _inflate;
     BOOL _inflating;
     NSString *_failure;
+    FCVNCAppleSession *_apple;
+    NSUInteger _appleLogicalWidth, _appleLogicalHeight;
+    NSData *_pendingAppleResize;
 }
 - (instancetype)init {
     if ((self = [super init])) {
@@ -98,7 +102,7 @@ static uint32_t KeySym(uint32_t scalar) {
     }
     return NO;
 }
-- (BOOL)write:(const void *)bytes count:(NSUInteger)count {
+- (BOOL)writeTransport:(const void *)bytes count:(NSUInteger)count {
     double deadline = FCWireGuardSocketTime() + 30;
     NSUInteger done = 0;
     while (done < count && ![self cancelled]) {
@@ -125,7 +129,7 @@ static uint32_t KeySym(uint32_t scalar) {
     }
     return done == count;
 }
-- (BOOL)read:(void *)bytes count:(NSUInteger)count {
+- (BOOL)readTransport:(void *)bytes count:(NSUInteger)count {
     double deadline = FCWireGuardSocketTime() + 30;
     NSUInteger done = 0;
     while (done < count && ![self cancelled]) {
@@ -155,6 +159,26 @@ static uint32_t KeySym(uint32_t scalar) {
     }
     return done == count;
 }
+- (BOOL)write:(const void *)bytes count:(NSUInteger)count {
+    BOOL ok = _apple ? [_apple write:bytes count:count] : [self writeTransport:bytes count:count];
+    if (!ok && _apple)
+        _failure = _apple.failure;
+    return ok;
+}
+- (BOOL)read:(void *)bytes count:(NSUInteger)count {
+    BOOL ok = _apple ? [_apple read:bytes count:count] : [self readTransport:bytes count:count];
+    if (!ok && _apple)
+        _failure = _apple.failure;
+    return ok;
+}
+- (void)resizeAppleWidth:(NSInteger)width height:(NSInteger)height {
+    NSData *request =
+        width > 0 && height > 0 ? [FCVNCAppleSession displayWidth:width height:height retina:self.retinaDisplay] : nil;
+    @synchronized(self) {
+        if (!_cancelled && _ready && self.appleVirtualDisplay)
+            _pendingAppleResize = request;
+    }
+}
 - (BOOL)discard:(NSUInteger)count {
     unsigned char buffer[4096];
     while (count) {
@@ -173,14 +197,20 @@ static uint32_t KeySym(uint32_t scalar) {
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_family = AF_UNSPEC;
     NSString *service = [NSString stringWithFormat:@"%ld", (long)(self.tunnelPort ?: port)];
-    if (getaddrinfo(self.tunnelPort ? "127.0.0.1" : host.UTF8String, service.UTF8String, &hints, &list))
+    int lookup = getaddrinfo(self.tunnelPort ? "127.0.0.1" : host.UTF8String, service.UTF8String, &hints, &list);
+    if (lookup) {
+        _failure = [NSString stringWithFormat:@"VNC address lookup failed (%d): %s.", lookup, gai_strerror(lookup)];
         return NO;
+    }
     double deadline = FCWireGuardSocketTime() + 20;
     BOOL connected = NO;
+    int connectionError = 0;
     for (struct addrinfo *a = list; a && ![self cancelled]; a = a->ai_next) {
         int fd = socket(a->ai_family, a->ai_socktype, a->ai_protocol);
-        if (fd < 0)
+        if (fd < 0) {
+            connectionError = errno;
             continue;
+        }
         int one = 1;
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
         setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
@@ -191,11 +221,16 @@ static uint32_t KeySym(uint32_t scalar) {
                 shutdown(fd, SHUT_RDWR);
         }
         int result = connect(fd, a->ai_addr, a->ai_addrlen);
+        connectionError = result ? errno : 0;
         if (result == 0 || (errno == EINPROGRESS && [self waitSocket:POLLOUT deadline:deadline])) {
             int error = 0;
             socklen_t size = sizeof(error);
-            if (!getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &size) && error == 0)
-                connected = YES;
+            if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &size))
+                connectionError = errno;
+            else {
+                connected = error == 0;
+                connectionError = error;
+            }
         }
         if (connected)
             break;
@@ -205,8 +240,16 @@ static uint32_t KeySym(uint32_t scalar) {
         }
     }
     freeaddrinfo(list);
-    if (!connected)
+    if (!connected) {
+        if (connectionError == EINPROGRESS || FCWireGuardSocketTime() >= deadline)
+            connectionError = ETIMEDOUT;
+        _failure = [NSString
+            stringWithFormat:@"VNC TCP connection failed (%d): %s.%@", connectionError, strerror(connectionError),
+                             connectionError == EHOSTUNREACH || connectionError == EACCES || connectionError == EPERM
+                                 ? @" Check this Mac’s Local Network permission and network access."
+                                 : @""];
         return NO;
+    }
     if (self.tunnelPort) {
         NSString *failure = nil;
         BOOL ok = FCWireGuardAuthenticateSocket(
@@ -304,6 +347,32 @@ static uint32_t KeySym(uint32_t scalar) {
     return self.onTrust && self.onTrust(pin, details) && ![self cancelled];
 }
 - (BOOL)authenticateHost:(NSString *)host username:(NSString *)username password:(NSString *)password {
+    if (self.appleVirtualDisplay) {
+        _apple = [FCVNCAppleSession new];
+        __weak FCVNCClient *weakSelf = self;
+        _apple.readTransport = ^BOOL(void *bytes, NSUInteger count) {
+          return [weakSelf readTransport:bytes count:count];
+        };
+        _apple.writeTransport = ^BOOL(const void *bytes, NSUInteger count) {
+          return [weakSelf writeTransport:bytes count:count];
+        };
+        _apple.isCancelled = ^BOOL {
+          FCVNCClient *owner = weakSelf;
+          return !owner || [owner cancelled];
+        };
+        _apple.approveIdentity = ^BOOL(NSString *pin, NSString *details) {
+          FCVNCClient *owner = weakSelf;
+          return owner && owner.onTrust && owner.onTrust(pin, details);
+        };
+        BOOL ok = [_apple authenticateUsername:username password:password];
+        if (!ok) {
+            _failure = _apple.failure;
+            if (_apple.authenticationRejected && self.onAuthenticationRejected)
+                self.onAuthenticationRejected();
+        }
+        return ok;
+    }
+    _failure = @"VNC server did not send a valid RFB protocol banner.";
     unsigned char banner[12];
     if (![self read:banner count:12] || memcmp(banner, "RFB 003.", 8) || banner[11] != '\n')
         return NO;
@@ -415,6 +484,13 @@ static uint32_t KeySym(uint32_t scalar) {
         return NO;
     _width = width;
     _height = height;
+    if (_apple.encrypted) {
+        NSUInteger factor = self.retinaDisplay ? 2 : 1;
+        if (width % factor == 0 && height % factor == 0) {
+            _appleLogicalWidth = width / factor;
+            _appleLogicalHeight = height / factor;
+        }
+    }
     _pixels = [NSMutableData dataWithLength:width * height * 4];
     if (self.onDesktopSize)
         self.onDesktopSize(width, height);
@@ -427,7 +503,7 @@ static uint32_t KeySym(uint32_t scalar) {
     return [self write:request count:10];
 }
 - (BOOL)initializeDesktop {
-    unsigned char shared = 1, init[24];
+    unsigned char shared = _apple ? 0xc1 : 1, init[24];
     if (![self write:&shared count:1] || ![self read:init count:24])
         return NO;
     uint32_t nameLength = Read32(init + 20);
@@ -435,13 +511,25 @@ static uint32_t KeySym(uint32_t scalar) {
         return NO;
     // Little-endian BGRX8888; server converts from its native format.
     unsigned char format[20] = {0, 0, 0, 0, 32, 24, 0, 1, 0, 255, 0, 255, 0, 255, 16, 8, 0, 0, 0, 0};
-    unsigned char encodings[24] = {2, 0, 0, 5};
+    if (_apple && ![_apple bootstrapWidth:self.desktopWidth height:self.desktopHeight retina:self.retinaDisplay]) {
+        _failure = @"Apple virtual-display encrypted bootstrap failed.";
+        return NO;
+    }
+    unsigned char encodings[48] = {2, 0, 0, _apple ? 11 : 5};
     Put32(encodings + 4, 6);
     Put32(encodings + 8, 5);
     Put32(encodings + 12, 1);
     Put32(encodings + 16, 0);
     Put32(encodings + 20, (uint32_t)-223);
-    return [self write:format count:20] && [self write:encodings count:24] && [self requestFrame:NO];
+    Put32(encodings + 24, 0x44f);
+    Put32(encodings + 28, 0x450);
+    Put32(encodings + 32, 0x451);
+    Put32(encodings + 36, 0x455);
+    Put32(encodings + 40, 0x456);
+    Put32(encodings + 44, 0x453);
+    // Apple requires SetEncodings immediately after display configuration.
+    return [self write:encodings count:_apple ? 48 : 24] && [self write:format count:20] &&
+           (_apple ? [self armAppleUpdates] : [self requestFrame:NO]);
 }
 - (void)fillX:(NSUInteger)x
             y:(NSUInteger)y
@@ -551,6 +639,68 @@ static uint32_t KeySym(uint32_t scalar) {
     }
     return YES;
 }
+- (BOOL)armAppleUpdates {
+    unsigned char packet[16] = {9, 0, 0, 1, 255, 255, 255, 255};
+    Put16(packet + 12, _width);
+    Put16(packet + 14, _height);
+    return [self write:packet count:sizeof(packet)] && [self requestFrame:NO];
+}
+- (BOOL)appleMetadata:(int32_t)encoding x:(NSUInteger)x y:(NSUInteger)y width:(NSUInteger)w height:(NSUInteger)h {
+    if (encoding == 0x44f) {
+        unsigned char payload[36];
+        return [self read:payload count:36] && [_apple rekey:[NSData dataWithBytes:payload length:36]];
+    }
+    if (encoding == 0x453)
+        return [self discard:22];
+    if (encoding == 0x450) {
+        unsigned char header[8];
+        if (![self read:header count:8])
+            return NO;
+        uint32_t length = Read32(header + 4);
+        if (length > 1024 * 1024 || w > 512 || h > 512)
+            return NO;
+        // Cursor STORE/SELECT is framed independently of framebuffer pixel damage.
+        return [self discard:length];
+    }
+    unsigned char prefix[2];
+    if (![self read:prefix count:2])
+        return NO;
+    NSUInteger size = Read16(prefix);
+    if (size > 65535 || size < 2)
+        return NO;
+    NSMutableData *data = [NSMutableData dataWithLength:size];
+    if (![self read:data.mutableBytes count:size])
+        return NO;
+    if (encoding == 0x451) {
+        // Version-5 layout starts with version, display selector and flags. Geometry
+        // is carried in the first screen's backing/scaled bounds, not its identifier.
+        const unsigned char *p = data.bytes;
+        if (size < 66 || Read16(p) != 5) {
+            _failure = [NSString stringWithFormat:@"Unsupported Apple display-layout format (version %u, size %lu).",
+                                                  size >= 2 ? Read16(p) : 0, (unsigned long)size];
+            return NO;
+        }
+        NSUInteger backingW = Read16(p + 36), backingH = Read16(p + 38), logicalW = Read16(p + 44),
+                   logicalH = Read16(p + 46);
+        if (!logicalW || !logicalH || logicalW > 3840 || logicalH > 2160 || !backingW || !backingH || backingW > 3840 ||
+            backingH > 2160) {
+            _failure =
+                [NSString stringWithFormat:@"Invalid Apple display geometry (%lu × %lu logical, %lu × %lu backing).",
+                                           (unsigned long)logicalW, (unsigned long)logicalH, (unsigned long)backingW,
+                                           (unsigned long)backingH];
+            return NO;
+        }
+        if (_width != backingW || _height != backingH)
+            if (![self sizeWidth:backingW height:backingH])
+                return NO;
+        _appleLogicalWidth = logicalW;
+        _appleLogicalHeight = logicalH;
+        if (self.onAppleLayout)
+            self.onAppleLayout(logicalW, logicalH, backingW, backingH);
+        return [self armAppleUpdates];
+    }
+    return encoding == 0x455 || encoding == 0x456;
+}
 - (BOOL)frameUpdate {
     unsigned char header[3];
     if (![self read:header count:3])
@@ -558,13 +708,19 @@ static uint32_t KeySym(uint32_t scalar) {
     NSUInteger count = Read16(header + 1);
     if (count > 4096)
         return NO;
-    BOOL resized = NO;
+    BOOL resized = NO, damaged = NO;
     for (NSUInteger i = 0; i < count; i++) {
         unsigned char rect[12];
         if (![self read:rect count:12])
             return NO;
         NSUInteger x = Read16(rect), y = Read16(rect + 2), w = Read16(rect + 4), h = Read16(rect + 6);
         int32_t encoding = (int32_t)Read32(rect + 8);
+        if (_apple && (encoding == 0x44f || encoding == 0x450 || encoding == 0x451 || encoding == 0x453 ||
+                       encoding == 0x455 || encoding == 0x456)) {
+            if (![self appleMetadata:encoding x:x y:y width:w height:h])
+                return NO;
+            continue;
+        }
         if (encoding == -223) {
             if (resized || ![self sizeWidth:w height:h])
                 return NO;
@@ -573,6 +729,7 @@ static uint32_t KeySym(uint32_t scalar) {
         }
         if (!w || !h || x + w > _width || y + h > _height)
             return NO;
+        damaged = YES;
         if (encoding == 0) {
             if (![self rawX:x y:y width:w height:h])
                 return NO;
@@ -597,9 +754,17 @@ static uint32_t KeySym(uint32_t scalar) {
         } else
             return NO;
     }
-    if (self.onFrame && ![self cancelled])
-        self.onFrame([_pixels copy], _width, _height, _width * 4);
-    return [self requestFrame:!resized];
+    if (damaged && ![self cancelled]) {
+        if (self.onFrame)
+            self.onFrame([_pixels copy], _width, _height, _width * 4);
+        if (_apple && !_reportedFrame) {
+            _reportedFrame = YES;
+            [self status:@"connected" message:@"Apple virtual display connected (full quality)"];
+        }
+    }
+    // Apple drops the update subscription during virtual-display/agent changes.
+    // Both its vendor layout and standard DesktopSize notifications must re-arm.
+    return _apple ? (!resized || [self armAppleUpdates]) : [self requestFrame:!resized];
 }
 - (NSData *)key:(uint32_t)key pressed:(BOOL)pressed {
     unsigned char packet[8] = {4, pressed ? 1 : 0};
@@ -676,6 +841,13 @@ static uint32_t KeySym(uint32_t scalar) {
     }
 }
 - (BOOL)flushInput {
+    NSData *resize;
+    @synchronized(self) {
+        resize = _pendingAppleResize;
+        _pendingAppleResize = nil;
+    }
+    if (resize && ![self write:resize.bytes count:resize.length])
+        return NO;
     NSArray<NSData *> *packets;
     NSNumber *typed = nil;
     BOOL typing;
@@ -691,9 +863,23 @@ static uint32_t KeySym(uint32_t scalar) {
         }
         typing = _typing != nil;
     }
-    for (NSData *packet in packets)
-        if (![self write:packet.bytes count:packet.length])
+    for (NSData *packet in packets) {
+        NSData *outgoing = packet;
+        if (_apple && _appleLogicalWidth && packet.length == 6 && ((const unsigned char *)packet.bytes)[0] == 5) {
+            NSMutableData *pointer = [packet mutableCopy];
+            unsigned char *p = pointer.mutableBytes;
+            Put16(p + 2, MIN(_appleLogicalWidth - 1, Read16(p + 2) * _appleLogicalWidth / MAX(1, _width)));
+            Put16(p + 4, MIN(_appleLogicalHeight - 1, Read16(p + 4) * _appleLogicalHeight / MAX(1, _height)));
+            outgoing = pointer;
+        }
+        if (_apple && outgoing.length > 8 && outgoing.length % 8 == 0 &&
+            ((const unsigned char *)outgoing.bytes)[0] == 4) {
+            for (NSUInteger offset = 0; offset < outgoing.length; offset += 8)
+                if (![self write:(const unsigned char *)outgoing.bytes + offset count:8])
+                    return NO;
+        } else if (![self write:outgoing.bytes count:outgoing.length])
             return NO;
+    }
     if (typed) {
         if (!_reportedTyping && self.onTyping)
             self.onTyping(YES);
@@ -732,15 +918,24 @@ static uint32_t KeySym(uint32_t scalar) {
               @synchronized(self) {
                   self->_ready = !self->_cancelled;
               }
-              [self status:@"connected" message:@"VNC connected"];
+              [self status:self->_apple ? @"connecting" : @"connected"
+                   message:self->_apple ? @"Waiting for Apple virtual-display pixels…" : @"VNC connected"];
+              double firstFrameDeadline = FCWireGuardSocketTime() + 30;
               while (![self cancelled]) {
+                  if (self->_apple && !self->_reportedFrame && FCWireGuardSocketTime() >= firstFrameDeadline) {
+                      self->_failure = @"The Mac authenticated but did not deliver desktop pixels.";
+                      ok = NO;
+                      break;
+                  }
                   @autoreleasepool {
                       if (![self flushInput]) {
                           ok = NO;
                           break;
                       }
                       struct pollfd p = {self->_fd, POLLIN, 0};
-                      int ready = self->_tls && SSL_pending(self->_tls) ? 1 : poll(&p, 1, 10);
+                      int ready = (self->_apple.hasBufferedBytes || (self->_tls && SSL_pending(self->_tls)))
+                                      ? 1
+                                      : poll(&p, 1, 10);
                       if (!ready || (ready < 0 && errno == EINTR))
                           continue;
                       if (ready < 0) {
@@ -755,6 +950,11 @@ static uint32_t KeySym(uint32_t scalar) {
                       if (type == 0)
                           ok = [self frameUpdate];
                       else if (type == 2) { /* Bell: no remote sound negotiation. */
+                      } else if (self->_apple && type == 0x14) {
+                          unsigned char header[3];
+                          ok = [self read:header count:3];
+                          NSUInteger length = ok ? Read16(header + 1) : 0;
+                          ok = ok && length <= 4096 && [self discard:length];
                       } else if (type == 3) {
                           unsigned char header[7];
                           ok = [self read:header count:7];
@@ -768,7 +968,9 @@ static uint32_t KeySym(uint32_t scalar) {
               }
           }
           BOOL cancelled = [self cancelled];
+          self->_apple = nil;
           @synchronized(self) {
+              self->_pendingAppleResize = nil;
               self->_ready = NO;
               self->_typing = nil;
               if (self->_fd >= 0) {

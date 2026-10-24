@@ -42,6 +42,42 @@ final class VNCTests: XCTestCase {
         XCTAssertEqual(profiles.first { $0.kind == .ssh }?.username, "fixture")
         XCTAssertNotEqual(restored.endpointKey, "RDP|fixture.invalid|5900")
     }
+    @MainActor func testMacVNCOptInPersistenceValidationAndSeparateIdentity() throws {
+        var draft = ConnectionDraft()
+        draft.kind = .vnc
+        draft.host = "fixture.invalid"
+        draft.port = 5900
+        let standard = SavedConnection(draft: draft)
+        standard.vncRemoteIsMac = nil
+        XCTAssertFalse(ConnectionDraft(standard).vncRemoteIsMac)
+        let standardEndpoint = draft.endpointKey
+        draft.vncRemoteIsMac = true
+        XCTAssertNotNil(draft.validationMessage)
+        draft.username = "fixture"
+        draft.dynamicResolution = true
+        draft.displayMode = .actualSize
+        XCTAssertEqual(draft.effectiveDisplayMode, .fit)
+        XCTAssertNil(draft.validationMessage)
+        XCTAssertNotEqual(draft.endpointKey, standardEndpoint)
+        draft.retinaDisplay = true
+        draft.desktopWidth = 1920
+        draft.desktopHeight = 1080
+        XCTAssertNil(draft.validationMessage)
+        draft.desktopWidth = 1921
+        XCTAssertNotNil(draft.validationMessage)
+        draft.desktopWidth = 1440
+        let saved = SavedConnection(draft: draft)
+        let container = try ModelContainer(
+            for: SavedConnection.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        container.mainContext.insert(saved)
+        try container.mainContext.save()
+        let duplicate = saved.duplicate()
+        XCTAssertTrue(ConnectionDraft(duplicate).vncRemoteIsMac)
+        XCTAssertTrue(ConnectionDraft(saved).retinaDisplay)
+        saved.update(from: ConnectionDraft(standard))
+        XCTAssertFalse(ConnectionDraft(saved).vncRemoteIsMac)
+    }
     func testVNCValidationAndKeySymbols() {
         var draft = ConnectionDraft()
         draft.kind = .vnc

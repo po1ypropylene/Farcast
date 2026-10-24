@@ -68,4 +68,10 @@ VNC profiles can be imported with `"protocol": "VNC"` and an empty username for
 classic VNC authentication, then connected explicitly in the app. The redacted
 live-server command currently probes SSH/RDP only; it does not establish VNC live
 coverage. Use `scripts/test-vnc.sh` and the mixed WireGuard session suite for owned
-synthetic VNC checks. Do not put real connection data in tracked fixtures.
+synthetic VNC checks. The **Remote desktop is a Mac** option is an explicit UI
+opt-in after import; it requires a Mac account password and a verified Apple RSA
+identity. Creating its virtual display may blank the host’s physical display;
+use an authorized test account/session. `scripts/test-vnc-apple.sh` and
+`scripts/test-vnc-migration.sh` use synthetic inputs only. Never put account
+passwords, session keys or credential-bearing packet captures in test artifacts.
+Do not put real connection data in tracked fixtures.

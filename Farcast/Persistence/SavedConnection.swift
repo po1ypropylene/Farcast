@@ -21,6 +21,7 @@ import SwiftData
     var desktopHeight: Int
     var rdpDisplayMode: String? = nil
     var dynamicResolution: Bool
+    var vncRemoteIsMac: Bool? = nil
     var rdpLaunchFullScreen: Bool? = nil
     var rdpUseAllMonitors: Bool? = nil
     var rdpRetinaDisplay: Bool? = nil
@@ -49,6 +50,7 @@ import SwiftData
         desktopHeight = draft.desktopHeight
         rdpDisplayMode = draft.displayMode.rawValue
         dynamicResolution = draft.dynamicResolution
+        vncRemoteIsMac = draft.vncRemoteIsMac
         rdpLaunchFullScreen = draft.launchFullScreen
         rdpUseAllMonitors = draft.useAllMonitors
         rdpRetinaDisplay = draft.retinaDisplay
@@ -67,6 +69,7 @@ import SwiftData
         // Retain optional/raw metadata exactly, including settings from newer versions.
         copy.protocolName = protocolName
         copy.authentication = authentication
+        copy.vncRemoteIsMac = vncRemoteIsMac
         copy.rdpDisplayMode = rdpDisplayMode
         copy.rdpLaunchFullScreen = rdpLaunchFullScreen
         copy.rdpUseAllMonitors = rdpUseAllMonitors
@@ -93,6 +96,7 @@ import SwiftData
         desktopHeight = draft.desktopHeight
         rdpDisplayMode = draft.displayMode.rawValue
         dynamicResolution = draft.dynamicResolution
+        vncRemoteIsMac = draft.vncRemoteIsMac
         rdpLaunchFullScreen = draft.launchFullScreen
         rdpUseAllMonitors = draft.useAllMonitors
         rdpRetinaDisplay = draft.retinaDisplay

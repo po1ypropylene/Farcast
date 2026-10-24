@@ -477,13 +477,34 @@ same shared tunnel as other sessions. Plain VNC does not encrypt the desktop or
 verify server identity; use WireGuard on untrusted networks. VeNCrypt X509None,
 X509Vnc and X509Plain use TLS 1.2 or newer and require approval of the certificate
 fingerprint for the original server endpoint before credentials are sent.
-Anonymous TLS, Apple Remote Desktop authentication and proprietary RealVNC
+Anonymous TLS, legacy Apple DH/Kerberos modes and proprietary RealVNC
 security modes are unsupported; configure a supported server mode.
 
 **Display** offers Fit to window, 100% with scrolling and startup full screen.
 The server controls desktop resolution. Window resizing only fits the local view;
 server-initiated size changes update it. The full-screen action reuses the current
 connection on one Mac display. Control–Command–F exits full screen.
+
+For an Apple-silicon Mac running macOS 14 or later, select **Remote desktop is a
+Mac** under **General → Sign in**. Enter the Mac account username and password,
+not a separate VNC password. Verify the Apple RSA public-key fingerprint before
+approving its identity; this trust decision is separate from VNC TLS identities.
+The option requests one virtual display and can blank the Mac’s physical display
+while the session is active. Existing profiles keep this option off.
+
+In **Display**, choose an initial resolution, **Optimize for Retina**, or
+**Resize with window**. The maximum backing size is 3840 × 2160 pixels; Retina
+uses two backing pixels per logical point, limiting logical size to 1920 × 1080.
+The Mac confirms its actual geometry and may select a different size. Connection
+Details records requests and received geometry. Display changes apply on reconnect.
+This experimental mode uses encrypted full-quality framebuffer delivery. Adaptive
+UDP/HEVC streaming, audio and HDR are not yet implemented. A selected VPN carries
+the complete TCP connection; the mode does not bypass it with direct media traffic.
+
+A TCP error such as “No route to host” occurs before authentication. Check network
+access and **System Settings → Privacy & Security → Local Network → Farcast**.
+After a development rebuild, macOS may require turning the existing permission off
+and back on, especially when multiple Farcast copies are present.
 
 Click **Paste Text from Clipboard** in the session bar or Session menu (or press
 Command–V while the desktop has focus). This takes a text snapshot only when
@@ -496,8 +517,8 @@ characters already sent remain. No automatic VNC clipboard/file sharing occurs.
 **Ctrl + Alt + Delete** is available in the session bar and Session menu.
 
 Standard RFB can support clipboard text, but Farcast’s VNC workflow uses explicit
-keyboard typing. VNC file transfer, audio, server cursor images, remote resolution
-requests and multiple local full-screen monitors are unsupported. Compatibility
+keyboard typing. VNC file transfer, audio, server cursor images, standard-VNC remote
+resolution requests and multiple local full-screen monitors are unsupported. Compatibility
 with production VNC servers, remote keyboard layouts and IME still needs live testing.
 
 ## OpenVPN connections

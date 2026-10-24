@@ -13,7 +13,7 @@ stated scope; disabled live entries report SKIP.
 | Migration | Old-module and pre-feature SwiftData stores, ID/metadata preservation, credential opt-in, reopening and unchanged source bytes | Disposable libraries; user-container grants need live testing |
 | SSH/SFTP | Authentication/trust, fresh sign-in retry, file-only fallback, byte equality, overwrite/move safety, cancellation, terminal scheduling and throughput; navigation history, cache hits/expiry/eviction/invalidation, stale replies and filename filtering | Loopback peers, controlled proxies and explicit synthetic listing replies |
 | SSH forwarding | Local/remote/SOCKS byte equality, live add/edit/remove including initially empty sessions, concurrency, IPv6, server-only DNS, malformed/fragmented messages, backpressure and EOF, policy denial, ports, stop/restart, forwarding-only sessions, file conflicts/cancellation, WireGuard sharing/reconnect/failure and signed sandboxed listeners | Owned loopback/encrypted peers and native off-screen controls; production policy and throughput unverified |
-| VNC | RFB versions/security, DES challenge, TLS trust/refusal, raw/CopyRect/Hextile/Zlib/resize, Unicode key pairs, pointer, typing cancellation and malformed input | Owned synthetic peers; production interoperability is unverified |
+| VNC | RFB versions/security, DES challenge, TLS trust/refusal, raw/CopyRect/Hextile/Zlib/resize, Unicode input, cancellation; Apple RSA-SRP, encrypted records, virtual-display resize/re-arm after DesktopSize, connected-after-pixels, key/group/proof/integrity rejection and optional-setting migration | Owned synthetic peers; one authorized Mac confirms RSA-SRP, visible TCP framebuffer, window resize and Retina backing dimensions. Other Mac versions and production input remain unverified |
 | RDP channels | TLS/NLA, frames, clipboard text/files, retained-batch quota, cancelled-generation format timeout, detach callbacks, reserved names and preservation of local text for unsupported formats; folder drives, Display Control PDUs, initial monitor attributes and pointer input | Synthetic peers; channel submission does not prove Windows acceptance |
 | RDP keyboard | Left/right and duplicate modifier snapshots, overlapping Shifts, physical shifted letters, missed-release repair, focus/activation cleanup, Caps Lock synchronization, native window key repeat, menu routing and Unicode pairs; suspended-input retention with clipboard-control progress; TLS/NLA peer decodes ordered keyboard PDUs before and after resumption | Owned AppKit windows and loopback peers; production intermittent failure and Windows Sticky Keys behavior remain unverified. See [keyboard input contract](rdp-keyboard.md) |
 | RDP recovery | Idle worker health, stalled-worker interruption, abrupt peer loss, visible stale/failed/reconnecting state, three-attempt backoff, cancellation, teardown ordering, callback generations and same-tab TLS reauthentication | Owned TLS peer and controlled native callbacks; production long-session failure reproduction remains pending |
@@ -95,8 +95,9 @@ Production Windows startup smoothness still requires live validation.
   Comparative production directory throughput has not been measured.
 - **VNC:** classic password/no-auth has no desktop encryption or server identity;
   use WireGuard on untrusted networks. VeNCrypt requires supported X509 modes.
-  ARD/proprietary security, anonymous TLS, file/audio/cursor channels and client
-  resolution requests are unsupported. Clipboard typing depends on server Unicode
+  Apple virtual-display mode supports RSA-SRP and encrypted full-quality TCP frames;
+  adaptive UDP/HEVC, HDR, legacy Apple DH/Kerberos/direct-SRP, anonymous TLS and
+  file/audio/cursor channels are unsupported. Standard VNC cannot request resolution changes. Clipboard typing depends on server Unicode
   keysym handling and cannot retract delivered input. Full screen uses one display.
 - **SFTP:** atomic upload replacement requires OpenSSH POSIX rename. Moves require
   quiescent sources; metadata checks cannot detect every concurrent content change.

@@ -5,6 +5,10 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Add “Remote desktop is a Mac” for VNC, with an opt-in encrypted Apple virtual display, resolution/Retina settings and window-driven resize requests. Accelerated UDP video, audio and HDR are not included in this mode.
+- Restore Apple framebuffer updates after virtual-display size changes, and wait for desktop pixels before reporting Connected.
+- Report VNC TCP and authentication-stage failures instead of hiding the underlying connection error.
+
 - Recover stalled RDP clipboard format requests, preserve local text when the remote copies unsupported formats, and retain temporary-storage accounting while completed file batches remain available.
 - Harden RDP setup/cleanup and clipboard file ownership; keep Ctrl–Alt–Delete ordered as one queued sequence and report rejected graphics setup in redacted diagnostics.
 

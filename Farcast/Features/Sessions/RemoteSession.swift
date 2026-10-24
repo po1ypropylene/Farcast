@@ -34,6 +34,8 @@ import SwiftTerm
     private var vnc: FCVNCClient?
     @Published private(set) var vncTyping = false
     private var vncPointerMask = 0
+    private var appleRequestedSize: CGSize?
+    private var appleResizeObservation: DispatchWorkItem?
     private var rdp: FCRDPClient?
     var rdpPerformanceStatistics: [String: NSNumber] { rdp?.performanceStatistics ?? [:] }
     private let makeRDPClient: @MainActor () -> FCRDPClient
@@ -122,7 +124,8 @@ import SwiftTerm
             terminal = nil
             let view = RDPDesktopView(frame: NSRect(x: 0, y: 0, width: 1000, height: 700))
             view.displayMode = profile.effectiveDisplayMode
-            view.retinaDisplay = profile.kind == .rdp && profile.retinaDisplay
+            view.retinaDisplay =
+                (profile.kind == .rdp || (profile.kind == .vnc && profile.vncRemoteIsMac)) && profile.retinaDisplay
             view.setDesktopSize(CGSize(width: profile.desktopWidth, height: profile.desktopHeight))
             desktop = view
         }
@@ -132,7 +135,9 @@ import SwiftTerm
         record(
             "Starting \(profile.kind.rawValue) session via \(profile.wireGuardID == nil ? "direct transport" : "VPN").")
         if profile.kind == .rdp { rdpCredential = credential }
-        if profile.kind == .ssh, let error = profile.validationMessage {
+        if profile.kind == .ssh || (profile.kind == .vnc && profile.vncRemoteIsMac),
+            let error = profile.validationMessage
+        {
             update("failed", message: error, attempt: generation)
             return
         }
@@ -608,6 +613,10 @@ import SwiftTerm
         tunnelPort: Int, tunnelToken: String?
     ) {
         let client = FCVNCClient()
+        client.appleVirtualDisplay = profile.vncRemoteIsMac
+        client.retinaDisplay = profile.retinaDisplay
+        client.desktopWidth = profile.desktopWidth
+        client.desktopHeight = profile.desktopHeight
         vnc = client
         vncPointerMask = 0
         client.tunnelPort = tunnelPort
@@ -631,8 +640,35 @@ import SwiftTerm
                 self.vncTyping = typing
             }
         }
-        client.onFrame = { [weak desktop] pixels, width, height, stride in
+        client.onAppleLayout = { [weak self] logicalW, logicalH, backingW, backingH in
+            DispatchQueue.main.async {
+                guard let self, self.generation == attempt, self.state.active else { return }
+                self.record(
+                    "Apple display confirmed: \(logicalW) × \(logicalH) logical, \(backingW) × \(backingH) pixels.")
+                self.appleResizeObservation?.cancel()
+                let observed = CGSize(width: logicalW, height: logicalH)
+                self.displayMessage =
+                    self.appleRequestedSize == nil || self.appleRequestedSize == observed
+                    ? "" : "The Mac selected \(logicalW) × \(logicalH). The desktop is fitted locally."
+            }
+        }
+        var firstFrame = true
+        client.onFrame = { [weak self, weak desktop] pixels, width, height, stride in
             desktop?.submit(pixels, width: width, height: height, stride: stride)
+            if firstFrame {
+                firstFrame = false
+                DispatchQueue.main.async {
+                    guard let self, self.generation == attempt, self.state.active else { return }
+                    self.record("VNC first framebuffer received: \(width) × \(height) px.")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self, weak desktop] in
+                        guard let self, self.generation == attempt, self.state.active, let desktop else { return }
+                        let frame = desktop.mailbox.snapshot()?.1
+                        self.record(
+                            "VNC renderer: queued \(frame?.width ?? 0) × \(frame?.height ?? 0), expected \(desktop.expectedDesktopSize.map(Self.resolution) ?? "unset"), uploaded \(desktop.uploadedBytes) bytes, presented \(desktop.presentationMetrics.count), suspended \(desktop.renderingSuspended), mounted \(desktop.window != nil)."
+                        )
+                    }
+                }
+            }
         }
         client.onDesktopSize = { [weak self] width, height in
             DispatchQueue.main.async {
@@ -640,6 +676,13 @@ import SwiftTerm
                 if self.fullScreenPresented { self.exitFullScreen() }
                 let firstSize = self.observedDesktopSize == nil
                 self.observeDesktop(CGSize(width: width, height: height))
+                if self.profile.vncRemoteIsMac, let requested = self.appleRequestedSize {
+                    let factor: CGFloat = self.profile.retinaDisplay ? 2 : 1
+                    if requested.width * factor == CGFloat(width) && requested.height * factor == CGFloat(height) {
+                        self.appleResizeObservation?.cancel()
+                        self.displayMessage = ""
+                    }
+                }
                 self.desktop?.adoptDesktopSize(CGSize(width: width, height: height))
                 if firstSize && self.profile.launchFullScreen {
                     DispatchQueue.main.async { [weak self] in
@@ -674,7 +717,51 @@ import SwiftTerm
             }
             client?.sendPointerMask(self.vncPointerMask, x: x, y: y)
         }
-        client.connectHost(profile.host, port: profile.port, username: profile.username, password: credential.password)
+        if profile.vncRemoteIsMac {
+            desktop.resizeRemote = { [weak self, weak client] width, height, scale in
+                guard let self, self.generation == attempt, self.state == .connected,
+                    self.profile.dynamicResolution, !self.fullScreenPresented
+                else { return }
+                let factor = self.profile.retinaDisplay ? 2 : 1
+                let viewportScale = max(1, scale / 100)
+                let requestedW = min(3840 / factor, max(200, width / viewportScale))
+                let requestedH = min(2160 / factor, max(200, height / viewportScale))
+                let requested = CGSize(width: requestedW, height: requestedH)
+                guard self.appleRequestedSize != requested else { return }
+                self.appleRequestedSize = requested
+                client?.resizeAppleWidth(requestedW, height: requestedH)
+                self.record("Apple display resize submitted: \(requestedW) × \(requestedH) logical.")
+                self.appleResizeObservation?.cancel()
+                let observation = DispatchWorkItem { [weak self] in
+                    guard let self, self.generation == attempt, self.state == .connected else { return }
+                    self.displayMessage =
+                        "The Mac has not confirmed the resolution change. The desktop is fitted locally."
+                }
+                self.appleResizeObservation = observation
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: observation)
+            }
+            desktop.withInitialSize(
+                width: profile.desktopWidth, height: profile.desktopHeight,
+                matchWindow: profile.dynamicResolution || profile.displayMode == .matchWindow,
+                settle: profile.dynamicResolution
+            ) { [weak self, weak client] size in
+                guard let self, self.generation == attempt, self.state.active, let client else { return }
+                let factor = self.profile.retinaDisplay ? 2 : 1
+                let match = self.profile.dynamicResolution || self.profile.displayMode == .matchWindow
+                let viewportScale =
+                    match && self.profile.retinaDisplay ? self.desktop?.window?.backingScaleFactor ?? 1 : 1
+                client.desktopWidth = min(3840 / factor, max(200, Int(size.width / viewportScale)))
+                client.desktopHeight = min(2160 / factor, max(200, Int(size.height / viewportScale)))
+                self.appleRequestedSize = CGSize(width: client.desktopWidth, height: client.desktopHeight)
+                self.initialResolution = "\(client.desktopWidth) × \(client.desktopHeight) logical"
+                client.connectHost(
+                    self.profile.host, port: self.profile.port, username: self.profile.username,
+                    password: credential.password)
+            }
+        } else {
+            client.connectHost(
+                profile.host, port: profile.port, username: profile.username, password: credential.password)
+        }
     }
 
     private func submitResize(_ submission: RDPResizeCoordinator.Submission?) {
@@ -818,6 +905,7 @@ import SwiftTerm
             self.message = "Reconnect attempt \(rdpReconnect.attempts) of 3 · \(message)"
         }
         if state == .failed || state == .stale { latestFailure = message }
+        if state == .failed || state == .disconnected { appleResizeObservation?.cancel() }
         record(message)
         if state == .connected {
             if profile.kind == .rdp {
@@ -949,6 +1037,8 @@ import SwiftTerm
         }
     }
     func disconnect() {
+        appleResizeObservation?.cancel()
+        appleResizeObservation = nil
         rdpReconnectTask?.cancel()
         rdpReconnectTask = nil
         rdpHealthTask?.cancel()

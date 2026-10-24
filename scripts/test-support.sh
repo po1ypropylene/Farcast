@@ -39,7 +39,7 @@ compile_native_adapter() {
 }
 compile_native_clients() {
     compile_native_adapter "$fixture_root/SSH.o" "${ssh_sources[@]}"
-    compile_native_adapter "$fixture_root/RDP.o" Farcast/Native/RDP/RDPClient.m Farcast/Native/VNC/VNCClient.m
+    compile_native_adapter "$fixture_root/RDP.o" Farcast/Native/RDP/RDPClient.m Farcast/Native/VNC/*.m
     compile_native_adapter "$fixture_root/RDPClipboard.o" Farcast/Native/RDP/RDPClipboard.m
     compile_native_adapter "$fixture_root/RDPDrive.o" "${rdp_drive_sources[@]}"
 }

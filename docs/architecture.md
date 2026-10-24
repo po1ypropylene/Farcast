@@ -476,15 +476,39 @@ Latin-1 password bytes); no-auth is also supported. VeNCrypt 0.2 accepts X509Non
 X509Vnc and X509Plain with TLS 1.2+. macOS evaluates the original hostname’s certificate,
 and the endpoint-scoped trust prompt requires approval before authentication bytes.
 An offered VeNCrypt mode is never downgraded to plaintext if no supported subtype
-exists. Anonymous TLS and proprietary/ARD authentication are refused. Classic VNC
+exists. Anonymous TLS and unimplemented proprietary authentication are refused. Classic VNC
 has no certificate identity or transport encryption; the editor explains this.
 WireGuard uses the common token-authenticated socket handshake before RFB bytes,
 with original host identity, independent destination leases, fail-closed tunnel
 startup/exit and app-shutdown worker draining.
 
-VNC reuses existing profile display/full-screen fields without a SwiftData schema
-change. It exposes only fit/actual-size and single-display startup full screen;
-server dimensions are authoritative and RDP-only device/resolution settings stay hidden.
+Standard VNC reuses existing profile display/full-screen fields and exposes
+fit/actual-size and single-display startup full screen. The optional
+`SavedConnection.vncRemoteIsMac` metadata opts into the Apple-specific mode;
+missing values remain false and existing entity/property identities are preserved.
+Both modes treat received server dimensions as authoritative.
+
+`VNCAppleSession` implements the Apple RSA-SRP authentication and encrypted record
+layer on the existing VNC worker, through raw transport callbacks. It uses the
+bundled OpenSSL primitives, a validated 4096-bit SRP group and SHA-512 with bounded
+account-specific PBKDF2 work. RSA key approval precedes the encrypted identity
+exchange; mutual SRP proof and record integrity must succeed, with no downgrade to
+classic VNC. Apple RSA identities have a separate endpoint suffix from TLS pins.
+No system private framework is linked and no unrelated adapter code is copied.
+
+The Apple mode requests one SDR virtual display and negotiates only the supported
+framebuffer/metadata encodings. Encrypted receive records preserve stream state
+across fragmentation; bounded metadata is consumed before pixel rectangles.
+Rekeys rotate cipher contexts without resetting record counters. Window requests
+are coalesced on the protocol worker; logical versus backing geometry remains
+separate for Retina and pointer mapping. Server layout confirms effective size;
+request submission does not establish acceptance. Session generations and prompt
+cancellation remain owned by RemoteSession.
+
+The initial implementation uses full-quality TCP framebuffer delivery. Adaptive
+UDP/HEVC, audio, HDR, a second virtual display, legacy Apple DH, direct SRP and
+Kerberos are not implemented. TCP continues through the existing VPN destination
+lease when selected, without any direct UDP bypass.
 VNC key events use X11 keysyms, including full Unicode scalars. Explicit clipboard
 typing reads a snapshot on user action, normalizes CRLF/CR to Return, maps Tab,
 rejects other controls and caps the batch at 16384 scalars. Worker-paced down/up

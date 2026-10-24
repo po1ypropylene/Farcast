@@ -18,8 +18,9 @@ struct ConnectionDraft: Identifiable {
     var desktopHeight = 900
     var displayMode = RDPDisplayMode.fit
     var dynamicResolution = false
+    var vncRemoteIsMac = false
     var effectiveDisplayMode: RDPDisplayMode {
-        if kind == .rdp && dynamicResolution { return .fit }
+        if (kind == .rdp || (kind == .vnc && vncRemoteIsMac)) && dynamicResolution { return .fit }
         if kind == .vnc && displayMode != .actualSize { return .fit }
         return displayMode
     }
@@ -52,6 +53,7 @@ struct ConnectionDraft: Identifiable {
         desktopHeight = saved.desktopHeight
         displayMode = RDPDisplayMode(rawValue: saved.rdpDisplayMode ?? "") ?? .fit
         dynamicResolution = saved.dynamicResolution
+        vncRemoteIsMac = saved.vncRemoteIsMac ?? false
         launchFullScreen = saved.rdpLaunchFullScreen ?? false
         useAllMonitors = saved.rdpUseAllMonitors ?? false
         retinaDisplay = saved.rdpRetinaDisplay ?? false
@@ -82,8 +84,14 @@ struct ConnectionDraft: Identifiable {
             return "Enter the server address and port in their separate fields."
         }
         if !(1...65535).contains(port) { return "Port must be between 1 and 65535." }
-        if kind != .vnc && username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if (kind != .vnc || vncRemoteIsMac) && username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "Enter a username."
+        }
+        if kind == .vnc && vncRemoteIsMac {
+            let limit = retinaDisplay ? (1920, 1080) : (3840, 2160)
+            if !(200...limit.0).contains(desktopWidth) || !(200...limit.1).contains(desktopHeight) {
+                return "Apple virtual-display dimensions must fit within \(limit.0) × \(limit.1)."
+            }
         }
         if kind == .rdp && (!(200...8192).contains(desktopWidth) || !(200...8192).contains(desktopHeight)) {
             return "Desktop dimensions must be between 200 and 8192 pixels."
@@ -122,5 +130,7 @@ struct ConnectionDraft: Identifiable {
         name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if name.isEmpty { name = host }
     }
-    var endpointKey: String { "\(kind.rawValue)|\(host.lowercased())|\(port)" }
+    var endpointKey: String {
+        "\(kind.rawValue)|\(host.lowercased())|\(port)" + (kind == .vnc && vncRemoteIsMac ? "|apple-rsa" : "")
+    }
 }

@@ -143,10 +143,19 @@ struct ConnectionEditor: View {
                 }
             }
             section("Sign in") {
+                if draft.kind == .vnc {
+                    row("") { Toggle("Remote desktop is a Mac", isOn: $draft.vncRemoteIsMac) }
+                    if draft.vncRemoteIsMac {
+                        caption(
+                            "Use a Mac account username and password. One virtual display may blank the Mac’s physical display while connected."
+                        )
+                    }
+                }
                 row("Username") {
                     TextField(
                         "Username", text: $draft.username,
-                        prompt: Text(draft.kind == .vnc ? "Optional — X509Plain only" : "Required")
+                        prompt: Text(
+                            draft.kind == .vnc && !draft.vncRemoteIsMac ? "Optional — X509Plain only" : "Required")
                     ).accessibilityLabel(
                         "Username"
                     )
@@ -167,7 +176,7 @@ struct ConnectionEditor: View {
                     }
                 }
                 credentialFields
-                if draft.kind == .vnc {
+                if draft.kind == .vnc && !draft.vncRemoteIsMac {
                     caption(
                         "Classic VNC uses the first 8 Latin-1 password bytes and does not encrypt the desktop. Use WireGuard on untrusted networks. VeNCrypt X509 modes use verified TLS."
                     )
@@ -289,7 +298,8 @@ struct ConnectionEditor: View {
     }
     private var usernameMessage: String? {
         guard attemptedSave || visitedFields.contains(.username) else { return nil }
-        return draft.kind != .vnc && draft.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return (draft.kind != .vnc || draft.vncRemoteIsMac)
+            && draft.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? "Enter a username." : nil
     }
     private var validationTab: EditorTab? {
@@ -309,7 +319,7 @@ struct ConnectionEditor: View {
         }
         guard let message = draft.validationMessage, attemptedSave else { return nil }
         if message.localizedCaseInsensitiveContains("tunnel") { return .tunnels }
-        if message.contains("Desktop dimensions") { return .display }
+        if message.contains("Desktop dimensions") || message.contains("virtual-display dimensions") { return .display }
         if message.localizedCaseInsensitiveContains("folder") || message.contains("drive name") { return .devices }
         return .general
     }
@@ -387,13 +397,22 @@ struct ConnectionEditor: View {
     }
     private var vncDisplay: some View {
         VStack(spacing: 10) {
-            row("Display") {
-                Picker("Display", selection: $draft.displayMode) {
-                    Text("Fit to window").tag(RDPDisplayMode.fit)
-                    Text("100% with scrolling").tag(RDPDisplayMode.actualSize)
-                }.labelsHidden().accessibilityLabel("Display")
+            if draft.vncRemoteIsMac {
+                windowedDisplayOptions
+                row("") { Toggle("Resize with window", isOn: $draft.dynamicResolution) }
+                row("") { Toggle("Optimize for Retina", isOn: $draft.retinaDisplay) }
+                caption(
+                    "One virtual display: up to 3840 × 2160 pixels, or 1920 × 1080 with Retina. The Mac confirms the final size."
+                )
+            } else {
+                row("Display") {
+                    Picker("Display", selection: $draft.displayMode) {
+                        Text("Fit to window").tag(RDPDisplayMode.fit)
+                        Text("100% with scrolling").tag(RDPDisplayMode.actualSize)
+                    }.labelsHidden().accessibilityLabel("Display")
+                }
+                caption("VNC uses the server’s desktop size. Fitting changes only the local view.")
             }
-            caption("VNC uses the server’s desktop size. Fitting changes only the local view.")
             row("") { Toggle("Start in full screen", isOn: $draft.launchFullScreen) }
             caption(
                 "Paste Text from Clipboard types into the focused remote application. It does not share the clipboard or files."
@@ -466,7 +485,7 @@ struct ConnectionEditor: View {
                         : (draft.effectiveDisplayMode == .actualSize ? "Resolution" : "Initial resolution")
                 ) {
                     Picker("Resolution", selection: resolutionSelection) {
-                        ForEach(RDPResolutionPreset.all) { Text($0.title).tag($0.id) }
+                        ForEach(availableResolutionPresets) { Text($0.title).tag($0.id) }
                         Divider()
                         Text("Custom…").tag("custom")
                     }.labelsHidden().accessibilityLabel("Resolution")
@@ -492,6 +511,11 @@ struct ConnectionEditor: View {
                 }
             }
         }
+    }
+    private var availableResolutionPresets: [RDPResolutionPreset] {
+        guard draft.kind == .vnc && draft.vncRemoteIsMac else { return RDPResolutionPreset.all }
+        let scale = draft.retinaDisplay ? 2 : 1
+        return RDPResolutionPreset.all.filter { $0.width * scale <= 3840 && $0.height * scale <= 2160 }
     }
     private var resolutionSelection: Binding<String> {
         Binding(
@@ -610,7 +634,8 @@ struct ConnectionEditor: View {
             workspace.sessions.contains(where: { $0.profile.id == draft.id && $0.state.active })
         else { return false }
         let original = request.draft
-        return draft.launchFullScreen != original.launchFullScreen || draft.useAllMonitors != original.useAllMonitors
+        return draft.vncRemoteIsMac != original.vncRemoteIsMac || draft.launchFullScreen != original.launchFullScreen
+            || draft.useAllMonitors != original.useAllMonitors
             || draft.retinaDisplay != original.retinaDisplay
             || draft.displayMode != original.displayMode || draft.dynamicResolution != original.dynamicResolution
             || draft.desktopWidth != original.desktopWidth || draft.desktopHeight != original.desktopHeight
