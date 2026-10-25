@@ -131,7 +131,7 @@ static id Single(NSDictionary *fields, unsigned field, Class type) {
     Number(rule, 4, 0);
     Number(payload, 1, 100); // HEVC payload type.
     Bytes(payload, 2, rule);
-    Text(payload, 3, @"FLS;LF:-1;POS:5;EOD:1;HTS:2;RR:3;POSE:4;SW:0;AR:8/5,5/8;XR:8/5,5/8;");
+    Text(payload, 3, @"FLS;LF:-1;LTR;POS:5;EOD:1;HTS:2;RR:3;POSE:4;SW:0;AR:8/5,5/8;XR:8/5,5/8;");
     Number(payload, 4, 14);
     Number(screen, 1, _receiverSSRC);
     Number(screen, 2, 1);
@@ -139,7 +139,7 @@ static id Single(NSDictionary *fields, unsigned field, Class type) {
     Number(screen, 4, width);
     Number(screen, 5, height);
     Number(screen, 6, 1); // One tile, one decoder.
-    Number(screen, 7, 0); // No proprietary long-term-reference acknowledgements.
+    Number(screen, 7, 1); // Acknowledge only successfully hardware-decoded reference identifiers.
     Number(screen, 8, 1); // Full-range 8-bit 4:2:0.
     Number(screen, 9, 1); // SDR.
     Number(screen, 12, 0);
@@ -183,6 +183,18 @@ static id Single(NSDictionary *fields, unsigned field, Class type) {
     return [self acceptVideoAnswer:answer senderSSRC:ssrc decodingOrderNumbers:&enabled];
 }
 + (BOOL)acceptVideoAnswer:(NSData *)answer senderSSRC:(uint32_t *)ssrc decodingOrderNumbers:(BOOL *)enabled {
+    BOOL longTermReference, allowFeedback;
+    return [self acceptVideoAnswer:answer
+                        senderSSRC:ssrc
+              decodingOrderNumbers:enabled
+                 longTermReference:&longTermReference
+                     allowFeedback:&allowFeedback];
+}
++ (BOOL)acceptVideoAnswer:(NSData *)answer
+               senderSSRC:(uint32_t *)ssrc
+     decodingOrderNumbers:(BOOL *)enabled
+        longTermReference:(BOOL *)longTermReference
+            allowFeedback:(BOOL *)allowFeedback {
     if (answer.length < 8 || answer.length > 32768 || memcmp(answer.bytes, "bplist00", 8))
         return NO;
     id wrapper = [NSPropertyListSerialization propertyListWithData:answer
@@ -210,8 +222,11 @@ static id Single(NSDictionary *fields, unsigned field, Class type) {
     // Omitted fields have protobuf defaults: one tile and no LTR.
     if (screen[@6] && [Single(screen, 6, NSNumber.class) unsignedIntValue] != 1)
         return NO;
-    if (screen[@7] &&
-        (!Single(screen, 7, NSNumber.class) || [Single(screen, 7, NSNumber.class) unsignedLongLongValue] != 0))
+    NSNumber *feedback = Single(screen, 2, NSNumber.class);
+    if (screen[@2] && (!feedback || feedback.unsignedLongLongValue > 1))
+        return NO;
+    NSNumber *ltr = Single(screen, 7, NSNumber.class);
+    if (screen[@7] && (!ltr || ltr.unsignedLongLongValue > 1))
         return NO;
     if ([Single(screen, 9, NSNumber.class) unsignedLongLongValue] != 1)
         return NO;
@@ -225,6 +240,8 @@ static id Single(NSDictionary *fields, unsigned field, Class type) {
     if (screen[@14] && (!interleaving || interleaving.unsignedLongLongValue > 1))
         return NO;
     *enabled = interleaving.boolValue;
+    *longTermReference = ltr.boolValue;
+    *allowFeedback = feedback.boolValue;
     *ssrc = sender.unsignedIntValue;
     return YES;
 }

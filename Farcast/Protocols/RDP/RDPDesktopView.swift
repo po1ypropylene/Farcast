@@ -1,4 +1,5 @@
 import AppKit
+import CoreVideo
 import IOKit.hidsystem
 import MetalKit
 import SwiftUI
@@ -9,6 +10,7 @@ struct DesktopFrame {
     let width: Int
     let height: Int
     let stride: Int
+    var pixelBuffer: CVPixelBuffer? = nil
 }
 final class FrameMailbox: @unchecked Sendable {
     private let lock = NSLock()
@@ -56,7 +58,7 @@ final class FrameMailbox: @unchecked Sendable {
             pixels.count == w * h * 4
         else { return }
         lock.lock()
-        if frame?.width != desktopWidth || frame?.height != desktopHeight {
+        if frame?.width != desktopWidth || frame?.height != desktopHeight || frame?.pixelBuffer != nil {
             guard x == 0, y == 0, w == desktopWidth, h == desktopHeight else {
                 lock.unlock()
                 return
@@ -143,6 +145,10 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
             presentationTask = nil
             redrawPending = false
             texture = nil
+            surfaceTexture = nil
+            surfaceBuffer = nil
+            chromaSurfaceTexture = nil
+            chromaTexture = nil
             renderedSequence = nil
         } else {
             drawLatestFrame()
@@ -210,6 +216,10 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         expectedDesktopSize = size
         if texture?.width != Int(size.width) || texture?.height != Int(size.height) {
             texture = nil
+            surfaceTexture = nil
+            surfaceBuffer = nil
+            chromaSurfaceTexture = nil
+            chromaTexture = nil
             renderedSequence = nil
         }
         setDesktopSize(size)
@@ -290,6 +300,12 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     }
     var desktopSize: CGSize { frameSize }
     private(set) var texture: MTLTexture?
+    private var surfaceTexture: CVMetalTexture?
+    private var chromaSurfaceTexture: CVMetalTexture?
+    private var chromaTexture: MTLTexture?
+    private var videoConversion = [SIMD4<Float>](repeating: .zero, count: 3)
+    private var surfaceBuffer: CVPixelBuffer?
+    private var textureCache: CVMetalTextureCache?
     private var pipeline: MTLRenderPipelineState?
     private var queue: MTLCommandQueue?
     private var frameSize = CGSize(width: 1440, height: 900)
@@ -340,6 +356,7 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         delegate = self
         if let device {
             queue = device.makeCommandQueue()
+            CVMetalTextureCacheCreate(nil, nil, device, nil, &textureCache)
             let shader = """
                 #include <metal_stdlib>
                 using namespace metal;
@@ -349,8 +366,16 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
                     const float2 coords[] = {float2(0,1),float2(1,1),float2(0,0),float2(1,0)};
                     return {float4(positions[i],0,1),coords[i]};
                 }
-                fragment float4 fragmentMain(Output in [[stage_in]], texture2d<float> image [[texture(0)]]) {
+                fragment float4 fragmentMain(Output in [[stage_in]], texture2d<float> image [[texture(0)]],
+                    texture2d<float> chroma [[texture(1)]], constant float4 *conversion [[buffer(0)]],
+                    constant uint &isYUV [[buffer(1)]]) {
                     constexpr sampler linearSampler(filter::linear, address::clamp_to_edge);
+                    if (isYUV) {
+                        float4 yuv = float4(image.sample(linearSampler,in.uv).r,
+                            chroma.sample(linearSampler,in.uv).rg, 1);
+                        return float4(dot(conversion[0], yuv), dot(conversion[1], yuv),
+                            dot(conversion[2], yuv), 1);
+                    }
                     return float4(image.sample(linearSampler,in.uv).rgb,1);
                 }
                 """
@@ -378,6 +403,49 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         else { return }
         mailbox.put(DesktopFrame(pixels: data, width: width, height: height, stride: stride))
     }
+    nonisolated func submit(_ buffer: CVPixelBuffer) {
+        let width = CVPixelBufferGetWidth(buffer)
+        let height = CVPixelBufferGetHeight(buffer)
+        let format = CVPixelBufferGetPixelFormatType(buffer)
+        guard width > 0, height > 0, width <= 3840, height <= 2160,
+            format == kCVPixelFormatType_32BGRA || format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+                || format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+        else { return }
+        mailbox.put(
+            DesktopFrame(
+                pixels: Data(), width: width, height: height,
+                stride: CVPixelBufferGetBytesPerRow(buffer), pixelBuffer: buffer))
+    }
+    nonisolated static func yuvConversion(_ buffer: CVPixelBuffer) -> [SIMD4<Float>] {
+        let matrix = CVBufferCopyAttachment(buffer, kCVImageBufferYCbCrMatrixKey, nil)
+        let kr: Float
+        let kb: Float
+        if let matrix, CFEqual(matrix, kCVImageBufferYCbCrMatrix_ITU_R_601_4) {
+            kr = 0.299
+            kb = 0.114
+        } else if let matrix, CFEqual(matrix, kCVImageBufferYCbCrMatrix_ITU_R_2020) {
+            kr = 0.2627
+            kb = 0.0593
+        } else {
+            // The negotiated SDR HD stream uses BT.709 when VUI omits a matrix.
+            kr = 0.2126
+            kb = 0.0722
+        }
+        let fullRange = CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+        let yScale: Float = fullRange ? 1 : 255 / 219
+        let cScale: Float = fullRange ? 1 : 255 / 224
+        let yOffset: Float = fullRange ? 0 : 16 / 255
+        let center: Float = 128 / 255
+        let r = 2 * (1 - kr) * cScale
+        let b = 2 * (1 - kb) * cScale
+        let gU = -2 * kb * (1 - kb) / (1 - kr - kb) * cScale
+        let gV = -2 * kr * (1 - kr) / (1 - kr - kb) * cScale
+        return [
+            SIMD4(yScale, 0, r, -yOffset * yScale - center * r),
+            SIMD4(yScale, gU, gV, -yOffset * yScale - center * (gU + gV)),
+            SIMD4(yScale, b, 0, -yOffset * yScale - center * b),
+        ]
+    }
     func draw(in view: MTKView) {
         guard !renderingSuspended else { return }
         // Never overwrite a shared texture while the GPU reads it, or wait on
@@ -399,34 +467,72 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
             }
             let width = Int(region.width)
             let height = Int(region.height)
-            let fullUpload = texture?.width != width || texture?.height != height
-            if fullUpload {
-                let descriptor = MTLTextureDescriptor.texture2DDescriptor(
-                    pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false)
-                descriptor.usage = .shaderRead
-                descriptor.storageMode = .shared
-                texture = device.makeTexture(descriptor: descriptor)
-                setDesktopSize(CGSize(width: width, height: height))
-            }
-            let upload =
-                (fullUpload || forceFullUploads)
-                ? region : damage.intersection(region)
-            if !upload.isNull && !upload.isEmpty {
-                let signpost = OSSignpostID(log: performanceLog)
-                os_signpost(.begin, log: performanceLog, name: "TextureUpload", signpostID: signpost)
-                frame.pixels.withUnsafeBytes { bytes in
-                    if let base = bytes.baseAddress {
-                        texture?.replace(
-                            region: MTLRegionMake2D(
-                                Int(upload.minX - region.minX), Int(upload.minY - region.minY),
-                                Int(upload.width), Int(upload.height)), mipmapLevel: 0,
-                            withBytes: base.advanced(by: Int(upload.minY) * frame.stride + Int(upload.minX) * 4),
-                            bytesPerRow: frame.stride)
-                    }
+            if let pixelBuffer = frame.pixelBuffer {
+                // Apple Adaptive is a single display. Import its IOSurface into
+                // Metal; the mailbox and GPU completion retain the backing pool buffer.
+                guard region == CGRect(x: 0, y: 0, width: frame.width, height: frame.height),
+                    let textureCache
+                else { return }
+                let isYUV = CVPixelBufferIsPlanar(pixelBuffer)
+                var imported: CVMetalTexture?
+                guard
+                    CVMetalTextureCacheCreateTextureFromImage(
+                        nil, textureCache, pixelBuffer, nil,
+                        isYUV ? .r8Unorm : .bgra8Unorm, width, height, 0, &imported) == kCVReturnSuccess,
+                    let imported, let mapped = CVMetalTextureGetTexture(imported)
+                else { return }
+                var chroma: CVMetalTexture?
+                if isYUV {
+                    guard CVPixelBufferGetPlaneCount(pixelBuffer) == 2,
+                        CVMetalTextureCacheCreateTextureFromImage(
+                            nil, textureCache, pixelBuffer, nil,
+                            .rg8Unorm, CVPixelBufferGetWidthOfPlane(pixelBuffer, 1),
+                            CVPixelBufferGetHeightOfPlane(pixelBuffer, 1), 1, &chroma) == kCVReturnSuccess,
+                        let chroma, CVMetalTextureGetTexture(chroma) != nil
+                    else { return }
+                    videoConversion = Self.yuvConversion(pixelBuffer)
                 }
+                surfaceTexture = imported
+                chromaSurfaceTexture = chroma
+                chromaTexture = chroma.flatMap { CVMetalTextureGetTexture($0) }
+                surfaceBuffer = pixelBuffer
+                texture = mapped
                 uploadedSequence = sequence
-                uploadedBytes &+= UInt64(upload.width * upload.height * 4)
-                os_signpost(.end, log: performanceLog, name: "TextureUpload", signpostID: signpost)
+                setDesktopSize(CGSize(width: width, height: height))
+            } else {
+                let fullUpload = surfaceTexture != nil || texture?.width != width || texture?.height != height
+                surfaceTexture = nil
+                surfaceBuffer = nil
+                chromaSurfaceTexture = nil
+                chromaTexture = nil
+                if fullUpload {
+                    let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+                        pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false)
+                    descriptor.usage = .shaderRead
+                    descriptor.storageMode = .shared
+                    texture = device.makeTexture(descriptor: descriptor)
+                    setDesktopSize(CGSize(width: width, height: height))
+                }
+                let upload =
+                    (fullUpload || forceFullUploads)
+                    ? region : damage.intersection(region)
+                if !upload.isNull && !upload.isEmpty {
+                    let signpost = OSSignpostID(log: performanceLog)
+                    os_signpost(.begin, log: performanceLog, name: "TextureUpload", signpostID: signpost)
+                    frame.pixels.withUnsafeBytes { bytes in
+                        if let base = bytes.baseAddress {
+                            texture?.replace(
+                                region: MTLRegionMake2D(
+                                    Int(upload.minX - region.minX), Int(upload.minY - region.minY),
+                                    Int(upload.width), Int(upload.height)), mipmapLevel: 0,
+                                withBytes: base.advanced(by: Int(upload.minY) * frame.stride + Int(upload.minX) * 4),
+                                bytesPerRow: frame.stride)
+                        }
+                    }
+                    uploadedSequence = sequence
+                    uploadedBytes &+= UInt64(upload.width * upload.height * 4)
+                    os_signpost(.end, log: performanceLog, name: "TextureUpload", signpostID: signpost)
+                }
             }
             renderedSequence = sequence
         }
@@ -434,19 +540,15 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         guard let drawable = currentDrawable, let pass = currentRenderPassDescriptor,
             let buffer = queue?.makeCommandBuffer(), let encoder = buffer.makeRenderCommandEncoder(descriptor: pass)
         else { return }
-        if let pipeline, let texture {
-            let rect = displayRect(in: drawableSize)
-            encoder.setViewport(
-                MTLViewport(
-                    originX: rect.minX, originY: rect.minY, width: rect.width, height: rect.height, znear: 0, zfar: 1))
-            encoder.setRenderPipelineState(pipeline)
-            encoder.setFragmentTexture(texture, index: 0)
-            encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
-        }
+        encodeImage(encoder, size: drawableSize)
         encoder.endEncoding()
         lastPresentationTime = ProcessInfo.processInfo.systemUptime
         renderInFlight = true
-        buffer.addCompletedHandler { [weak self] _ in
+        let retainedSurface = surfaceTexture
+        let retainedPixels = surfaceBuffer
+        let retainedChroma = chromaSurfaceTexture
+        buffer.addCompletedHandler { [weak self, retainedSurface, retainedPixels, retainedChroma] _ in
+            withExtendedLifetime((retainedSurface, retainedPixels, retainedChroma)) {}
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.renderInFlight = false
@@ -474,6 +576,21 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         }
         buffer.present(drawable)
         buffer.commit()
+    }
+    func encodeImage(_ encoder: MTLRenderCommandEncoder, size: CGSize) {
+        if let pipeline, let texture {
+            let rect = displayRect(in: size)
+            encoder.setViewport(
+                MTLViewport(
+                    originX: rect.minX, originY: rect.minY, width: rect.width, height: rect.height, znear: 0, zfar: 1))
+            encoder.setRenderPipelineState(pipeline)
+            encoder.setFragmentTexture(texture, index: 0)
+            encoder.setFragmentTexture(chromaTexture ?? texture, index: 1)
+            encoder.setFragmentBytes(videoConversion, length: MemoryLayout<SIMD4<Float>>.stride * 3, index: 0)
+            var isYUV: UInt32 = chromaTexture == nil ? 0 : 1
+            encoder.setFragmentBytes(&isYUV, length: MemoryLayout<UInt32>.size, index: 1)
+            encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+        }
     }
     func displayRect(in size: CGSize) -> CGRect {
         let factor =

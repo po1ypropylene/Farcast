@@ -1,8 +1,11 @@
+#import <CoreVideo/CoreVideo.h>
 #import <Foundation/Foundation.h>
 NS_ASSUME_NONNULL_BEGIN
 // Runs on the VNC protocol worker. UDP is bound to the authenticated TCP peer.
 @interface FCVNCAppleVideo : NSObject
-@property(nonatomic, copy, nullable) void (^onFrame)(NSData *, NSInteger, NSInteger, NSInteger);
+@property(nonatomic, copy, nullable) void (^onFrame)(CVPixelBufferRef);
+// Poll with the TCP socket on the same worker; -1 before authenticated media.
+@property(nonatomic, readonly) int socketDescriptor;
 @property(nonatomic, readonly) BOOL receivedFrame;
 @property(nonatomic, readonly, nullable) NSString *failure;
 - (instancetype)initWithTCPDescriptor:(int)tcp;
@@ -19,6 +22,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic) BOOL decodingOrderNumbers;
 @property(nonatomic, copy, nullable) void (^onNAL)(NSData *nal, uint32_t timestamp, BOOL marker);
 @property(nonatomic, readonly) BOOL lostReference;
+@property(nonatomic, readonly) BOOL markedReference;
+@property(nonatomic, readonly) uint32_t referenceIdentifier;
 - (void)consumeRTP:(NSData *)packet;
 - (void)reset;
 @end

@@ -70,7 +70,7 @@ static NSData *TakeAtom(NSData *d, NSUInteger *offset, BOOL shortLength) {
     NSString *_failure;
     BOOL _authenticationRejected, _encrypted, _desktopLoginRequested, _authenticated;
     unsigned char _wrapKey[16];
-    EVP_CIPHER_CTX *_sendCipher, *_receiveCipher;
+    EVP_CIPHER_CTX *_sendCipher, *_receiveCipher, *_inputCipher;
     uint64_t _sendSequence, _receiveSequence;
     NSData *_buffer;
     NSUInteger _offset;
@@ -83,6 +83,7 @@ static NSData *TakeAtom(NSData *d, NSUInteger *offset, BOOL shortLength) {
 - (void)dealloc {
     EVP_CIPHER_CTX_free(_sendCipher);
     EVP_CIPHER_CTX_free(_receiveCipher);
+    EVP_CIPHER_CTX_free(_inputCipher);
     OPENSSL_cleanse(_wrapKey, sizeof(_wrapKey));
 }
 - (NSString *)failure {
@@ -362,7 +363,11 @@ static NSData *TakeAtom(NSData *d, NSUInteger *offset, BOOL shortLength) {
             _sendCipher = EVP_CIPHER_CTX_new();
         if (!_receiveCipher)
             _receiveCipher = EVP_CIPHER_CTX_new();
-        ok = _sendCipher && _receiveCipher &&
+        if (!_inputCipher)
+            _inputCipher = EVP_CIPHER_CTX_new();
+        ok = _sendCipher && _receiveCipher && _inputCipher &&
+             EVP_EncryptInit_ex(_inputCipher, EVP_aes_128_ecb(), NULL, clear, NULL) == 1 &&
+             EVP_CIPHER_CTX_set_padding(_inputCipher, 0) == 1 &&
              EVP_EncryptInit_ex(_sendCipher, EVP_aes_128_cbc(), NULL, clear, clear + 16) == 1 &&
              EVP_DecryptInit_ex(_receiveCipher, EVP_aes_128_cbc(), NULL, clear, clear + 16) == 1 &&
              EVP_CIPHER_CTX_set_padding(_sendCipher, 0) == 1 && EVP_CIPHER_CTX_set_padding(_receiveCipher, 0) == 1;
@@ -407,6 +412,9 @@ static NSData *TakeAtom(NSData *d, NSUInteger *offset, BOOL shortLength) {
     BOOL pointer = event.length == 6 && p[0] == 5;
     if (!_authenticated || !_encrypted || (!keyboard && !pointer))
         return NO;
+    // Apple mandates ECB here, CBC/SHA-1 records and RSA PKCS#1 v1.5 at
+    // authentication. These are wire requirements, not general crypto choices.
+    // All writes/rekeys run on the owning VNC worker.
     // Apple input has a separate ECB envelope inside the authenticated record.
     // The event cipher follows the current session key after every rekey.
     unsigned char clear[16] = {0}, packet[18] = {0x10, pointer ? 1 : 0};
@@ -419,12 +427,9 @@ static NSData *TakeAtom(NSData *d, NSUInteger *offset, BOOL shortLength) {
         clear[11] = p[1];
         memcpy(clear + 12, p + 2, 4);
     }
-    EVP_CIPHER_CTX *cipher = EVP_CIPHER_CTX_new();
     int n = 0;
-    BOOL ok = cipher && EVP_EncryptInit_ex(cipher, EVP_aes_128_ecb(), NULL, _wrapKey, NULL) == 1 &&
-              EVP_CIPHER_CTX_set_padding(cipher, 0) == 1 &&
-              EVP_EncryptUpdate(cipher, packet + 2, &n, clear, sizeof(clear)) == 1 && n == sizeof(clear);
-    EVP_CIPHER_CTX_free(cipher);
+    BOOL ok = _inputCipher && EVP_EncryptUpdate(_inputCipher, packet + 2, &n, clear, sizeof(clear)) == 1 &&
+              n == sizeof(clear);
     OPENSSL_cleanse(clear, sizeof(clear));
     return ok && [self write:packet count:sizeof(packet)];
 }

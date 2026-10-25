@@ -92,6 +92,10 @@ final class VNCTests: XCTestCase {
         XCTAssertEqual(VNCKeyboard.keySym(scanCode: 0x53, extended: true), 0xFFFF)
         XCTAssertEqual(VNCKeyboard.keySym(scanCode: 0x3B, extended: false), 0xFFBE)
         XCTAssertEqual(VNCKeyboard.keySym(scanCode: 0x58, extended: false), 0xFFC9)
+        XCTAssertEqual(VNCKeyboard.keySym(scanCode: 0x5D, extended: true), 0xFF67)
+        XCTAssertEqual(VNCKeyboard.keySym(scanCode: 0x45, extended: false), 0xFF7F)
+        XCTAssertEqual(VNCKeyboard.keySym(scanCode: 0x46, extended: false), 0xFF14)
+        XCTAssertEqual(VNCKeyboard.keySym(scanCode: 0x37, extended: true), 0xFF61)
         XCTAssertNil(VNCKeyboard.keySym(scanCode: 0x7FFF, extended: false))
     }
 }

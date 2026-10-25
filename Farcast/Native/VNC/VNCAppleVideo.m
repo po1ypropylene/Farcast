@@ -1,4 +1,5 @@
 #import "VNCAppleVideo.h"
+#import "VNCAppleFeedback.h"
 #import "VNCAppleMediaOffer.h"
 #import <Security/Security.h>
 #import <VideoToolbox/VideoToolbox.h>
@@ -25,27 +26,40 @@ static double Now(void) { return NSProcessInfo.processInfo.systemUptime; }
     uint16_t _nextSequence, _don;
     uint32_t _timestamp;
     BOOL _sequenced;
+    uint32_t _referenceTimestamp;
 }
 - (void)reset {
     _fragment = nil;
     _sequenced = NO;
     _lostReference = NO;
+    _markedReference = NO;
+    _referenceIdentifier = 0;
 }
 - (void)consumeRTP:(NSData *)packet {
     const uint8_t *p = packet.bytes;
     NSUInteger length = packet.length;
     if (length < 12 || (p[0] >> 6) != 2 || (p[1] & 127) != 100)
         return;
+    uint32_t timestamp = U32(p + 4);
+    if (timestamp != _referenceTimestamp) {
+        _referenceTimestamp = timestamp;
+        _markedReference = NO;
+    }
     NSUInteger offset = 12 + 4 * (p[0] & 15);
     if (offset > length)
         return;
     if (p[0] & 16) {
-        NSUInteger donBytes = self.decodingOrderNumbers ? 2 : 0;
-        if (length - offset < 2 + donBytes)
+        if (length - offset < 4)
             return;
         NSUInteger extension = 4 + 4 * U16(p + offset + 2);
         if (extension > length - offset)
             return;
+        // Apple's FaceTime video control header occupies the RTP extension
+        // profile/length words: version in byte 0 bits 6-7; LTR mark in byte 1
+        // bit 4. Unknown extension versions never create reference acknowledgements.
+        unsigned version = p[offset] >> 6;
+        if ((version == 1 || version == 2) && (p[offset + 1] & 0x10))
+            _markedReference = YES;
         offset += extension;
     }
     if (p[0] & 32) {
@@ -55,7 +69,6 @@ static double Now(void) { return NSProcessInfo.processInfo.systemUptime; }
         length -= padding;
     }
     uint16_t sequence = U16(p + 2);
-    uint32_t timestamp = U32(p + 4);
     if (_sequenced && sequence != _nextSequence) {
         _fragment = nil;
         _lostReference = YES;
@@ -76,12 +89,14 @@ static double Now(void) { return NSProcessInfo.processInfo.systemUptime; }
         return;
     }
     if (type < 48) {
+        _referenceIdentifier = donBytes ? U16(p + 2) : timestamp;
         _fragment = nil;
         NSMutableData *nal = [NSMutableData dataWithBytes:p length:2];
         [nal appendBytes:p + 2 + donBytes length:length - 2 - donBytes];
         if (self.onNAL)
             self.onNAL(nal, timestamp, marker);
     } else if (type == 48) {
+        _referenceIdentifier = donBytes ? U16(p + 2) : timestamp;
         _fragment = nil;
         NSUInteger cursor = 2 + donBytes;
         NSMutableArray<NSData *> *nals = [NSMutableArray array];
@@ -122,6 +137,7 @@ static double Now(void) { return NSProcessInfo.processInfo.systemUptime; }
         }
         [_fragment appendBytes:p + 3 + donBytes length:length - 3 - donBytes];
         if (p[2] & 64) {
+            _referenceIdentifier = donBytes ? _don : timestamp;
             NSData *nal = _fragment;
             _fragment = nil;
             if (self.onNAL)
@@ -132,32 +148,40 @@ static double Now(void) { return NSProcessInfo.processInfo.systemUptime; }
 }
 @end
 
-@interface FCVNCAppleVideo ()
-- (void)decoded:(CVImageBufferRef)image status:(OSStatus)status;
-@end
-static void Decoded(void *context, void *source, OSStatus status, VTDecodeInfoFlags flags, CVImageBufferRef image,
-                    CMTime presentation, CMTime duration) {
-    [(__bridge FCVNCAppleVideo *)context decoded:image status:status];
-}
+typedef struct {
+    NSUInteger generation, serial;
+    double submitted, budget;
+    uint32_t referenceIdentifier;
+    BOOL markedReference;
+} FCVNCAppleDecodeTicket;
+
 @implementation FCVNCAppleVideo {
     int _tcp, _socket;
     FCVNCAppleMediaOffer *_offer;
     FCVNCAppleHEVC *_hevc;
+    FCVNCAppleFeedback *_feedback;
+    double _lastNACK;
+    BOOL _nackEnabled;
     NSMutableData *_sendKey, *_receiveKey;
     srtp_t _receive, _send;
     uint32_t _senderSSRC, _receiverSSRC;
     NSMutableDictionary<NSNumber *, NSData *> *_reorder;
     uint16_t _nextSequence;
-    BOOL _sequenced, _waitingForIDR;
+    BOOL _sequenced, _waitingForIDR, _longTermReference, _hasAcknowledgement;
+    uint32_t _acknowledgedReference;
     double _gapSince, _lastFeedback, _started, _lastFrame, _lastKeyframe;
-    uint32_t _timestamp;
+    uint32_t _timestamp, _accessUnitReferenceIdentifier;
     NSMutableData *_accessUnit;
     NSData *_vps, *_sps, *_pps;
     CMVideoFormatDescriptionRef _format;
     VTDecompressionSessionRef _decoder;
-    NSData *_pendingPixels;
-    NSInteger _pendingWidth, _pendingHeight, _pendingStride;
-    BOOL _decodeFailed;
+    // All protocol state belongs to the VNC worker. Only these callback/mailbox
+    // fields are shared with VideoToolbox and always accessed under this lock.
+    CVPixelBufferRef _pendingBuffer;
+    NSNumber *_pendingAcknowledgement;
+    BOOL _decodeFailed, _decoderWarm;
+    NSUInteger _inFlight, _generation, _submitted, _completed;
+    double _oldestDecode;
     NSUInteger _datagrams, _authenticatedPackets, _nalCount, _rtcpPackets, _otherPackets;
     int _lastAuthenticationError;
     uint64_t _nalTypes;
@@ -185,6 +209,15 @@ static void Decoded(void *context, void *source, OSStatus status, VTDecodeInfoFl
     return self;
 }
 - (void)retireDecoder {
+    _hasAcknowledgement = NO;
+    @synchronized(self) {
+        _generation++;
+        _decoderWarm = NO;
+        _pendingAcknowledgement = nil;
+        if (_pendingBuffer)
+            CVPixelBufferRelease(_pendingBuffer);
+        _pendingBuffer = NULL;
+    }
     if (_decoder) {
         VTDecompressionSessionWaitForAsynchronousFrames(_decoder);
         VTDecompressionSessionInvalidate(_decoder);
@@ -217,12 +250,17 @@ static void Decoded(void *context, void *source, OSStatus status, VTDecodeInfoFl
     _sendKey = nil;
     _receiveKey = nil;
     _offer = nil;
+    _feedback = nil;
     _vps = nil;
     _sps = nil;
     _pps = nil;
     _accessUnit = nil;
     @synchronized(self) {
-        _pendingPixels = nil;
+        if (_pendingBuffer)
+            CVPixelBufferRelease(_pendingBuffer);
+        _pendingBuffer = NULL;
+        _decodeFailed = NO;
+        _inFlight = 0;
     }
     [_reorder removeAllObjects];
     [_hevc reset];
@@ -238,6 +276,9 @@ static void Decoded(void *context, void *source, OSStatus status, VTDecodeInfoFl
     _formatStatus = 0;
     _decodeStatus = 0;
     _receivedFrame = NO;
+    _hasAcknowledgement = NO;
+    _longTermReference = NO;
+    _nackEnabled = NO;
     _waitingForIDR = YES;
 }
 - (void)dealloc {
@@ -268,7 +309,9 @@ static void Decoded(void *context, void *source, OSStatus status, VTDecodeInfoFl
     _socket = socket(peer.ss_family, SOCK_DGRAM, 0);
     if (_socket < 0)
         return nil;
-    int buffer = 4 * 1024 * 1024;
+    // Bound kernel backlog without assuming dependent HEVC pictures can be
+    // skipped independently. Overflow follows the authenticated loss/IRAP path.
+    int buffer = 512 * 1024;
     setsockopt(_socket, SOL_SOCKET, SO_RCVBUF, &buffer, sizeof(buffer));
     if (bind(_socket, (struct sockaddr *)&local, localLength) ||
         connect(_socket, (struct sockaddr *)&peer, peerLength) || fcntl(_socket, F_SETFL, O_NONBLOCK) < 0) {
@@ -277,7 +320,6 @@ static void Decoded(void *context, void *source, OSStatus status, VTDecodeInfoFl
         return nil;
     }
     _offer = [[FCVNCAppleMediaOffer alloc] initWithWidth:width height:height];
-    _receiverSSRC = _offer.receiverSSRC;
     _sendKey = [NSMutableData dataWithLength:46];
     _receiveKey = [NSMutableData dataWithLength:46];
     if (!_offer || SecRandomCopyBytes(kSecRandomDefault, 46, _sendKey.mutableBytes) != errSecSuccess ||
@@ -285,6 +327,7 @@ static void Decoded(void *context, void *source, OSStatus status, VTDecodeInfoFl
         [self close];
         return nil;
     }
+    _receiverSSRC = _offer.receiverSSRC;
     _started = Now();
     _lastFrame = _started;
     _lastFeedback = 0;
@@ -301,7 +344,9 @@ static void Decoded(void *context, void *source, OSStatus status, VTDecodeInfoFl
     BOOL decodingOrderNumbers = NO;
     if (![FCVNCAppleMediaOffer acceptVideoAnswer:[answer subdataWithRange:NSMakeRange(20 + audio, video)]
                                       senderSSRC:&_senderSSRC
-                            decodingOrderNumbers:&decodingOrderNumbers])
+                            decodingOrderNumbers:&decodingOrderNumbers
+                               longTermReference:&_longTermReference
+                                   allowFeedback:&_nackEnabled])
         return NO;
     _hevc.decodingOrderNumbers = decodingOrderNumbers;
     srtp_policy_t policy = {0};
@@ -318,6 +363,8 @@ static void Decoded(void *context, void *source, OSStatus status, VTDecodeInfoFl
     if (srtp_create(&_send, &policy) != srtp_err_status_ok)
         return NO;
     _offer = nil;
+    _feedback = [[FCVNCAppleFeedback alloc] initWithReceiver:_receiverSSRC sender:_senderSSRC];
+    _lastNACK = 0;
     [self feedback:YES];
     return YES;
 }
@@ -333,29 +380,78 @@ static void Decoded(void *context, void *source, OSStatus status, VTDecodeInfoFl
     double now = Now();
     if (keyframe && now - _lastKeyframe < .5)
         return;
-    uint8_t packet[128] = {0x80, 201, 0, 1};
-    W32(packet + 4, _receiverSSRC);
-    // Compound RTCP includes the required CNAME. Apple's screen receiver also
-    // supports the legacy FIR when AVPF feedback was not negotiated.
-    packet[8] = 0x81;
-    packet[9] = 202;
-    W16(packet + 10, 4);
-    W32(packet + 12, _receiverSSRC);
-    packet[16] = 1;
-    packet[17] = 7;
-    memcpy(packet + 18, "Farcast", 7);
-    int length = 28;
+    NSMutableData *packet = [self receiverReport:now];
     if (keyframe) {
-        packet[28] = 0x80;
-        packet[29] = 192;
-        W16(packet + 30, 1);
-        W32(packet + 32, _receiverSSRC);
-        length = 36;
+        uint8_t fir[8] = {0x80, 192, 0, 1};
+        W32(fir + 4, _receiverSSRC);
+        [packet appendBytes:fir length:sizeof(fir)];
         _lastKeyframe = now;
     }
-    if (srtp_protect_rtcp(_send, packet, &length) == srtp_err_status_ok)
-        send(_socket, packet, length, 0);
+    [self sendControl:packet];
     _lastFeedback = now;
+}
+- (NSMutableData *)receiverReport:(double)now {
+    NSMutableData *packet = [_feedback reportAtTime:now];
+    if (_longTermReference && _hasAcknowledgement) {
+        // AVConference APP name 5 carries the decoded reference identifier:
+        // DON for negotiated interleaving, RTP timestamp otherwise. It is never
+        // a locally generated arrival/frame counter.
+        // Keep the last good acknowledgement while recovering; missing, stale,
+        // failed and merely submitted pictures must never advance it.
+        uint8_t ack[16] = {0x80, 204, 0, 3};
+        W32(ack + 4, _receiverSSRC);
+        W32(ack + 8, 5);
+        W32(ack + 12, _acknowledgedReference);
+        [packet appendBytes:ack length:sizeof(ack)];
+    }
+    return packet;
+}
+- (void)sendControl:(NSData *)clear {
+    NSMutableData *packet = [NSMutableData dataWithLength:clear.length + 64];
+    memcpy(packet.mutableBytes, clear.bytes, clear.length);
+    int length = (int)clear.length;
+    if (srtp_protect_rtcp(_send, packet.mutableBytes, &length) == srtp_err_status_ok)
+        send(_socket, packet.bytes, length, 0);
+}
+- (void)requestMissingPackets {
+    double now = Now();
+    if (!_nackEnabled || !_reorder.count || !_gapSince || now - _gapSince < .005 || now - _lastNACK < .015)
+        return;
+    // RFC 4585 generic NACK: request original sequence numbers within the
+    // bounded reorder window. No unnegotiated RTX SSRC/payload is accepted.
+    NSMutableData *packet = [self receiverReport:now];
+    uint8_t nack[12 + 8 * 4] = {0x81, 205};
+    W32(nack + 4, _receiverSSRC);
+    W32(nack + 8, _senderSSRC);
+    unsigned highest = 0;
+    for (NSNumber *key in _reorder)
+        highest = MAX(highest, (uint16_t)(key.unsignedShortValue - _nextSequence));
+    unsigned count = 0;
+    for (unsigned offset = 0; offset < highest && count < 8;) {
+        uint16_t missing = _nextSequence + offset;
+        if (_reorder[@(missing)]) {
+            offset++;
+            continue;
+        }
+        uint16_t mask = 0;
+        for (unsigned bit = 0; bit < 16 && offset + bit + 1 < highest; bit++)
+            if (!_reorder[@((uint16_t)(missing + bit + 1))])
+                mask |= 1 << bit;
+        W16(nack + 12 + count * 4, missing);
+        W16(nack + 14 + count * 4, mask);
+        count++;
+        offset += 17;
+    }
+    if (count) {
+        W16(nack + 2, 2 + count);
+        [packet appendBytes:nack length:12 + count * 4];
+        [self sendControl:packet];
+        _lastNACK = now;
+        _lastFeedback = now;
+    }
+}
+- (int)socketDescriptor {
+    return _receive ? _socket : -1;
 }
 - (void)pump {
     if (_socket < 0)
@@ -388,12 +484,14 @@ static void Decoded(void *context, void *source, OSStatus status, VTDecodeInfoFl
         }
         if (rtcp) {
             _rtcpPackets++;
+            [_feedback receiveControl:[NSData dataWithBytes:packet length:length] atTime:Now()];
             continue;
         }
         if (length < 12 || (packet[1] & 127) != 100)
             continue;
         _authenticatedPackets++;
         uint16_t sequence = U16(packet + 2);
+        [_feedback receiveSequence:sequence timestamp:U32(packet + 4) atTime:Now()];
         if (!_sequenced) {
             _nextSequence = sequence;
             _sequenced = YES;
@@ -405,6 +503,7 @@ static void Decoded(void *context, void *source, OSStatus status, VTDecodeInfoFl
             [_reorder removeAllObjects];
             [_hevc reset];
             _nextSequence = sequence;
+            _accessUnit = nil;
             _waitingForIDR = YES;
             [self feedback:YES];
         }
@@ -412,7 +511,8 @@ static void Decoded(void *context, void *source, OSStatus status, VTDecodeInfoFl
         [self drainPackets];
     }
     double now = Now();
-    if (_reorder.count && _gapSince && now - _gapSince > .025) {
+    [self requestMissingPackets];
+    if (_reorder.count && _gapSince && now - _gapSince > (_nackEnabled ? .075 : .025)) {
         // A small reorder window bounds latency and memory. Missing references
         // recover at an IDR rather than presenting corrupted dependent pictures.
         uint16_t nearest = _nextSequence;
@@ -427,27 +527,48 @@ static void Decoded(void *context, void *source, OSStatus status, VTDecodeInfoFl
         _nextSequence = nearest;
         _waitingForIDR = YES;
         _accessUnit = nil;
+        [_hevc reset];
         [self feedback:YES];
         [self drainPackets];
     }
-    if (!_receivedFrame && now - _lastKeyframe > .5)
-        [self feedback:YES];
-    else if (now - _lastFeedback > 1)
-        [self feedback:NO];
+    CVPixelBufferRef buffer = NULL;
+    BOOL failed;
+    NSNumber *acknowledgement;
     @synchronized(self) {
-        if (_pendingPixels) {
-            NSData *pixels = _pendingPixels;
-            _pendingPixels = nil;
-            if (self.onFrame)
-                self.onFrame(pixels, _pendingWidth, _pendingHeight, _pendingStride);
-            _receivedFrame = YES;
-            _lastFrame = now;
+        failed = _decodeFailed || (_inFlight && now - _oldestDecode > (_decoderWarm ? .1 : 1));
+        _decodeFailed = NO;
+        if (failed) {
+            _generation++;
+            _pendingAcknowledgement = nil;
+            if (_pendingBuffer)
+                CVPixelBufferRelease(_pendingBuffer);
+            _pendingBuffer = NULL;
         }
-        if (_decodeFailed) {
-            _decodeFailed = NO;
-            _waitingForIDR = YES;
-            [self feedback:YES];
-        }
+        buffer = _pendingBuffer;
+        acknowledgement = _pendingAcknowledgement;
+        _pendingAcknowledgement = nil;
+        _pendingBuffer = NULL;
+    }
+    if (failed) {
+        _waitingForIDR = YES;
+        _accessUnit = nil;
+    }
+    if (acknowledgement) {
+        _acknowledgedReference = acknowledgement.unsignedIntValue;
+        _hasAcknowledgement = YES;
+    }
+    // Retry after every loss, including after the first successful frame. The
+    // existing half-second FIR throttle bounds recovery traffic on bad links.
+    if (_waitingForIDR || !_receivedFrame)
+        [self feedback:YES];
+    else if (now - _lastFeedback > .2)
+        [self feedback:NO];
+    if (buffer) {
+        if (self.onFrame)
+            self.onFrame(buffer);
+        CVPixelBufferRelease(buffer);
+        _receivedFrame = YES;
+        _lastFrame = now;
     }
     if (!_receivedFrame && now - _started > 8)
         _failure = [NSString
@@ -458,8 +579,8 @@ static void Decoded(void *context, void *source, OSStatus status, VTDecodeInfoFl
                 (unsigned long)_nalCount, (unsigned long)_markerNALs, (unsigned long long)_nalTypes,
                 (unsigned long)_vps.length, (unsigned long)_sps.length, (unsigned long)_pps.length, (int)_formatStatus,
                 (int)_decodeStatus, _lastAuthenticationError];
-    if (_receivedFrame && now - _lastFrame > 8)
-        [self feedback:YES];
+    if (_receivedFrame && _waitingForIDR && now - _lastFrame > 8)
+        _failure = @"Adaptive video could not recover its reference pictures.";
 }
 - (void)drainPackets {
     NSData *packet;
@@ -495,14 +616,14 @@ static void Decoded(void *context, void *source, OSStatus status, VTDecodeInfoFl
     if (dimensions.width <= 0 || dimensions.height <= 0 || dimensions.width > 3840 || dimensions.height > 2160)
         return NO;
     NSDictionary *attributes = @{
-        (id)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
-        (id)kCVPixelBufferMetalCompatibilityKey : @YES
+        (id)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange),
+        (id)kCVPixelBufferMetalCompatibilityKey : @YES,
+        (id)kCVPixelBufferIOSurfacePropertiesKey : @{}
     };
     NSDictionary *specification = @{(id)kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder : @YES};
-    VTDecompressionOutputCallbackRecord callback = {Decoded, (__bridge void *)self};
     OSStatus status =
         VTDecompressionSessionCreate(kCFAllocatorDefault, _format, (__bridge CFDictionaryRef)specification,
-                                     (__bridge CFDictionaryRef)attributes, &callback, &_decoder);
+                                     (__bridge CFDictionaryRef)attributes, NULL, &_decoder);
     if (status) {
         _failure = @"Hardware HEVC decoding is unavailable for this stream.";
         return NO;
@@ -538,11 +659,22 @@ static void Decoded(void *context, void *source, OSStatus status, VTDecodeInfoFl
     if (type > 31)
         return;
     BOOL randomAccess = type >= 16 && type <= 21;
-    if (_waitingForIDR && !randomAccess)
+    // With negotiated LTR the hardware decoder retains acknowledged reference
+    // pictures. Try complete dependent pictures; failure still requests FIR.
+    if (_waitingForIDR && !randomAccess && !(_longTermReference && _hasAcknowledgement))
         return;
     if (!_accessUnit || _timestamp != timestamp) {
+        // HEVC first_slice_segment_in_pic_flag is the first RBSP bit. After
+        // packet loss, a later slice cannot stand in for a complete picture or
+        // become an acknowledged LTR, even if the hardware conceals the damage.
+        if (nal.length < 3 || !(((const uint8_t *)nal.bytes)[2] & 0x80)) {
+            _accessUnit = nil;
+            _waitingForIDR = YES;
+            return;
+        }
         _accessUnit = [NSMutableData data];
         _timestamp = timestamp;
+        _accessUnitReferenceIdentifier = _hevc.referenceIdentifier;
     }
     if (_accessUnit.length + nal.length + 4 > 8 * 1024 * 1024) {
         _accessUnit = nil;
@@ -559,6 +691,25 @@ static void Decoded(void *context, void *source, OSStatus status, VTDecodeInfoFl
         _accessUnit = nil;
         return;
     }
+    FCVNCAppleDecodeTicket ticket = {.submitted = Now(),
+                                     .referenceIdentifier = _accessUnitReferenceIdentifier,
+                                     .markedReference = _hevc.markedReference};
+    @synchronized(self) {
+        // Never build an unbounded decoder queue. Dropping a reference picture
+        // requires recovery at an IRAP; decoding only the latest P frame is unsafe.
+        if (_inFlight >= 3) {
+            _generation++;
+            _waitingForIDR = YES;
+            _accessUnit = nil;
+            return;
+        }
+        if (!_inFlight)
+            _oldestDecode = Now();
+        _inFlight++;
+        ticket.generation = _generation;
+        ticket.budget = _decoderWarm ? .1 : 1;
+        ticket.serial = ++_submitted;
+    }
     _waitingForIDR = NO;
     CMBlockBufferRef block = NULL;
     CMSampleBufferRef sample = NULL;
@@ -569,10 +720,14 @@ static void Decoded(void *context, void *source, OSStatus status, VTDecodeInfoFl
         status = CMBlockBufferReplaceDataBytes(_accessUnit.bytes, block, 0, length);
     if (!status)
         status = CMSampleBufferCreateReady(kCFAllocatorDefault, block, _format, 1, 0, NULL, 1, &length, &sample);
-    if (!status)
-        status = VTDecompressionSessionDecodeFrame(_decoder, sample, 0, NULL, NULL);
-    if (_decoder)
-        VTDecompressionSessionWaitForAsynchronousFrames(_decoder);
+    if (!status) {
+        __weak FCVNCAppleVideo *weak = self;
+        status = VTDecompressionSessionDecodeFrameWithOutputHandler(
+            _decoder, sample, kVTDecodeFrame_EnableAsynchronousDecompression | kVTDecodeFrame_1xRealTimePlayback, NULL,
+            ^(OSStatus result, VTDecodeInfoFlags flags, CVImageBufferRef image, CMTime pts, CMTime duration) {
+              [weak decoded:image status:result ticket:ticket];
+            });
+    }
     if (sample)
         CFRelease(sample);
     if (block)
@@ -580,32 +735,40 @@ static void Decoded(void *context, void *source, OSStatus status, VTDecodeInfoFl
     _accessUnit = nil;
     _decodeStatus = status;
     if (status) {
+        @synchronized(self) {
+            _inFlight--;
+        }
         _waitingForIDR = YES;
         [self feedback:YES];
     }
 }
-- (void)decoded:(CVImageBufferRef)image status:(OSStatus)status {
-    if (status || !image) {
-        @synchronized(self) {
-            _decodeFailed = YES;
-        }
-        return;
-    }
-    if (CVPixelBufferGetPixelFormatType(image) != kCVPixelFormatType_32BGRA || CVPixelBufferIsPlanar(image))
-        return;
-    NSUInteger width = CVPixelBufferGetWidth(image), height = CVPixelBufferGetHeight(image),
-               stride = CVPixelBufferGetBytesPerRow(image);
-    if (!width || !height || width > 3840 || height > 2160 || stride < width * 4 || stride > 65536)
-        return;
-    if (CVPixelBufferLockBaseAddress(image, kCVPixelBufferLock_ReadOnly))
-        return;
-    NSData *pixels = [NSData dataWithBytes:CVPixelBufferGetBaseAddress(image) length:stride * height];
-    CVPixelBufferUnlockBaseAddress(image, kCVPixelBufferLock_ReadOnly);
+- (void)decoded:(CVImageBufferRef)image status:(OSStatus)status ticket:(FCVNCAppleDecodeTicket)ticket {
     @synchronized(self) {
-        _pendingPixels = pixels;
-        _pendingWidth = width;
-        _pendingHeight = height;
-        _pendingStride = stride;
+        _inFlight--;
+        _oldestDecode = Now();
+        if (ticket.generation != _generation || ticket.serial <= _completed)
+            return;
+        OSType pixelFormat = image ? CVPixelBufferGetPixelFormatType(image) : 0;
+        if (status || !image || Now() - ticket.submitted > ticket.budget ||
+            (pixelFormat != kCVPixelFormatType_420YpCbCr8BiPlanarFullRange &&
+             pixelFormat != kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)) {
+            _decodeFailed = YES;
+            return;
+        }
+        NSUInteger width = CVPixelBufferGetWidth(image), height = CVPixelBufferGetHeight(image);
+        if (!width || !height || width > 3840 || height > 2160) {
+            _decodeFailed = YES;
+            return;
+        }
+        // Retain the IOSurface until the latest-frame mailbox/Metal command
+        // finishes with it. No base-address lock, frame allocation or CPU copy.
+        if (_pendingBuffer)
+            CVPixelBufferRelease(_pendingBuffer);
+        _decoderWarm = YES;
+        _pendingBuffer = CVPixelBufferRetain(image);
+        if (ticket.markedReference)
+            _pendingAcknowledgement = @(ticket.referenceIdentifier);
+        _completed = ticket.serial;
     }
 }
 @end

@@ -34,6 +34,8 @@ if mode in ('password', 'none', 'tlsvnc', 'tlsplain', 'tlsnone'):
     expected = [65, 233, 0x01004e2d, 0x0101f600, 0xff09, 0xff0d, 66]
     assert keys[:14] == [["key", down, key] for key in expected for down in (1, 0)]
     assert keys[14:20] == [["key", 1, k] for k in (0xffe3, 0xffe9, 0xffff)] + [["key", 0, k] for k in (0xffff, 0xffe9, 0xffe3)]
+    pointers = [e for e in events if e[0] == 'pointer']
+    assert pointers[:6] == [['pointer', mask, x, 8] for mask, x in ((1, 7), (1, 9), (0, 9), (0, 11), (8, 11), (0, 11))]
     assert ['pointer', 1, 7, 8] in events and ['pointer', 0, 7, 8] in events
     assert 0 < len(keys[20:]) < 2000 and len(keys[20:]) % 2 == 0
     print('PASS Unicode key pairs, Ctrl+Alt+Delete, pointer and typing cancellation on the wire')

@@ -93,6 +93,17 @@ Production Windows startup smoothness still requires live validation.
   cursors, literal bracket filters and queued shutdown cancellation are covered
   locally; one-entry wire replies remain round-trip limited.
   Comparative production directory throughput has not been measured.
+- **Apple Adaptive video:** synthetic hardware encode/decode checks cover native
+  NV12 IOSurface output, exact NACK repair, populated receiver reports and repeated
+  authenticated FIR retries after post-frame loss. LTR checks cover explicit marked
+  references, DON/timestamp identifiers and acknowledgement preservation after failed
+  decode. Owned GPU checks exercise BT.601/709/2020 SDR conversion in full/video range,
+  surface retention, suspension/resume, the full-frame crop used in full screen and
+  same-size TCP fallback. Full-screen surfaces retain the VNC committed-character
+  input policy. Production sender
+  adaptation, proprietary LTR reference selection, physical Wi-Fi loss recovery and
+  sustained 4K throughput still require live validation; synthetic/static evidence
+  does not establish latency parity with Apple's client.
 - **VNC:** classic password/no-auth has no desktop encryption or server identity;
   use WireGuard on untrusted networks. VeNCrypt requires supported X509 modes.
   Apple virtual-display mode supports RSA-SRP, full-quality TCP and experimental direct Adaptive HEVC.

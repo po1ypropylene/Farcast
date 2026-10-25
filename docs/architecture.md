@@ -543,10 +543,49 @@ handles AES-256-CM/HMAC-SHA1-80, rollover, replay checks and authenticated RTCP.
 An independent HEVC depacketizer follows negotiated interleaving (screen protobuf
 field 14) to include or omit DONL fields, bounds fragments and
 reordering, and requests fresh reference pictures after loss. Public VideoToolbox
-requires hardware decoding; decoded BGRA frames feed the existing latest-frame
-mailbox on the VNC worker. Unsupported negotiation, port conflicts or startup decode
+requires hardware decoding. At most three asynchronous submissions can be outstanding;
+output older than 100 ms is discarded after hardware warmup (up to one second for a
+new decoder). Retirement alone waits for decoder callbacks. Callback generation/sequence
+checks discard obsolete or out-of-order output. The callback locks only the retained
+surface mailbox and decode bookkeeping; frame delivery runs outside that lock on the
+VNC worker. Native NV12 planes pass through the latest-frame mailbox into
+CVMetalTextureCache without CPU pixel copies/uploads or decoder BGRA conversion.
+The Metal shader applies full/video range and BT.601/709/2020 matrix metadata for SDR;
+missing matrix metadata uses BT.709. Metal completion retains both mapped planes and
+the pixel buffer across suspension or resize. TCP fallback recreates writable BGRA textures.
+The UDP receive buffer is 512 KiB. Missing sequences first receive bounded generic
+NACK requests when feedback is accepted in the answer (15 ms throttle, 75 ms repair window); unrepaired loss requests FIR.
+Receiver reports at 200 ms intervals carry fraction/cumulative loss, extended highest
+sequence, 90 kHz jitter, last sender report and delay. Replay/unauthenticated packets
+never enter reception statistics. Incoming sender reports are bounds-checked and SSRC-bound.
+LTR is offered explicitly and used only when accepted in the answer. Apple video
+extensions mark reference pictures; only complete, successfully decoded marked pictures
+advance the acknowledgement. A VCL access unit must start with the HEVC first-slice
+flag; an orphaned later slice cannot be decoded or acknowledged as a complete picture. APP name 5 repeats the last good reference identifier:
+DON when interleaving is negotiated, RTP timestamp otherwise. Failed/stale/incomplete
+pictures never advance it. With a retained acknowledged reference, complete dependent
+pictures may attempt hardware recovery; FIR remains available after failure and retries
+at most twice per second. Eight seconds of unsuccessful reference recovery falls back
+to TCP; an idle desktop alone does not trigger that fallback.
+
+The independent LTR wire contract was checked against macOS 27.0.1 AVConference
+ARM64e image UUID `93D8C8C0-8B9C-3A5E-A47D-01B5FAF73E1B`: FaceTime video control parsing
+at `0x1c13fe3a8` extracts the mark bits; `VideoPacketBuffer_GetNextFrame` at
+`0x1c0f30340` tests mark bit zero and selects DON at `0x1c0f30370` or timestamp at
+`0x1c0f30448`. The decoded-frame path at `0x1c0f428d8` checks the mark and decode
+failure before acknowledging. `__VideoReceiver_ProcessRtcpLTRAck` at `0x1c0f5ba88`
+reads a big-endian APP payload identifier; the caller recognizes numeric APP name 5
+at `0x1c0f5a978`. These are static observations, not proof of production loss recovery.
+Receiver reports and generic NACK follow [RFC 3550](https://www.rfc-editor.org/rfc/rfc3550)
+and [RFC 4585](https://www.rfc-editor.org/rfc/rfc4585).
+Unsupported negotiation, port conflicts or startup decode
 timeout remove the Adaptive encoding and renew full-quality TCP delivery.
-The worker pumps media during TCP receive waits as well as its ordinary input loop.
+The worker polls the authenticated UDP descriptor alongside TCP, including during
+fragmented TCP receive waits, without introducing concurrent protocol writers. Its
+10 ms timeout still services input and decoder completion when sockets are idle.
+Adjacent pointer events with unchanged non-wheel button masks coalesce; key/button/wheel
+transitions retain order. The separate ECB input context rotates on worker-owned rekeys.
+The existing resolution and Retina options remain explicit; no default 4K request is added.
 Audio, HDR, a second virtual display, legacy Apple DH, direct SRP and Kerberos are
 not implemented. A selected VPN keeps the existing TCP destination lease; Adaptive
 UDP is disabled before negotiation and never bypasses the VPN.

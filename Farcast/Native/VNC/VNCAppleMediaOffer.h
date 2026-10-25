@@ -11,5 +11,10 @@ NS_ASSUME_NONNULL_BEGIN
 // single-tile SDR HEVC 4:2:0 intersection is accepted.
 + (BOOL)acceptVideoAnswer:(NSData *)answer senderSSRC:(uint32_t *)ssrc;
 + (BOOL)acceptVideoAnswer:(NSData *)answer senderSSRC:(uint32_t *)ssrc decodingOrderNumbers:(BOOL *)enabled;
++ (BOOL)acceptVideoAnswer:(NSData *)answer
+               senderSSRC:(uint32_t *)ssrc
+     decodingOrderNumbers:(BOOL *)enabled
+        longTermReference:(BOOL *)longTermReference
+            allowFeedback:(BOOL *)allowFeedback;
 @end
 NS_ASSUME_NONNULL_END

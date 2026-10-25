@@ -1,3 +1,4 @@
+#import "../../../Farcast/Native/VNC/VNCAppleFeedback.h"
 #import "../../../Farcast/Native/VNC/VNCAppleMediaOffer.h"
 #import "../../../Farcast/Native/VNC/VNCAppleVideo.h"
 #import <VideoToolbox/VideoToolbox.h>
@@ -6,6 +7,7 @@
 #import <net/if.h>
 #import <srtp2/srtp.h>
 #import <unistd.h>
+#import <zlib.h>
 static void Require(BOOL condition, const char *message) {
     if (!condition) {
         fprintf(stderr, "FAIL %s\n", message);
@@ -21,6 +23,86 @@ static void W32(uint8_t *p, uint32_t n) {
     W16(p + 2, n);
 }
 static unsigned R16(const uint8_t *p) { return p[0] * 256 + p[1]; }
+static const uint8_t *Control(const uint8_t *p, NSUInteger length, unsigned type) {
+    for (NSUInteger offset = 0; length - offset >= 4;) {
+        NSUInteger size = 4 * (1 + R16(p + offset + 2));
+        if (size > length - offset)
+            return NULL;
+        if (p[offset + 1] == type)
+            return p + offset;
+        offset += size;
+    }
+    return NULL;
+}
+static uint32_t R32(const uint8_t *p) { return R16(p) << 16 | R16(p + 2); }
+static NSData *Capabilities(unsigned feedback, unsigned ltr, unsigned interleaving) {
+    // Independently framed minimal synthetic answer; no production serializer.
+    uint8_t protobuf[] = {0x2a, 16, 0x08, 9,   0x10, feedback, 0x1a, 2, 0x08, 100,
+                          0x30, 1,  0x38, ltr, 0x40, 1,        0x48, 1, 0x70, interleaving};
+    protobuf[1] = sizeof(protobuf) - 2;
+    uLongf length = compressBound(sizeof(protobuf));
+    NSMutableData *compressed = [NSMutableData dataWithLength:length];
+    Require(compress2(compressed.mutableBytes, &length, protobuf, sizeof(protobuf), Z_DEFAULT_COMPRESSION) == Z_OK,
+            "compress synthetic capability answer");
+    compressed.length = length;
+    return [NSPropertyListSerialization dataWithPropertyList:@{@"avcMediaStreamNegotiatorMediaBlob" : compressed}
+                                                      format:NSPropertyListBinaryFormat_v1_0
+                                                     options:0
+                                                       error:nil];
+}
+static void Negotiation(void) {
+    BOOL feedback, ltr, don;
+    uint32_t sender;
+    Require([FCVNCAppleMediaOffer acceptVideoAnswer:Capabilities(0, 0, 0)
+                                         senderSSRC:&sender
+                               decodingOrderNumbers:&don
+                                  longTermReference:&ltr
+                                      allowFeedback:&feedback] &&
+                !feedback && !ltr && !don,
+            "legacy answer does not silently enable NACK or LTR");
+    Require([FCVNCAppleMediaOffer acceptVideoAnswer:Capabilities(1, 1, 1)
+                                         senderSSRC:&sender
+                               decodingOrderNumbers:&don
+                                  longTermReference:&ltr
+                                      allowFeedback:&feedback] &&
+                feedback && ltr && don,
+            "feedback, LTR and DON require the accepted intersection");
+    for (NSData *bad in @[ Capabilities(2, 0, 0), Capabilities(0, 2, 0), Capabilities(0, 0, 2) ])
+        Require(![FCVNCAppleMediaOffer acceptVideoAnswer:bad
+                                              senderSSRC:&sender
+                                    decodingOrderNumbers:&don
+                                       longTermReference:&ltr
+                                           allowFeedback:&feedback],
+                "invalid capability rejected");
+}
+static void Reports(void) {
+    FCVNCAppleFeedback *stats = [[FCVNCAppleFeedback alloc] initWithReceiver:7 sender:9];
+    Require([stats reportAtTime:1].length == 28, "empty RR before media");
+    [stats receiveSequence:65534 timestamp:90000 atTime:1];
+    [stats receiveSequence:0 timestamp:93000 atTime:1.04];
+    NSData *report = [stats reportAtTime:1.1];
+    const uint8_t *p = report.bytes;
+    Require(report.length == 52 && p[0] == 0x81 && R32(p + 8) == 9 && p[12] == 85 && p[15] == 1 &&
+                R32(p + 16) == 65536 && R32(p + 20) > 0,
+            "RR loss fraction, cumulative loss, sequence rollover and jitter");
+    [stats receiveSequence:65535 timestamp:91500 atTime:1.05];
+    uint8_t sr[28] = {0x80, 200, 0, 6};
+    W32(sr + 4, 9);
+    W32(sr + 8, 0x12345678);
+    W32(sr + 12, 0x9abcdef0);
+    [stats receiveControl:[NSData dataWithBytes:sr length:sizeof(sr)] atTime:2];
+    report = [stats reportAtTime:2.25];
+    p = report.bytes;
+    Require(p[12] == 0 && p[15] == 0 && R32(p + 24) == 0x56789abc && R32(p + 28) == 16384,
+            "late repair reduces loss, SR middle NTP and delay are reported");
+    sr[4] = 1;
+    [stats receiveControl:[NSData dataWithBytes:sr length:sizeof(sr)] atTime:3];
+    uint8_t bad[4] = {0x80, 200, 255, 255};
+    [stats receiveControl:[NSData dataWithBytes:bad length:4] atTime:3];
+    report = [stats reportAtTime:3];
+    p = report.bytes;
+    Require(R32(p + 24) == 0x56789abc, "foreign and truncated sender reports ignored");
+}
 static NSData *RTP(NSData *payload, unsigned sequence, BOOL marker, uint32_t ssrc) {
     NSMutableData *packet = [NSMutableData dataWithLength:12];
     uint8_t *p = packet.mutableBytes;
@@ -31,6 +113,13 @@ static NSData *RTP(NSData *payload, unsigned sequence, BOOL marker, uint32_t ssr
     W32(p + 8, ssrc);
     [packet appendData:payload];
     return packet;
+}
+static NSData *Marked(NSData *packet) {
+    NSMutableData *result = [packet mutableCopy];
+    ((uint8_t *)result.mutableBytes)[0] |= 0x10;
+    uint8_t extension[4] = {0x80, 0x10, 0, 0};
+    [result replaceBytesInRange:NSMakeRange(12, 0) withBytes:extension length:4];
+    return result;
 }
 static NSData *Single(NSData *nal) {
     NSMutableData *payload = [NSMutableData dataWithLength:4];
@@ -115,6 +204,13 @@ static void Depacketizer(void) {
     NSData *original = [NSData dataWithBytes:nal length:sizeof(nal)];
     [parser consumeRTP:RTP(Single(original), 65535, YES, 5)];
     Require([received.lastObject isEqual:original], "single NAL strips DONL");
+    NSMutableData *markedPayload = [Single(original) mutableCopy];
+    W16((uint8_t *)markedPayload.mutableBytes + 2, 65535);
+    [parser consumeRTP:Marked(RTP(markedPayload, 0, YES, 5))];
+    Require(parser.markedReference && parser.referenceIdentifier == 65535,
+            "Apple marked reference uses negotiated DON, not RTP timestamp");
+    [parser reset];
+    [received removeLastObject];
     uint8_t first[] = {0x62, 1, 0x93, 0, 7, 1, 2}, last[] = {0x62, 1, 0x53, 0, 7, 3, 4, 5};
     [parser consumeRTP:RTP([NSData dataWithBytes:first length:sizeof(first)], 0, NO, 5)];
     [parser consumeRTP:RTP([NSData dataWithBytes:last length:sizeof(last)], 1, YES, 5)];
@@ -132,6 +228,9 @@ static void Depacketizer(void) {
     Require(received.count == 4 && parser.lostReference, "malformed aggregate bounded");
     [parser reset];
     parser.decodingOrderNumbers = NO;
+    uint8_t shortExtension[14] = {0x90, 100};
+    [parser consumeRTP:[NSData dataWithBytes:shortExtension length:sizeof(shortExtension)]];
+    Require(received.count == 4, "truncated noninterleaved RTP extension ignored");
     NSMutableData *plainAP = [[NSData dataWithBytes:ap length:sizeof(ap)] mutableCopy];
     [plainAP replaceBytesInRange:NSMakeRange(2, 2) withBytes:NULL length:0];
     [parser consumeRTP:RTP(plainAP, 7, YES, 5)];
@@ -147,6 +246,8 @@ static void Depacketizer(void) {
 int main(void) {
     @autoreleasepool {
         Depacketizer();
+        Reports();
+        Negotiation();
         struct sockaddr_in server = {.sin_len = sizeof(server), .sin_family = AF_INET};
         inet_pton(AF_INET, "127.0.0.1", &server.sin_addr);
         int listener = socket(AF_INET, SOCK_STREAM, 0);
@@ -231,12 +332,22 @@ int main(void) {
         Require(feedbackStatus == srtp_err_status_ok, "directional SRTCP feedback authentication");
         Require(clearFeedbackSize == 36 && feedback[1] == 201 && feedback[9] == 202 && feedback[29] == 192,
                 "compound receiver report, CNAME and native FIR");
-        srtp_dealloc(feedbackCrypto);
         __block unsigned frames = 0;
-        video.onFrame = ^(NSData *pixels, NSInteger width, NSInteger height, NSInteger stride) {
-          Require(width == 640 && height == 480 && pixels.length == stride * height, "hardware decoded geometry");
-          const uint8_t *rgb = (const uint8_t *)pixels.bytes + 100 * stride + 100 * 4;
-          Require(abs(rgb[0] - 30) < 15 && abs(rgb[1] - 100) < 15 && abs(rgb[2] - 200) < 15, "decoded synthetic color");
+        video.onFrame = ^(CVPixelBufferRef pixels) {
+          Require(CVPixelBufferGetWidth(pixels) == 640 && CVPixelBufferGetHeight(pixels) == 480 &&
+                      CVPixelBufferGetIOSurface(pixels),
+                  "hardware decoded IOSurface geometry");
+          CVPixelBufferLockBaseAddress(pixels, kCVPixelBufferLock_ReadOnly);
+          Require(CVPixelBufferGetPixelFormatType(pixels) == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange &&
+                      CVPixelBufferGetPlaneCount(pixels) == 2,
+                  "native full-range NV12 decoder output");
+          const uint8_t *luma = CVPixelBufferGetBaseAddressOfPlane(pixels, 0);
+          const uint8_t *chroma = CVPixelBufferGetBaseAddressOfPlane(pixels, 1);
+          Require(abs(luma[100 * CVPixelBufferGetBytesPerRowOfPlane(pixels, 0) + 100] - 122) < 20 &&
+                      abs(chroma[50 * CVPixelBufferGetBytesPerRowOfPlane(pixels, 1) + 100] - 76) < 20 &&
+                      abs(chroma[50 * CVPixelBufferGetBytesPerRowOfPlane(pixels, 1) + 101] - 184) < 20,
+                  "decoded synthetic YCbCr color");
+          CVPixelBufferUnlockBaseAddress(pixels, kCVPixelBufferLock_ReadOnly);
           frames++;
         };
         struct sockaddr_in destination = server;
@@ -245,7 +356,7 @@ int main(void) {
         unsigned sequence = 65530;
         NSMutableArray<NSData *> *packets = [NSMutableArray array];
         for (NSUInteger i = 0; i < nals.count; i++) {
-            NSData *raw = RTP(nals[i], sequence++, i + 1 == nals.count, sender);
+            NSData *raw = Marked(RTP(nals[i], sequence++, i + 1 == nals.count, sender));
             NSMutableData *protected = [NSMutableData dataWithLength:raw.length + 64];
             memcpy(protected.mutableBytes, raw.bytes, raw.length);
             int length = (int)raw.length;
@@ -268,17 +379,88 @@ int main(void) {
                         packet.length,
                     "send media");
             [video pump];
+            if (i == 1 && packets.count > 2) {
+                usleep(10000);
+                [video pump];
+                BOOL gotNACK = NO;
+                for (unsigned attempt = 0; attempt < 50; attempt++) {
+                    usleep(1000);
+                    [video pump];
+                    int size = (int)recv(udp, feedback, sizeof(feedback), MSG_DONTWAIT);
+                    if (size < 0)
+                        continue;
+                    Require(srtp_unprotect_rtcp(feedbackCrypto, feedback, &size) == srtp_err_status_ok,
+                            "authenticated retransmission request");
+                    const uint8_t *nack = Control(feedback, size, 205);
+                    if (nack) {
+                        Require(nack[0] == 0x81 && R16(nack + 12) == 65531 && R16(nack + 14) == 0,
+                                "NACK asks for the exact missing packet");
+                        gotNACK = YES;
+                        break;
+                    }
+                    Require(!Control(feedback, size, 192), "repair window does not send FIR");
+                }
+                Require(gotNACK, "missing packet requested before reference reset");
+            }
         }
         for (unsigned i = 0; i < 100 && !frames; i++) {
             usleep(10000);
             [video pump];
         }
-        Require(frames == 1 && video.receivedFrame && !video.failure, "SRTP to hardware HEVC to BGRA");
+        Require(frames == 1 && video.receivedFrame && !video.failure, "SRTP to hardware HEVC to native NV12");
         for (NSData *packet in packets)
             sendto(udp, packet.bytes, packet.length, 0, (struct sockaddr *)&destination, sizeof(destination));
         [video pump];
         Require(frames == 1, "replay rejected");
+        // Lose a packet after successful display, inside the FIR throttle. A
+        // dependent picture cannot recover it, and no new input arrives later.
+        uint8_t dependent[] = {2, 1, 9};
+        NSData *raw = RTP([NSData dataWithBytes:dependent length:3], sequence + 1, YES, sender);
+        NSMutableData *lost = [NSMutableData dataWithLength:raw.length + 64];
+        memcpy(lost.mutableBytes, raw.bytes, raw.length);
+        int lostLength = (int)raw.length;
+        Require(srtp_protect(crypto, lost.mutableBytes, &lostLength) == srtp_err_status_ok, "protect loss fixture");
+        sendto(udp, lost.bytes, lostLength, 0, (struct sockaddr *)&destination, sizeof(destination));
+        [video pump];
+        usleep(90000);
+        [video pump];
+        // A new, complete-boundary picture with invalid coded data must not
+        // advance the last marked-reference acknowledgement on decode failure.
+        uint8_t brokenPicture[] = {2, 1, 0x89};
+        NSMutableData *broken =
+            [Marked(RTP([NSData dataWithBytes:brokenPicture length:3], sequence + 2, YES, sender)) mutableCopy];
+        W32((uint8_t *)broken.mutableBytes + 4, 93000);
+        NSMutableData *sealed = [NSMutableData dataWithLength:broken.length + 64];
+        memcpy(sealed.mutableBytes, broken.bytes, broken.length);
+        int brokenLength = (int)broken.length;
+        Require(srtp_protect(crypto, sealed.mutableBytes, &brokenLength) == srtp_err_status_ok,
+                "protect marked decode failure");
+        sendto(udp, sealed.bytes, brokenLength, 0, (struct sockaddr *)&destination, sizeof(destination));
+        [video pump];
+        for (unsigned retry = 0; retry < 2; retry++) {
+            usleep(550000);
+            [video pump];
+            BOOL gotFIR = NO;
+            for (unsigned attempt = 0; attempt < 50; attempt++) {
+                usleep(1000);
+                int size = (int)recv(udp, feedback, sizeof(feedback), MSG_DONTWAIT);
+                if (size < 0)
+                    continue;
+                Require(srtp_unprotect_rtcp(feedbackCrypto, feedback, &size) == srtp_err_status_ok,
+                        "authenticated recovery feedback");
+                const uint8_t *rr = Control(feedback, size, 201);
+                Require(rr && rr[0] == 0x81 && R32(rr + 16) >= 65530, "populated receiver report after media");
+                const uint8_t *ack = Control(feedback, size, 204);
+                Require(ack && R32(ack + 8) == 5 && R32(ack + 12) == 90000,
+                        "LTR APP acknowledges only the last successfully decoded marked RTP timestamp");
+                if (Control(feedback, size, 192))
+                    gotFIR = YES;
+            }
+            Require(gotFIR, "post-frame loss retries authenticated FIR without input");
+        }
+        Require(frames == 1, "dependent frame not displayed after loss");
         [video close];
+        srtp_dealloc(feedbackCrypto);
         srtp_dealloc(crypto);
         close(udp);
         close(accepted);

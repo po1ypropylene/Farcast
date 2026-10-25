@@ -660,6 +660,9 @@ import SwiftTerm
                     ? "" : "The Mac selected \(logicalW) × \(logicalH). The desktop is fitted locally."
             }
         }
+        client.onPixelBuffer = { [weak desktop] buffer in
+            desktop?.submit(buffer)
+        }
         var firstFrame = true
         client.onFrame = { [weak self, weak desktop] pixels, width, height, stride in
             desktop?.submit(pixels, width: width, height: height, stride: stride)

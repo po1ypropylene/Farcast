@@ -48,6 +48,8 @@ static uint32_t KeySym(uint32_t scalar) {
     SSL *_tls;
     NSMutableArray<NSData *> *_input;
     NSUInteger _inputBytes;
+    BOOL _tailPointerMotion;
+    uint8_t _queuedPointerMask;
     NSArray<NSNumber *> *_typing;
     NSUInteger _typingIndex;
     double _nextKey;
@@ -99,13 +101,17 @@ static uint32_t KeySym(uint32_t scalar) {
             [self pumpVideo];
         if (events == POLLIN && _ready && ![self flushInput])
             return NO;
-        struct pollfd p = {_fd, events, 0};
-        int r = poll(&p, 1, 10);
+        struct pollfd p[2] = {
+            {_fd, events, 0},
+            {events == POLLIN && _video && !_adaptiveDisabled ? _video.socketDescriptor : -1, POLLIN, 0}};
+        int r = poll(p, 2, 10);
+        if (r > 0 && p[1].revents)
+            [self pumpVideo];
         if (r < 0 && errno == EINTR)
             continue;
-        if (r < 0 || (p.revents & POLLNVAL))
+        if (r < 0 || (p[0].revents & POLLNVAL))
             return NO;
-        if (r && (p.revents & (events | POLLHUP | POLLERR)))
+        if (r && (p[0].revents & (events | POLLHUP | POLLERR)))
             return YES;
     }
     return NO;
@@ -530,7 +536,8 @@ static uint32_t KeySym(uint32_t scalar) {
     if (_apple && self.adaptiveVideo && self.tunnelPort == 0) {
         _video = [[FCVNCAppleVideo alloc] initWithTCPDescriptor:_fd];
         __weak FCVNCClient *weak = self;
-        _video.onFrame = ^(NSData *pixels, NSInteger width, NSInteger height, NSInteger stride) {
+        _video.onFrame = ^(CVPixelBufferRef buffer) {
+          NSInteger width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer);
           FCVNCClient *client = weak;
           if (!client || [client cancelled])
               return;
@@ -538,8 +545,8 @@ static uint32_t KeySym(uint32_t scalar) {
               if (![client sizeWidth:width height:height])
                   return;
           }
-          if (client.onFrame)
-              client.onFrame(pixels, width, height, stride);
+          if (client.onPixelBuffer)
+              client.onPixelBuffer(buffer);
           client->_reportedFrame = YES;
           if (!client->_adaptiveActive) {
               client->_adaptiveActive = YES;
@@ -884,6 +891,18 @@ static uint32_t KeySym(uint32_t scalar) {
             shutdown(_fd, SHUT_RDWR);
             return;
         }
+        // Only merge adjacent motion with unchanged buttons. Button/wheel/key
+        // transitions stay ordered and can never disappear behind newer motion.
+        const uint8_t *next = packet.bytes;
+        BOOL pointer = packet.length == 6 && next[0] == 5;
+        BOOL motion = pointer && next[1] == _queuedPointerMask && !(next[1] & 0x78);
+        if (motion && _tailPointerMotion && _input.count) {
+            _input[_input.count - 1] = packet;
+            return;
+        }
+        _tailPointerMotion = motion;
+        if (pointer)
+            _queuedPointerMask = next[1];
         [_input addObject:packet];
         _inputBytes += packet.length;
     }
@@ -975,6 +994,7 @@ static uint32_t KeySym(uint32_t scalar) {
     BOOL typing;
     @synchronized(self) {
         packets = [_input copy];
+        _tailPointerMotion = NO;
         [_input removeAllObjects];
         _inputBytes = 0;
         if (_typing && FCWireGuardSocketTime() >= _nextKey) {
@@ -1048,10 +1068,17 @@ static uint32_t KeySym(uint32_t scalar) {
                           ok = NO;
                           break;
                       }
-                      struct pollfd p = {self->_fd, POLLIN, 0};
+                      struct pollfd p[2] = {
+                          {self->_fd, POLLIN, 0},
+                          {self->_video && !self->_adaptiveDisabled ? self->_video.socketDescriptor : -1, POLLIN, 0}};
                       int ready = (self->_apple.hasBufferedBytes || (self->_tls && SSL_pending(self->_tls)))
                                       ? 1
-                                      : poll(&p, 1, 10);
+                                      : poll(p, 2, 10);
+                      if (ready > 0 && p[1].revents) {
+                          [self pumpVideo];
+                          if (!p[0].revents)
+                              continue;
+                      }
                       if (!ready || (ready < 0 && errno == EINTR))
                           continue;
                       if (ready < 0) {

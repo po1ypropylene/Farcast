@@ -5,6 +5,13 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+## 2.2.0 — 2026-10-25
+
+- Add native YCbCr rendering, populated RTCP reception reports, bounded packet retransmission requests and negotiated long-term-reference acknowledgements to Adaptive Mac VNC. Production loss recovery and sustained 4K latency still need live validation.
+- Bound Adaptive HEVC decode work, remove per-frame synchronous waits and CPU pixel copies, and import retained video surfaces directly into Metal. Wake the media worker on UDP arrival and retry reference-picture recovery after later packet loss.
+- Coalesce adjacent VNC pointer motion without dropping button/key transitions, reuse the Apple input cipher across events and rekeys, and cache keysym tables with additional navigation/system keys.
+
+- Preserve committed character keysyms when VNC enters full screen.
 - Preserve uppercase letters and shifted punctuation in VNC by sending AppKit’s committed character keysyms; RDP retains physical scan-code input.
 
 - Fix Mac VNC keyboard and pointer input with Apple's encrypted event format and session-key rotation. Preserve framebuffer-pixel coordinates for Retina, keep framebuffer refreshes running, and service queued input during receive waits.

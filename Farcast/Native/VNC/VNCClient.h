@@ -1,3 +1,4 @@
+#import <CoreVideo/CoreVideo.h>
 #import <Foundation/Foundation.h>
 NS_ASSUME_NONNULL_BEGIN
 // Independently implemented RFB worker. Callbacks run on its protocol queue.
@@ -15,6 +16,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, copy, nullable) void (^onStatus)(NSString *state, NSString *message);
 @property(nonatomic, copy, nullable) void (^onFrame)
     (NSData *pixels, NSInteger width, NSInteger height, NSInteger stride);
+// Adaptive video delivers retained surfaces on the protocol worker. Consumers
+// retain the buffer if needed after the callback returns. TCP uses onFrame.
+@property(nonatomic, copy, nullable) void (^onPixelBuffer)(CVPixelBufferRef buffer);
 @property(nonatomic, copy, nullable) void (^onDesktopSize)(NSInteger width, NSInteger height);
 @property(nonatomic, copy, nullable) void (^onAuthenticationRejected)(void);
 @property(nonatomic, copy, nullable) BOOL (^onTrust)(NSString *fingerprint, NSString *details);

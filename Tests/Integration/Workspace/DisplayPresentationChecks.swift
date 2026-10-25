@@ -1,4 +1,5 @@
 import AppKit
+import CoreVideo
 import MetalKit
 
 @main struct DisplayPresentationChecks {
@@ -7,6 +8,7 @@ import MetalKit
         app.setActivationPolicy(.regular)
         let desktop = RDPDesktopView(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
         desktop.inputEnabled = true
+        desktop.usesTextKeySymbols = true
         var pointer: CGPoint?
         desktop.sendPointer = { _, x, y in pointer = CGPoint(x: x, y: y) }
         // Off-screen, owned native windows avoid taking over the user's displays.
@@ -19,6 +21,7 @@ import MetalKit
         var exited = false
         presentation.onExit = { _ in exited = true }
         presentation.show()
+        precondition(presentation.surfaces.allSatisfy { $0.usesTextKeySymbols })
         precondition(presentation.windows.count == 2 && presentation.surfaces.count == 2 && desktop.renderingSuspended)
         let primary = presentation.surfaces[0]
         let left = presentation.surfaces[1]
@@ -112,6 +115,117 @@ import MetalKit
         precondition(windows.allSatisfy { !$0.isVisible })
         presentation.exit(notify: false)
         print("PASS obsolete frame rejection and idempotent full-screen teardown leave the session surface reusable")
+        // Exercise the actual IOSurface import and its transition back to TCP
+        // snapshots, including same-size frames (which must allocate a writable texture).
+        let surface = RDPDesktopView(frame: .zero)
+        var video: CVPixelBuffer?
+        precondition(
+            CVPixelBufferCreate(
+                nil, 640, 480, kCVPixelFormatType_32BGRA,
+                [kCVPixelBufferIOSurfacePropertiesKey: [:], kCVPixelBufferMetalCompatibilityKey: true] as CFDictionary,
+                &video) == kCVReturnSuccess)
+        CVPixelBufferLockBaseAddress(video!, [])
+        let base = CVPixelBufferGetBaseAddress(video!)!.assumingMemoryBound(to: UInt8.self)
+        base[0] = 31
+        base[1] = 101
+        base[2] = 201
+        base[3] = 255
+        CVPixelBufferUnlockBaseAddress(video!, [])
+        surface.submit(video!)
+        precondition(surface.mailbox.snapshot()!.1.pixels.isEmpty)
+        surface.draw(in: surface)
+        first.withUnsafeMutableBytes {
+            surface.texture!.getBytes(
+                $0.baseAddress!, bytesPerRow: 4, from: MTLRegionMake2D(0, 0, 1, 1), mipmapLevel: 0)
+        }
+        precondition(first == [31, 101, 201, 255] && surface.uploadedBytes == 0)
+        video = nil
+        surface.suspendRendering(true)
+        surface.suspendRendering(false)
+        surface.draw(in: surface)
+        precondition(surface.texture?.width == 640)
+        surface.submit(Data(repeating: 77, count: 640 * 480 * 4), width: 640, height: 480, stride: 640 * 4)
+        surface.draw(in: surface)
+        first.withUnsafeMutableBytes {
+            surface.texture!.getBytes(
+                $0.baseAddress!, bytesPerRow: 4, from: MTLRegionMake2D(0, 0, 1, 1), mipmapLevel: 0)
+        }
+        precondition(first == [77, 77, 77, 77] && surface.uploadedBytes == 640 * 480 * 4)
+        print("PASS retained Adaptive IOSurface maps to Metal without CPU upload, resumes and falls back to TCP")
+        surface.sourceRect = CGRect(x: 0, y: 0, width: 640, height: 480)
+        let device = surface.device!
+        let commandQueue = device.makeCommandQueue()!
+        let targetDescriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .bgra8Unorm,
+            width: 640, height: 480, mipmapped: false)
+        targetDescriptor.usage = [.renderTarget, .shaderRead]
+        targetDescriptor.storageMode = .shared
+        let output = device.makeTexture(descriptor: targetDescriptor)!
+        for fullRange in [true, false] {
+            for matrix in [
+                kCVImageBufferYCbCrMatrix_ITU_R_601_4, kCVImageBufferYCbCrMatrix_ITU_R_709_2,
+                kCVImageBufferYCbCrMatrix_ITU_R_2020,
+            ] {
+                var nv12: CVPixelBuffer?
+                precondition(
+                    CVPixelBufferCreate(
+                        nil, 640, 480,
+                        fullRange
+                            ? kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+                            : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                        [kCVPixelBufferIOSurfacePropertiesKey: [:], kCVPixelBufferMetalCompatibilityKey: true]
+                            as CFDictionary,
+                        &nv12) == kCVReturnSuccess)
+                let pixelBuffer = nv12!
+                CVBufferSetAttachment(pixelBuffer, kCVImageBufferYCbCrMatrixKey, matrix, .shouldPropagate)
+                CVPixelBufferLockBaseAddress(pixelBuffer, [])
+                memset(
+                    CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0), fullRange ? 128 : 126,
+                    CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0) * 480)
+                let uv = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 1)!.assumingMemoryBound(to: UInt8.self)
+                let chromaSize = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 1) * 240
+                for offset in stride(from: 0, to: chromaSize, by: 2) {
+                    uv[offset] = 80
+                    uv[offset + 1] = 180
+                }
+                CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
+                let uploaded = surface.uploadedBytes
+                surface.submit(pixelBuffer)
+                surface.draw(in: surface)
+                precondition(surface.texture!.pixelFormat == .r8Unorm && surface.uploadedBytes == uploaded)
+                let pass = MTLRenderPassDescriptor()
+                pass.colorAttachments[0].texture = output
+                pass.colorAttachments[0].loadAction = .clear
+                pass.colorAttachments[0].storeAction = .store
+                let command = commandQueue.makeCommandBuffer()!
+                let encoder = command.makeRenderCommandEncoder(descriptor: pass)!
+                surface.encodeImage(encoder, size: CGSize(width: 640, height: 480))
+                encoder.endEncoding()
+                command.commit()
+                command.waitUntilCompleted()
+                precondition(command.status == .completed)
+                first.withUnsafeMutableBytes {
+                    output.getBytes(
+                        $0.baseAddress!, bytesPerRow: 4, from: MTLRegionMake2D(320, 240, 1, 1), mipmapLevel: 0)
+                }
+                let kr: Double =
+                    CFEqual(matrix, kCVImageBufferYCbCrMatrix_ITU_R_601_4)
+                    ? 0.299 : CFEqual(matrix, kCVImageBufferYCbCrMatrix_ITU_R_2020) ? 0.2627 : 0.2126
+                let kb: Double =
+                    CFEqual(matrix, kCVImageBufferYCbCrMatrix_ITU_R_601_4)
+                    ? 0.114 : CFEqual(matrix, kCVImageBufferYCbCrMatrix_ITU_R_2020) ? 0.0593 : 0.0722
+                let y = fullRange ? 128.0 : (126.0 - 16) * 255 / 219
+                let u = (80.0 - 128) * (fullRange ? 1 : 255.0 / 224)
+                let v = (180.0 - 128) * (fullRange ? 1 : 255.0 / 224)
+                let rgb = [
+                    y + 2 * (1 - kb) * u,
+                    y - 2 * kb * (1 - kb) / (1 - kr - kb) * u - 2 * kr * (1 - kr) / (1 - kr - kb) * v,
+                    y + 2 * (1 - kr) * v,
+                ]
+                for index in 0..<3 { precondition(abs(Double(first[index]) - min(255, max(0, rgb[index]))) <= 2) }
+            }
+        }
+        print("PASS production Metal YCbCr shader preserves BT.601/709/2020 SDR colors in full and video ranges")
         let changed = RDPFullScreenPresentation(desktop: desktop, screens: screens, layout: layout)
         var reason: String?
         changed.onExit = { reason = $0 }
