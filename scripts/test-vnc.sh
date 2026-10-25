@@ -5,7 +5,7 @@ source scripts/test-support.sh vnc
 python_bin="${FARCAST_TEST_PYTHON:-.dependencies/test-venv/bin/python}"
 xcrun clang -fobjc-arc -arch arm64 -mmacosx-version-min=27.0 -I Vendor/Native/include \
   Farcast/Native/VNC/*.m Tests/Integration/VNC/vnc_integration.m \
-  -framework Foundation -framework Security -L Vendor/Native/lib -lcrypto -lssl -lz \
+  -framework Foundation -framework Security -L Vendor/Native/lib -lcrypto -lssl -lz -lsrtp2 -framework VideoToolbox -framework CoreMedia -framework CoreVideo \
   -Wl,-rpath,"$PWD/Vendor/Native/lib" -o "$fixture_root/client"
 for scenario in password:8 password:7 password:3 none:8 none:7 none:3 wrong:8 bounds:8 encoding:8 oversized:8 unsupported:8 tlsvnc:8 tlsplain:8 tlsnone:8 tlsreject:8 tlsanonymous:8; do
   mode="${scenario%:*}"

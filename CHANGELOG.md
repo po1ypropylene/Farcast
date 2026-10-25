@@ -8,7 +8,7 @@ assigned only when a separate release request is made.
 - Fix Mac VNC keyboard and pointer input with Apple's encrypted event format and session-key rotation. Preserve framebuffer-pixel coordinates for Retina, keep framebuffer refreshes running, and service queued input during receive waits.
 - Support server-requested encrypted Mac desktop-login handoff using the saved account credentials; macOS session state and policy can still require manual login.
 
-- Add “Remote desktop is a Mac” for VNC, with an opt-in encrypted Apple virtual display, resolution/Retina settings and window-driven resize requests. Accelerated UDP video, audio and HDR are not included in this mode.
+- Add “Remote desktop is a Mac” for VNC, with an opt-in encrypted Apple virtual display, resolution/Retina settings and window-driven resize requests. Direct connections try Adaptive HEVC with hardware decoding, fresh video after confirmed resize and full-quality TCP fallback. VPN sessions retain TCP; audio and HDR are not included. Some Mac hosts still show both local and remote cursors.
 - Restore Apple framebuffer updates after virtual-display size changes, and wait for desktop pixels before reporting Connected.
 - Report VNC TCP and authentication-stage failures instead of hiding the underlying connection error.
 

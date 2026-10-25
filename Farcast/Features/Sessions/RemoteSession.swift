@@ -614,6 +614,7 @@ import SwiftTerm
     ) {
         let client = FCVNCClient()
         client.appleVirtualDisplay = profile.vncRemoteIsMac
+        client.adaptiveVideo = profile.vncRemoteIsMac && tunnelPort == 0
         client.retinaDisplay = profile.retinaDisplay
         client.desktopWidth = profile.desktopWidth
         client.desktopHeight = profile.desktopHeight

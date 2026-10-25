@@ -1,6 +1,7 @@
 #import "VNCClient.h"
 #import "../Transport/WireGuardSocket.h"
 #import "VNCAppleSession.h"
+#import "VNCAppleVideo.h"
 #import <Security/Security.h>
 #import <arpa/inet.h>
 #import <fcntl.h>
@@ -56,6 +57,8 @@ static uint32_t KeySym(uint32_t scalar) {
     BOOL _inflating;
     NSString *_failure;
     FCVNCAppleSession *_apple;
+    FCVNCAppleVideo *_video;
+    BOOL _adaptiveActive, _adaptiveDisabled;
     NSData *_pendingAppleResize;
 }
 - (instancetype)init {
@@ -92,6 +95,8 @@ static uint32_t KeySym(uint32_t scalar) {
     while (![self cancelled] && FCWireGuardSocketTime() < deadline) {
         // Receive fragments can pause while the user is interacting. Drain on
         // the same worker; writable waits never recurse into the input pump.
+        if (events == POLLIN && _ready)
+            [self pumpVideo];
         if (events == POLLIN && _ready && ![self flushInput])
             return NO;
         struct pollfd p = {_fd, events, 0};
@@ -522,7 +527,32 @@ static uint32_t KeySym(uint32_t scalar) {
         _failure = @"Apple virtual-display encrypted bootstrap failed.";
         return NO;
     }
-    unsigned char encodings[48] = {2, 0, 0, _apple ? 11 : 5};
+    if (_apple && self.adaptiveVideo && self.tunnelPort == 0) {
+        _video = [[FCVNCAppleVideo alloc] initWithTCPDescriptor:_fd];
+        __weak FCVNCClient *weak = self;
+        _video.onFrame = ^(NSData *pixels, NSInteger width, NSInteger height, NSInteger stride) {
+          FCVNCClient *client = weak;
+          if (!client || [client cancelled])
+              return;
+          if (client->_width != width || client->_height != height) {
+              if (![client sizeWidth:width height:height])
+                  return;
+          }
+          if (client.onFrame)
+              client.onFrame(pixels, width, height, stride);
+          client->_reportedFrame = YES;
+          if (!client->_adaptiveActive) {
+              client->_adaptiveActive = YES;
+              [client status:@"connected" message:@"Apple virtual display connected (Adaptive HEVC)"];
+          }
+        };
+    }
+    // Apple requires SetEncodings immediately after display configuration.
+    return [self setEncodings] && [self write:format count:20] &&
+           (_apple ? [self armAppleUpdates] : [self requestFrame:NO]);
+}
+- (BOOL)setEncodings {
+    unsigned char encodings[52] = {2, 0, 0, _apple ? 11 : 5};
     Put32(encodings + 4, 6);
     Put32(encodings + 8, 5);
     Put32(encodings + 12, 1);
@@ -534,10 +564,62 @@ static uint32_t KeySym(uint32_t scalar) {
     Put32(encodings + 36, 0x455);
     Put32(encodings + 40, 0x456);
     Put32(encodings + 44, 0x453);
-    // Apple requires SetEncodings immediately after display configuration.
-    return [self write:encodings count:_apple ? 48 : 24] && [self write:format count:20] &&
-           (_apple ? [self armAppleUpdates] : [self requestFrame:NO]);
+    if (_video && !_adaptiveDisabled) {
+        encodings[3] = 12;
+        // Apple selects the first codec as primary; advertising media only
+        // at the end initializes UDP but leaves the TCP encoder selected.
+        memmove(encodings + 8, encodings + 4, 44);
+        Put32(encodings + 4, 0x3f2);
+    }
+    return [self write:encodings count:_apple ? (encodings[3] * 4 + 4) : 24];
 }
+- (void)fallbackVideo {
+    if (_adaptiveDisabled)
+        return;
+    _adaptiveDisabled = YES;
+    _adaptiveActive = NO;
+    [_video close];
+    [self status:_reportedFrame ? @"connected" : @"connecting"
+         message:_video.failure ? [_video.failure stringByAppendingString:@" Using full-quality TCP."]
+                                : @"Adaptive video unavailable; using full-quality TCP."];
+    if (![self setEncodings] || ![self armAppleUpdates])
+        [self disconnect];
+}
+- (void)pumpVideo {
+    if (!_video || _adaptiveDisabled)
+        return;
+    [_video pump];
+    if (_video.failure)
+        [self fallbackVideo];
+}
+- (BOOL)mediaEncoding {
+    unsigned char prefix[2];
+    if (![self read:prefix count:2])
+        return NO;
+    NSUInteger length = Read16(prefix);
+    if (length < 4 || length > 65533)
+        return NO;
+    NSMutableData *data = [NSMutableData dataWithLength:length + 2];
+    memcpy(data.mutableBytes, prefix, 2);
+    if (![self read:(uint8_t *)data.mutableBytes + 2 count:length])
+        return NO;
+    if (!_video || _adaptiveDisabled)
+        return YES;
+    const uint8_t *p = data.bytes;
+    if (Read16(p + 2) == 1) {
+        NSData *configuration = [_video configure:data width:_width height:_height];
+        if (!configuration) {
+            [self fallbackVideo];
+            return YES;
+        }
+        [self status:_reportedFrame ? @"connected" : @"connecting" message:@"Negotiating Adaptive HEVC video…"];
+        return [self write:configuration.bytes count:configuration.length];
+    }
+    if (Read16(p + 2) != 2 || ![_video acceptAnswer:data])
+        [self fallbackVideo];
+    return YES;
+}
+
 - (void)fillX:(NSUInteger)x
             y:(NSUInteger)y
         width:(NSUInteger)w
@@ -706,7 +788,10 @@ static uint32_t KeySym(uint32_t scalar) {
                 return NO;
         if (self.onAppleLayout)
             self.onAppleLayout(logicalW, logicalH, backingW, backingH);
-        return [self armAppleUpdates];
+        BOOL armed = [self armAppleUpdates];
+        if (armed)
+            [_video requestRefresh];
+        return armed;
     }
     return encoding == 0x455 || encoding == 0x456;
 }
@@ -724,6 +809,11 @@ static uint32_t KeySym(uint32_t scalar) {
             return NO;
         NSUInteger x = Read16(rect), y = Read16(rect + 2), w = Read16(rect + 4), h = Read16(rect + 6);
         int32_t encoding = (int32_t)Read32(rect + 8);
+        if (_apple && encoding == 0x3f2) {
+            if (![self mediaEncoding])
+                return NO;
+            continue;
+        }
         if (_apple && (encoding == 0x44f || encoding == 0x450 || encoding == 0x451 || encoding == 0x453 ||
                        encoding == 0x455 || encoding == 0x456)) {
             if (![self appleMetadata:encoding x:x y:y width:w height:h])
@@ -764,7 +854,7 @@ static uint32_t KeySym(uint32_t scalar) {
         } else
             return NO;
     }
-    if (damaged && ![self cancelled]) {
+    if (damaged && ![self cancelled] && !_adaptiveActive) {
         if (self.onFrame)
             self.onFrame([_pixels copy], _width, _height, _width * 4);
         if (_apple && !_reportedFrame) {
@@ -953,6 +1043,7 @@ static uint32_t KeySym(uint32_t scalar) {
                       break;
                   }
                   @autoreleasepool {
+                      [self pumpVideo];
                       if (![self flushInput]) {
                           ok = NO;
                           break;
@@ -993,6 +1084,8 @@ static uint32_t KeySym(uint32_t scalar) {
               }
           }
           BOOL cancelled = [self cancelled];
+          [self->_video close];
+          self->_video = nil;
           self->_apple = nil;
           @synchronized(self) {
               self->_pendingAppleResize = nil;

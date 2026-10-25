@@ -284,7 +284,7 @@
                 SWIFT_OBJC_BRIDGING_HEADER = "Farcast/Native-Bridge.h";
                 HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/Vendor/Native/include", "$(SRCROOT)/Vendor/Native/include/freerdp3", "$(SRCROOT)/Vendor/Native/include/winpr3");
                 LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/Vendor/Native/lib");
-                OTHER_LDFLAGS = ("$(inherited)", "-lssh2", "-lfreerdp3", "-lfreerdp-client3", "-lwinpr3", "-lcrypto", "-lssl", "-lz");
+                OTHER_LDFLAGS = ("$(inherited)", "-lssh2", "-lfreerdp3", "-lfreerdp-client3", "-lwinpr3", "-lcrypto", "-lssl", "-lz", "-lsrtp2", "-framework", "VideoToolbox", "-framework", "CoreVideo", "-framework", "CoreMedia");
                 INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Farcast connects to your local servers using SSH and Remote Desktop.";
                 INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				ENABLE_HARDENED_RUNTIME = NO;
@@ -327,7 +327,7 @@
                 SWIFT_OBJC_BRIDGING_HEADER = "Farcast/Native-Bridge.h";
                 HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/Vendor/Native/include", "$(SRCROOT)/Vendor/Native/include/freerdp3", "$(SRCROOT)/Vendor/Native/include/winpr3");
                 LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/Vendor/Native/lib");
-                OTHER_LDFLAGS = ("$(inherited)", "-lssh2", "-lfreerdp3", "-lfreerdp-client3", "-lwinpr3", "-lcrypto", "-lssl", "-lz");
+                OTHER_LDFLAGS = ("$(inherited)", "-lssh2", "-lfreerdp3", "-lfreerdp-client3", "-lwinpr3", "-lcrypto", "-lssl", "-lz", "-lsrtp2", "-framework", "VideoToolbox", "-framework", "CoreVideo", "-framework", "CoreMedia");
                 INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Farcast connects to your local servers using SSH and Remote Desktop.";
                 INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				ENABLE_HARDENED_RUNTIME = NO;

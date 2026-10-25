@@ -22,6 +22,7 @@ fetch OpenSSL https://github.com/openssl/openssl.git openssl-3.6.5 c8bd5a5710859
 fetch libssh2 https://github.com/libssh2/libssh2.git master 3209951db4e47ef902db047d12f9f464f835c27e
 fetch FreeRDP https://github.com/FreeRDP/FreeRDP.git 3.32.1 bf217a504e54cc719880c228e82353382cd7d4fa
 fetch OpenH264 https://github.com/cisco/openh264.git v2.7.0 1bca62311e447fd9c39fc93de2c4b96cd5ce971c
+fetch libsrtp https://github.com/cisco/libsrtp.git v2.8.1 6ff02afa8d2dc3f2e8896af391d137c1c66ff6fa
 jobs="$(sysctl -n hw.ncpu)"
 mkdir -p .dependencies/build/openh264
 (
@@ -40,6 +41,11 @@ openssl_target=darwin64-arm64-cc
   make -j "$jobs"
   make install_sw
 )
+cmake -S "$source_root/libsrtp" -B .dependencies/build/libsrtp -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX="$install_root" -DCMAKE_OSX_DEPLOYMENT_TARGET=27.0 -DCMAKE_OSX_ARCHITECTURES=arm64 \
+  -DBUILD_SHARED_LIBS=OFF -DLIBSRTP_TEST_APPS=OFF -DENABLE_OPENSSL=ON -DOPENSSL_ROOT_DIR="$install_root"
+cmake --build .dependencies/build/libsrtp -j "$jobs"
+cmake --install .dependencies/build/libsrtp
 cmake -S "$source_root/libssh2" -B .dependencies/build/libssh2 -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$install_root" -DCMAKE_OSX_DEPLOYMENT_TARGET=27.0 -DCMAKE_OSX_ARCHITECTURES=arm64 \
   -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF \

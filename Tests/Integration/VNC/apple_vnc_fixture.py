@@ -174,11 +174,36 @@ def run(s):
     assert configuration[0]==0x1d and len(configuration)==196
     assert struct.unpack('>H',configuration[2:4])[0]==192
     assert struct.unpack('>HHHH',configuration[4:12])[:2]==(1,1)
-    assert records.read()[0]==2
+    encoding_offer=records.read()
+    assert encoding_offer[0]==2
+    if scenario in ('adaptive-refusal','adaptive-answer-refusal'):
+        assert len(encoding_offer)==52 and encoding_offer[4:8]==u32(0x3f2)
+    else:
+        assert len(encoding_offer)==48
     assert records.read()[0]==0
     assert records.read()==bytes.fromhex('0a000001')
     assert records.read()[0]==9
     assert records.read()[0]==3
+    if scenario in ('adaptive-refusal','adaptive-answer-refusal'):
+        request=bytearray(38)
+        struct.pack_into('>HHH',request,0,36,1,1)
+        if scenario=='adaptive-answer-refusal':
+            udp=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
+            udp.bind(('127.0.0.1',0)); port=udp.getsockname()[1]; udp.close()
+            struct.pack_into('>HI',request,16,port,1)
+        records.send(bytes(4)[:2]+u16(1)+struct.pack('>HHHHi',0,0,0,0,0x3f2)+request)
+        if scenario=='adaptive-answer-refusal':
+            configuration=records.read()
+            assert configuration[0:2]==bytes([0x1c,0]) and len(configuration)==struct.unpack('>H',configuration[2:4])[0]+4
+            assert configuration[6:10]==bytes([5,0,0,0]), 'One stream, no embedded cursor'
+            # Server refusal is a framed media message, not a top-level RFB type.
+            records.send(b'\0\0\0\1'+struct.pack('>HHHHi',0,0,0,0,0x3f2)+u16(4)+u16(3)+u16(1))
+            assert records.read()[0]==3
+        fallback=records.read()
+        assert fallback[0]==2 and len(fallback)==48 and u32(0x3f2) not in fallback[4:]
+        assert records.read()==bytes.fromhex('0a000001')
+        assert records.read()[0]==9 and records.read()[0]==3
+        assert records.read()[0]==3
     if scenario=='rekey-input':
         nextkey,nextiv=os.urandom(16),os.urandom(16)
         encoder=Cipher(algorithms.AES(newkey),modes.ECB()).encryptor()

@@ -3,6 +3,7 @@ NS_ASSUME_NONNULL_BEGIN
 // Independently implemented RFB worker. Callbacks run on its protocol queue.
 @interface FCVNCClient : NSObject
 @property(nonatomic) BOOL appleVirtualDisplay;
+@property(nonatomic) BOOL adaptiveVideo;
 @property(nonatomic) NSInteger desktopWidth;
 @property(nonatomic) NSInteger desktopHeight;
 @property(nonatomic) BOOL retinaDisplay;

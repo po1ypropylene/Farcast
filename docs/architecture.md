@@ -525,10 +525,31 @@ applies its Retina conversion. Server layout confirms effective size;
 request submission does not establish acceptance. Session generations and prompt
 cancellation remain owned by RemoteSession.
 
-The initial implementation uses full-quality TCP framebuffer delivery. Adaptive
-UDP/HEVC, audio, HDR, a second virtual display, legacy Apple DH, direct SRP and
-Kerberos are not implemented. TCP continues through the existing VPN destination
-lease when selected, without any direct UDP bypass.
+Direct Mac virtual-display connections offer Adaptive HEVC alongside full-quality
+TCP. `VNCAppleMediaOffer` independently serializes binary-plist/zlib/protobuf
+capabilities for one SDR, 8-bit 4:2:0 tile and validates the server's intersection.
+Both Wi-Fi and wired low-latency bandwidth profiles are supplied; omitting the
+wired ceiling can produce an accepted configuration with a zero transmitter maximum.
+The mandatory audio offer disables audio by requesting a bitrate below its floor.
+Media flags request one stream without an embedded remote cursor. The local cursor
+remains visible, but the tested host still includes its remote cursor; cursor
+omission is a request rather than confirmed host behavior. Confirmed display-layout changes request a fresh video picture
+without waiting for desktop input.
+Media configuration and fresh directional 46-byte SRTP keys travel only inside the
+authenticated encrypted control connection. No private Apple framework is linked.
+`VNCAppleVideo` binds the server-selected UDP video port on the TCP connection's
+local interface and connects it to that authenticated TCP peer. Static libSRTP
+handles AES-256-CM/HMAC-SHA1-80, rollover, replay checks and authenticated RTCP.
+An independent HEVC depacketizer follows negotiated interleaving (screen protobuf
+field 14) to include or omit DONL fields, bounds fragments and
+reordering, and requests fresh reference pictures after loss. Public VideoToolbox
+requires hardware decoding; decoded BGRA frames feed the existing latest-frame
+mailbox on the VNC worker. Unsupported negotiation, port conflicts or startup decode
+timeout remove the Adaptive encoding and renew full-quality TCP delivery.
+The worker pumps media during TCP receive waits as well as its ordinary input loop.
+Audio, HDR, a second virtual display, legacy Apple DH, direct SRP and Kerberos are
+not implemented. A selected VPN keeps the existing TCP destination lease; Adaptive
+UDP is disabled before negotiation and never bypasses the VPN.
 VNC key events use X11 keysyms, including full Unicode scalars. Explicit clipboard
 typing reads a snapshot on user action, normalizes CRLF/CR to Return, maps Tab,
 rejects other controls and caps the batch at 16384 scalars. Worker-paced down/up

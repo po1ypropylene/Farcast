@@ -24,7 +24,7 @@ xcrun swiftc -parse-as-library -module-name Farcast -target arm64-apple-macos27.
   -I "$products" -import-objc-header Farcast/Native-Bridge.h \
   "${session_sources[@]}" Tests/Integration/Workspace/RDPReconnectSessionChecks.swift \
   "$fixture_root/SSH.o" "$fixture_root/RDP.o" "$fixture_root/RDPClipboard.o" "$fixture_root/RDPDrive.o" "$products/SwiftTerm.o" \
-  -L Vendor/Native/lib -lssh2 -lfreerdp3 -lfreerdp-client3 -lwinpr3 -lcrypto -lssl -lz \
+  -L Vendor/Native/lib -lssh2 -lfreerdp3 -lfreerdp-client3 -lwinpr3 -lcrypto -lssl -lz -lsrtp2 -framework VideoToolbox -framework CoreMedia -framework CoreVideo \
   -Xlinker -rpath -Xlinker "$PWD/Vendor/Native/lib" -o "$fixture_root/client"
 "$fixture_root/client" "$fixture_root" "$port" "$fixture_root/cert.pem" -experimentalRDP NO
 "$fixture_root/client" "$fixture_root" "$port" "$fixture_root/cert.pem" -experimentalRDP YES

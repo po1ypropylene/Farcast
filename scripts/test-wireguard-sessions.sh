@@ -31,7 +31,7 @@ executable="$fixture_root/Sessions.app/Contents/MacOS/Sessions"
 xcrun swiftc -parse-as-library -module-name Farcast -target arm64-apple-macos27.0 -I "$products" -import-objc-header Farcast/Native-Bridge.h \
   "${sources[@]}" Tests/Integration/WireGuard/sessions.swift \
   "$fixture_root/SSH.o" "$fixture_root/RDP.o" "$fixture_root/RDPClipboard.o" "$fixture_root/RDPDrive.o" "$products/SwiftTerm.o" \
-  -L Vendor/Native/lib -lssh2 -lfreerdp3 -lfreerdp-client3 -lwinpr3 -lcrypto -lssl -lz -Xlinker -rpath -Xlinker "$PWD/Vendor/Native/lib" -o "$executable"
+  -L Vendor/Native/lib -lssh2 -lfreerdp3 -lfreerdp-client3 -lwinpr3 -lcrypto -lssl -lz -lsrtp2 -framework VideoToolbox -framework CoreMedia -framework CoreVideo -Xlinker -rpath -Xlinker "$PWD/Vendor/Native/lib" -o "$executable"
 cp Vendor/Native/bin/FarcastWireGuard "$fixture_root/Sessions.app/Contents/MacOS/"
 cat > "$fixture_root/Sessions.app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>Sessions</string><key>CFBundleIdentifier</key><string>com.peterpo.farcast.wireguard-sessions</string></dict></plist>

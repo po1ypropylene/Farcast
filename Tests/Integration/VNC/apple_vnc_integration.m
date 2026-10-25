@@ -7,6 +7,7 @@ int main(int argc, const char **argv) {
         NSString *mode = @(argv[2]), *root = @(argv[3]);
         FCVNCClient *client = [FCVNCClient new];
         client.appleVirtualDisplay = YES;
+        client.adaptiveVideo = [mode hasPrefix:@"adaptive-"];
         BOOL retina = [mode isEqual:@"retina-input"];
         client.retinaDisplay = retina;
         NSInteger factor = retina ? 2 : 1;
@@ -73,8 +74,9 @@ int main(int argc, const char **argv) {
         [client connectHost:@"127.0.0.1" port:atoi(argv[1]) username:@"fixture" password:@"fixture-password"];
         NSCAssert(dispatch_semaphore_wait(completed, dispatch_time(DISPATCH_TIME_NOW, 15 * NSEC_PER_SEC)) == 0,
                   @"Apple VNC fixture timed out");
-        if ([mode isEqual:@"success"] || [mode isEqual:@"desktop-size"] || [mode isEqual:@"desktop-login"] ||
-            [mode isEqual:@"rekey-input"] || [mode isEqual:@"input-latency"] || retina)
+        if ([mode hasPrefix:@"adaptive-"] || [mode isEqual:@"success"] || [mode isEqual:@"desktop-size"] ||
+            [mode isEqual:@"desktop-login"] || [mode isEqual:@"rekey-input"] || [mode isEqual:@"input-latency"] ||
+            retina)
             NSCAssert(sawFirst && sawResized && sawConnected && sawKeyboard && sawInteractive && !failed,
                       @"Apple display/resize failed: %@", failure);
         else

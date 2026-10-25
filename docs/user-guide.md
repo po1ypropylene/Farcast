@@ -503,9 +503,13 @@ In **Display**, choose an initial resolution, **Optimize for Retina**, or
 uses two backing pixels per logical point, limiting logical size to 1920 × 1080.
 The Mac confirms its actual geometry and may select a different size. Connection
 Details records requests and received geometry. Display changes apply on reconnect.
-This experimental mode uses encrypted full-quality framebuffer delivery. Adaptive
-UDP/HEVC streaming, audio and HDR are not yet implemented. A selected VPN carries
-the complete TCP connection; the mode does not bypass it with direct media traffic.
+For direct connections, this experimental mode tries encrypted Adaptive HEVC
+video with hardware decoding and falls back to full-quality TCP if negotiation or
+video startup fails. Close another screen-sharing client if it occupies the media
+port. Connection Details identifies Adaptive HEVC after the first decoded frame.
+Some Mac hosts still show both the local and remote cursors despite the request
+to omit the remote cursor. Audio and HDR are not supported. A selected VPN uses full-quality TCP for the
+complete connection; media traffic does not bypass it.
 
 A TCP error such as “No route to host” occurs before authentication. Check network
 access and **System Settings → Privacy & Security → Local Network → Farcast**.
