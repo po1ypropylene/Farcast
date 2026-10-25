@@ -95,12 +95,17 @@ Production Windows startup smoothness still requires live validation.
   Comparative production directory throughput has not been measured.
 - **Apple Adaptive video:** synthetic hardware encode/decode checks cover native
   NV12 IOSurface output, exact NACK repair, populated receiver reports and repeated
-  authenticated FIR retries after post-frame loss. LTR checks cover explicit marked
+  authenticated FIR backoff after post-frame loss and newest-complete-IRAP burst
+  selection before decode. Reusable compressed storage is exercised through later
+  asynchronous output and close. LTR checks cover explicit marked
   references, DON/timestamp identifiers and acknowledgement preservation after failed
   decode. Owned GPU checks exercise BT.601/709/2020 SDR conversion in full/video range,
   surface retention, suspension/resume, the full-frame crop used in full screen and
   same-size TCP fallback. Full-screen surfaces retain the VNC committed-character
-  input policy. Production sender
+  input policy. Semantic special-key repeat/focus cleanup and layout-aware shortcuts
+  have synthetic coverage. Owned window-transfer and texture-resume checks cover
+  renderer lifetime; locked/occluded windows cannot establish visible display-link
+  callbacks or vsync behavior. Production sender
   adaptation, proprietary LTR reference selection, physical Wi-Fi loss recovery and
   sustained 4K throughput still require live validation; synthetic/static evidence
   does not establish latency parity with Apple's client.

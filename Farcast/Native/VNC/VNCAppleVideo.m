@@ -1,6 +1,7 @@
 #import "VNCAppleVideo.h"
 #import "VNCAppleFeedback.h"
 #import "VNCAppleMediaOffer.h"
+#import "VNCAppleWire.h"
 #import <Security/Security.h>
 #import <VideoToolbox/VideoToolbox.h>
 #import <arpa/inet.h>
@@ -9,16 +10,6 @@
 #import <sys/socket.h>
 #import <unistd.h>
 
-static uint16_t U16(const uint8_t *p) { return (uint16_t)p[0] << 8 | p[1]; }
-static uint32_t U32(const uint8_t *p) { return (uint32_t)U16(p) << 16 | U16(p + 2); }
-static void W16(uint8_t *p, uint16_t n) {
-    p[0] = n >> 8;
-    p[1] = n;
-}
-static void W32(uint8_t *p, uint32_t n) {
-    W16(p, n >> 16);
-    W16(p + 2, n);
-}
 static double Now(void) { return NSProcessInfo.processInfo.systemUptime; }
 
 @implementation FCVNCAppleHEVC {
@@ -36,11 +27,30 @@ static double Now(void) { return NSProcessInfo.processInfo.systemUptime; }
     _referenceIdentifier = 0;
 }
 - (void)consumeRTP:(NSData *)packet {
-    const uint8_t *p = packet.bytes;
-    NSUInteger length = packet.length;
+    [self consumeRTPBytes:packet.bytes length:packet.length];
+}
+- (void)emitHeader:(const void *)header
+            length:(NSUInteger)headerLength
+           payload:(const void *)payload
+            length:(NSUInteger)payloadLength
+         timestamp:(uint32_t)timestamp
+            marker:(BOOL)marker {
+    if (self.onNALParts) {
+        self.onNALParts(header, headerLength, payload, payloadLength, timestamp, marker);
+    } else if (self.onNAL) {
+        // Compatibility/test callback owns a contiguous NAL. Production consumes
+        // the borrowed spans directly and makes no intermediate NAL allocation.
+        NSMutableData *nal = [NSMutableData dataWithBytes:header length:headerLength];
+        if (payloadLength)
+            [nal appendBytes:payload length:payloadLength];
+        self.onNAL(nal, timestamp, marker);
+    }
+}
+- (void)consumeRTPBytes:(const void *)bytes length:(NSUInteger)length {
+    const uint8_t *p = bytes;
     if (length < 12 || (p[0] >> 6) != 2 || (p[1] & 127) != 100)
         return;
-    uint32_t timestamp = U32(p + 4);
+    uint32_t timestamp = FCVNCRead32(p + 4);
     if (timestamp != _referenceTimestamp) {
         _referenceTimestamp = timestamp;
         _markedReference = NO;
@@ -51,7 +61,7 @@ static double Now(void) { return NSProcessInfo.processInfo.systemUptime; }
     if (p[0] & 16) {
         if (length - offset < 4)
             return;
-        NSUInteger extension = 4 + 4 * U16(p + offset + 2);
+        NSUInteger extension = 4 + 4 * FCVNCRead16(p + offset + 2);
         if (extension > length - offset)
             return;
         // Apple's FaceTime video control header occupies the RTP extension
@@ -68,7 +78,7 @@ static double Now(void) { return NSProcessInfo.processInfo.systemUptime; }
             return;
         length -= padding;
     }
-    uint16_t sequence = U16(p + 2);
+    uint16_t sequence = FCVNCRead16(p + 2);
     if (_sequenced && sequence != _nextSequence) {
         _fragment = nil;
         _lostReference = YES;
@@ -89,40 +99,47 @@ static double Now(void) { return NSProcessInfo.processInfo.systemUptime; }
         return;
     }
     if (type < 48) {
-        _referenceIdentifier = donBytes ? U16(p + 2) : timestamp;
+        _referenceIdentifier = donBytes ? FCVNCRead16(p + 2) : timestamp;
         _fragment = nil;
-        NSMutableData *nal = [NSMutableData dataWithBytes:p length:2];
-        [nal appendBytes:p + 2 + donBytes length:length - 2 - donBytes];
-        if (self.onNAL)
-            self.onNAL(nal, timestamp, marker);
+        [self emitHeader:p
+                  length:2
+                 payload:p + 2 + donBytes
+                  length:length - 2 - donBytes
+               timestamp:timestamp
+                  marker:marker];
     } else if (type == 48) {
-        _referenceIdentifier = donBytes ? U16(p + 2) : timestamp;
+        _referenceIdentifier = donBytes ? FCVNCRead16(p + 2) : timestamp;
         _fragment = nil;
         NSUInteger cursor = 2 + donBytes;
-        NSMutableArray<NSData *> *nals = [NSMutableArray array];
+        NSRange ranges[64];
+        unsigned count = 0;
         while (cursor < length) {
             if (length - cursor < 2) {
                 _lostReference = YES;
                 return;
             }
-            NSUInteger size = U16(p + cursor);
+            NSUInteger size = FCVNCRead16(p + cursor);
             cursor += 2;
-            if (size < 2 || size > length - cursor || nals.count >= 64) {
+            if (size < 2 || size > length - cursor || count >= 64) {
                 _lostReference = YES;
                 return;
             }
-            [nals addObject:[NSData dataWithBytes:p + cursor length:size]];
+            ranges[count++] = NSMakeRange(cursor, size);
             cursor += size;
         }
-        for (NSUInteger i = 0; i < nals.count; i++)
-            if (self.onNAL)
-                self.onNAL(nals[i], timestamp, marker && i + 1 == nals.count);
+        for (unsigned i = 0; i < count; i++)
+            [self emitHeader:p + ranges[i].location
+                      length:ranges[i].length
+                     payload:NULL
+                      length:0
+                   timestamp:timestamp
+                      marker:marker && i + 1 == count];
     } else if (type == 49) {
         if (length < 4 + donBytes || (p[2] & 63) >= 48 || (p[2] & 192) == 192) {
             _lostReference = YES;
             return;
         }
-        uint16_t don = donBytes ? U16(p + 3) : 0;
+        uint16_t don = donBytes ? FCVNCRead16(p + 3) : 0;
         if (p[2] & 128) {
             uint8_t header[] = {(p[0] & 129) | ((p[2] & 63) << 1), p[1]};
             _fragment = [NSMutableData dataWithBytes:header length:2];
@@ -140,8 +157,7 @@ static double Now(void) { return NSProcessInfo.processInfo.systemUptime; }
             _referenceIdentifier = donBytes ? _don : timestamp;
             NSData *nal = _fragment;
             _fragment = nil;
-            if (self.onNAL)
-                self.onNAL(nal, timestamp, marker);
+            [self emitHeader:nal.bytes length:nal.length payload:NULL length:0 timestamp:timestamp marker:marker];
         }
     } else
         _lostReference = YES;
@@ -155,17 +171,41 @@ typedef struct {
     BOOL markedReference;
 } FCVNCAppleDecodeTicket;
 
+enum { FCVNCReorderSlots = 128 };
+typedef struct {
+    uint8_t *bytes;
+    NSUInteger length, capacity;
+    uint16_t sequence;
+} FCVNCApplePacket;
+
+// CMBlockBuffer owns the completed access unit until VideoToolbox releases it.
+static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease(owner); }
+
+@interface FCVNCAppleAccessUnit : NSObject
+@property(nonatomic, strong) NSMutableData *bytes;
+@property(nonatomic) uint32_t referenceIdentifier;
+@property(nonatomic) BOOL markedReference, randomAccess;
+@end
+@implementation FCVNCAppleAccessUnit
+@end
+
 @implementation FCVNCAppleVideo {
     int _tcp, _socket;
     FCVNCAppleMediaOffer *_offer;
     FCVNCAppleHEVC *_hevc;
     FCVNCAppleFeedback *_feedback;
     double _lastNACK;
-    BOOL _nackEnabled;
+    BOOL _nackEnabled, _diagnosticsEnabled;
     NSMutableData *_sendKey, *_receiveKey;
     srtp_t _receive, _send;
     uint32_t _senderSSRC, _receiverSSRC;
-    NSMutableDictionary<NSNumber *, NSData *> *_reorder;
+    // Worker-owned reusable slots. A slot is borrowed only during synchronous
+    // depacketization and never retained by a callback or VideoToolbox.
+    FCVNCApplePacket _reorder[FCVNCReorderSlots];
+    NSUInteger _reorderCount;
+    uint8_t _receivePacket[65536];
+    NSMutableArray<FCVNCAppleAccessUnit *> *_readyUnits;
+    double _keyframeInterval;
     uint16_t _nextSequence;
     BOOL _sequenced, _waitingForIDR, _longTermReference, _hasAcknowledgement;
     uint32_t _acknowledgedReference;
@@ -193,6 +233,7 @@ typedef struct {
         return nil;
     _tcp = tcp;
     _socket = -1;
+    _diagnosticsEnabled = [NSProcessInfo.processInfo.environment[@"FARCAST_VNC_DIAGNOSTICS"] isEqual:@"1"];
     static dispatch_once_t once;
     static srtp_err_status_t status;
     dispatch_once(&once, ^{
@@ -202,13 +243,21 @@ typedef struct {
         return nil;
     _hevc = [FCVNCAppleHEVC new];
     __weak FCVNCAppleVideo *weak = self;
-    _hevc.onNAL = ^(NSData *nal, uint32_t timestamp, BOOL marker) {
-      [weak nal:nal timestamp:timestamp marker:marker];
+    _hevc.onNALParts = ^(const void *header, NSUInteger headerLength, const void *payload, NSUInteger payloadLength,
+                         uint32_t timestamp, BOOL marker) {
+      [weak nalHeader:header
+               length:headerLength
+              payload:payload
+               length:payloadLength
+            timestamp:timestamp
+               marker:marker];
     };
-    _reorder = [NSMutableDictionary dictionary];
+    _readyUnits = [NSMutableArray array];
+    _keyframeInterval = .15;
     return self;
 }
 - (void)retireDecoder {
+    [_readyUnits removeAllObjects];
     _hasAcknowledgement = NO;
     @synchronized(self) {
         _generation++;
@@ -249,6 +298,10 @@ typedef struct {
         memset_s(_receiveKey.mutableBytes, _receiveKey.length, 0, _receiveKey.length);
     _sendKey = nil;
     _receiveKey = nil;
+    for (unsigned i = 0; i < FCVNCReorderSlots; i++) {
+        free(_reorder[i].bytes);
+        _reorder[i] = (FCVNCApplePacket){0};
+    }
     _offer = nil;
     _feedback = nil;
     _vps = nil;
@@ -262,8 +315,10 @@ typedef struct {
         _decodeFailed = NO;
         _inFlight = 0;
     }
-    [_reorder removeAllObjects];
+    [self clearPackets];
     [_hevc reset];
+    [_readyUnits removeAllObjects];
+    _keyframeInterval = .15;
     _sequenced = NO;
     _datagrams = 0;
     _authenticatedPackets = 0;
@@ -288,9 +343,10 @@ typedef struct {
     [self close];
     _failure = nil;
     const uint8_t *p = request.bytes;
-    if (request.length != 38 || U16(p) != 36 || U16(p + 2) != 1 || U16(p + 4) != 1 || !(U32(p + 18) & 1))
+    if (request.length != 38 || FCVNCRead16(p) != 36 || FCVNCRead16(p + 2) != 1 || FCVNCRead16(p + 4) != 1 ||
+        !(FCVNCRead32(p + 18) & 1))
         return nil;
-    uint16_t port = U16(p + 16);
+    uint16_t port = FCVNCRead16(p + 16);
     if (!port)
         return nil;
     struct sockaddr_storage peer = {0}, local = {0};
@@ -336,10 +392,11 @@ typedef struct {
 }
 - (BOOL)acceptAnswer:(NSData *)answer {
     const uint8_t *p = answer.bytes;
-    if (!_offer || answer.length < 20 || U16(p) + 2 != answer.length || U16(p + 2) != 2 || U16(p + 4) != 2)
+    if (!_offer || answer.length < 20 || FCVNCRead16(p) + 2 != answer.length || FCVNCRead16(p + 2) != 2 ||
+        FCVNCRead16(p + 4) != 2)
         return NO;
-    NSUInteger audio = U16(p + 10), video = U16(p + 12);
-    if (U16(p + 14) || 20 + audio + video != answer.length || !video)
+    NSUInteger audio = FCVNCRead16(p + 10), video = FCVNCRead16(p + 12);
+    if (FCVNCRead16(p + 14) || 20 + audio + video != answer.length || !video)
         return NO;
     BOOL decodingOrderNumbers = NO;
     if (![FCVNCAppleMediaOffer acceptVideoAnswer:[answer subdataWithRange:NSMakeRange(20 + audio, video)]
@@ -372,19 +429,21 @@ typedef struct {
     // A display-layout change needs a fresh picture even on an otherwise idle
     // desktop. Do not wait for remote pointer damage to wake screen capture.
     _lastKeyframe = 0;
+    _keyframeInterval = .15;
     [self feedback:YES];
 }
 - (void)feedback:(BOOL)keyframe {
     if (!_send || _socket < 0)
         return;
     double now = Now();
-    if (keyframe && now - _lastKeyframe < .5)
+    if (keyframe && now - _lastKeyframe < _keyframeInterval)
         return;
     NSMutableData *packet = [self receiverReport:now];
     if (keyframe) {
         uint8_t fir[8] = {0x80, 192, 0, 1};
-        W32(fir + 4, _receiverSSRC);
+        FCVNCWrite32(fir + 4, _receiverSSRC);
         [packet appendBytes:fir length:sizeof(fir)];
+        _keyframeInterval = _lastKeyframe ? MIN(.6, _keyframeInterval * 2) : .15;
         _lastKeyframe = now;
     }
     [self sendControl:packet];
@@ -399,9 +458,9 @@ typedef struct {
         // Keep the last good acknowledgement while recovering; missing, stale,
         // failed and merely submitted pictures must never advance it.
         uint8_t ack[16] = {0x80, 204, 0, 3};
-        W32(ack + 4, _receiverSSRC);
-        W32(ack + 8, 5);
-        W32(ack + 12, _acknowledgedReference);
+        FCVNCWrite32(ack + 4, _receiverSSRC);
+        FCVNCWrite32(ack + 8, 5);
+        FCVNCWrite32(ack + 12, _acknowledgedReference);
         [packet appendBytes:ack length:sizeof(ack)];
     }
     return packet;
@@ -415,35 +474,36 @@ typedef struct {
 }
 - (void)requestMissingPackets {
     double now = Now();
-    if (!_nackEnabled || !_reorder.count || !_gapSince || now - _gapSince < .005 || now - _lastNACK < .015)
+    if (!_nackEnabled || !_reorderCount || !_gapSince || now - _gapSince < .005 || now - _lastNACK < .015)
         return;
     // RFC 4585 generic NACK: request original sequence numbers within the
     // bounded reorder window. No unnegotiated RTX SSRC/payload is accepted.
     NSMutableData *packet = [self receiverReport:now];
     uint8_t nack[12 + 8 * 4] = {0x81, 205};
-    W32(nack + 4, _receiverSSRC);
-    W32(nack + 8, _senderSSRC);
+    FCVNCWrite32(nack + 4, _receiverSSRC);
+    FCVNCWrite32(nack + 8, _senderSSRC);
     unsigned highest = 0;
-    for (NSNumber *key in _reorder)
-        highest = MAX(highest, (uint16_t)(key.unsignedShortValue - _nextSequence));
+    for (unsigned i = 0; i < FCVNCReorderSlots; i++)
+        if (_reorder[i].length)
+            highest = MAX(highest, (uint16_t)(_reorder[i].sequence - _nextSequence));
     unsigned count = 0;
     for (unsigned offset = 0; offset < highest && count < 8;) {
         uint16_t missing = _nextSequence + offset;
-        if (_reorder[@(missing)]) {
+        if ([self packetForSequence:missing]) {
             offset++;
             continue;
         }
         uint16_t mask = 0;
         for (unsigned bit = 0; bit < 16 && offset + bit + 1 < highest; bit++)
-            if (!_reorder[@((uint16_t)(missing + bit + 1))])
+            if (![self packetForSequence:(uint16_t)(missing + bit + 1)])
                 mask |= 1 << bit;
-        W16(nack + 12 + count * 4, missing);
-        W16(nack + 14 + count * 4, mask);
+        FCVNCWrite16(nack + 12 + count * 4, missing);
+        FCVNCWrite16(nack + 14 + count * 4, mask);
         count++;
         offset += 17;
     }
     if (count) {
-        W16(nack + 2, 2 + count);
+        FCVNCWrite16(nack + 2, 2 + count);
         [packet appendBytes:nack length:12 + count * 4];
         [self sendControl:packet];
         _lastNACK = now;
@@ -462,16 +522,18 @@ typedef struct {
         return;
     }
     for (unsigned budget = 0; budget < 256; budget++) {
-        uint8_t packet[65536];
-        ssize_t count = recv(_socket, packet, sizeof(packet), 0);
+        uint8_t *packet = _receivePacket;
+        ssize_t count = recv(_socket, packet, sizeof(_receivePacket), 0);
         if (count < 0) {
             if (errno == EINTR)
                 continue;
             break;
         }
-        _datagrams++;
+        if (_diagnosticsEnabled && !_receivedFrame)
+            _datagrams++;
         if (count < 12 || (packet[0] >> 6) != 2) {
-            _otherPackets++;
+            if (_diagnosticsEnabled && !_receivedFrame)
+                _otherPackets++;
             continue;
         }
         int length = (int)count;
@@ -483,15 +545,17 @@ typedef struct {
             continue;
         }
         if (rtcp) {
-            _rtcpPackets++;
+            if (_diagnosticsEnabled && !_receivedFrame)
+                _rtcpPackets++;
             [_feedback receiveControl:[NSData dataWithBytes:packet length:length] atTime:Now()];
             continue;
         }
         if (length < 12 || (packet[1] & 127) != 100)
             continue;
-        _authenticatedPackets++;
-        uint16_t sequence = U16(packet + 2);
-        [_feedback receiveSequence:sequence timestamp:U32(packet + 4) atTime:Now()];
+        if (_diagnosticsEnabled && !_receivedFrame)
+            _authenticatedPackets++;
+        uint16_t sequence = FCVNCRead16(packet + 2);
+        [_feedback receiveSequence:sequence timestamp:FCVNCRead32(packet + 4) atTime:Now()];
         if (!_sequenced) {
             _nextSequence = sequence;
             _sequenced = YES;
@@ -500,27 +564,44 @@ typedef struct {
         if (distance < 0)
             continue;
         if (distance >= 128) {
-            [_reorder removeAllObjects];
+            [self clearPackets];
             [_hevc reset];
             _nextSequence = sequence;
             _accessUnit = nil;
             _waitingForIDR = YES;
             [self feedback:YES];
         }
-        _reorder[@(sequence)] = [NSData dataWithBytes:packet length:length];
+        FCVNCApplePacket *slot = &_reorder[sequence % FCVNCReorderSlots];
+        if (!slot->length)
+            _reorderCount++;
+        if (slot->capacity < (NSUInteger)length) {
+            NSUInteger capacity = MAX(2048, (NSUInteger)length);
+            uint8_t *storage = realloc(slot->bytes, capacity);
+            if (!storage) {
+                _failure = @"Adaptive packet storage is unavailable.";
+                return;
+            }
+            slot->bytes = storage;
+            slot->capacity = capacity;
+        }
+        memcpy(slot->bytes, packet, length);
+        slot->length = length;
+        slot->sequence = sequence;
         [self drainPackets];
     }
     double now = Now();
     [self requestMissingPackets];
-    if (_reorder.count && _gapSince && now - _gapSince > (_nackEnabled ? .075 : .025)) {
+    if (_reorderCount && _gapSince && now - _gapSince > (_nackEnabled ? .075 : .025)) {
         // A small reorder window bounds latency and memory. Missing references
         // recover at an IDR rather than presenting corrupted dependent pictures.
         uint16_t nearest = _nextSequence;
         unsigned distance = UINT16_MAX;
-        for (NSNumber *key in _reorder) {
-            unsigned d = (uint16_t)(key.unsignedShortValue - _nextSequence);
+        for (unsigned i = 0; i < FCVNCReorderSlots; i++) {
+            if (!_reorder[i].length)
+                continue;
+            unsigned d = (uint16_t)(_reorder[i].sequence - _nextSequence);
             if (d < distance) {
-                nearest = key.unsignedShortValue;
+                nearest = _reorder[i].sequence;
                 distance = d;
             }
         }
@@ -531,6 +612,12 @@ typedef struct {
         [self feedback:YES];
         [self drainPackets];
     }
+    // Collect complete pictures during the receive burst before paying decode
+    // cost. Keep dependencies intact, or skip only to a complete random-access unit.
+    NSArray<FCVNCAppleAccessUnit *> *ready = [_readyUnits copy];
+    [_readyUnits removeAllObjects];
+    for (FCVNCAppleAccessUnit *unit in ready)
+        [self submitAccessUnit:unit];
     CVPixelBufferRef buffer = NULL;
     BOOL failed;
     NSNumber *acknowledgement;
@@ -557,9 +644,9 @@ typedef struct {
         _acknowledgedReference = acknowledgement.unsignedIntValue;
         _hasAcknowledgement = YES;
     }
-    // Retry after every loss, including after the first successful frame. The
-    // existing half-second FIR throttle bounds recovery traffic on bad links.
-    if (_waitingForIDR || !_receivedFrame)
+    // Retry after every loss with 150/300/600 ms backoff, including after startup.
+    BOOL repairingGap = _reorderCount && _gapSince && now - _gapSince <= (_nackEnabled ? .075 : .025);
+    if ((_waitingForIDR || !_receivedFrame) && !repairingGap)
         [self feedback:YES];
     else if (now - _lastFeedback > .2)
         [self feedback:NO];
@@ -569,33 +656,51 @@ typedef struct {
         CVPixelBufferRelease(buffer);
         _receivedFrame = YES;
         _lastFrame = now;
+        _keyframeInterval = .15;
     }
-    if (!_receivedFrame && now - _started > 8)
-        _failure = [NSString
-            stringWithFormat:
-                @"Adaptive video: %lu datagrams, %lu authenticated video, %lu control, %lu NALs, %lu marked, types "
-                @"%llx, parameters %lu/%lu/%lu, format %d, decode %d, authentication %d, no decoded frame.",
-                (unsigned long)_datagrams, (unsigned long)_authenticatedPackets, (unsigned long)_rtcpPackets,
-                (unsigned long)_nalCount, (unsigned long)_markerNALs, (unsigned long long)_nalTypes,
-                (unsigned long)_vps.length, (unsigned long)_sps.length, (unsigned long)_pps.length, (int)_formatStatus,
-                (int)_decodeStatus, _lastAuthenticationError];
+    if (!_receivedFrame && now - _started > 8) {
+        _failure =
+            !_diagnosticsEnabled
+                ? @"Adaptive video did not deliver a decoded frame before its startup deadline."
+                : [NSString
+                      stringWithFormat:
+                          @"Adaptive video: %lu datagrams, %lu authenticated video, %lu control, %lu NALs, %lu marked, "
+                          @"types "
+                          @"%llx, parameters %lu/%lu/%lu, format %d, decode %d, authentication %d, no decoded frame.",
+                          (unsigned long)_datagrams, (unsigned long)_authenticatedPackets, (unsigned long)_rtcpPackets,
+                          (unsigned long)_nalCount, (unsigned long)_markerNALs, (unsigned long long)_nalTypes,
+                          (unsigned long)_vps.length, (unsigned long)_sps.length, (unsigned long)_pps.length,
+                          (int)_formatStatus, (int)_decodeStatus, _lastAuthenticationError];
+    }
     if (_receivedFrame && _waitingForIDR && now - _lastFrame > 8)
         _failure = @"Adaptive video could not recover its reference pictures.";
 }
+- (FCVNCApplePacket *)packetForSequence:(uint16_t)sequence {
+    FCVNCApplePacket *packet = &_reorder[sequence % FCVNCReorderSlots];
+    return packet->length && packet->sequence == sequence ? packet : NULL;
+}
+- (void)clearPackets {
+    for (unsigned i = 0; i < FCVNCReorderSlots; i++)
+        _reorder[i].length = 0;
+    _reorderCount = 0;
+    _gapSince = 0;
+}
 - (void)drainPackets {
-    NSData *packet;
-    while ((packet = _reorder[@(_nextSequence)])) {
-        [_reorder removeObjectForKey:@(_nextSequence)];
+    FCVNCApplePacket *slot;
+    while ((slot = [self packetForSequence:_nextSequence])) {
         _nextSequence++;
-        [_hevc consumeRTP:packet];
+        [_hevc consumeRTPBytes:slot->bytes length:slot->length];
+        slot->length = 0;
+        _reorderCount--;
         if (_hevc.lostReference) {
             _waitingForIDR = YES;
             _accessUnit = nil;
+            [_readyUnits removeAllObjects];
             [self feedback:YES];
             [_hevc reset];
         }
     }
-    _gapSince = _reorder.count ? (_gapSince ?: Now()) : 0;
+    _gapSince = _reorderCount ? (_gapSince ?: Now()) : 0;
 }
 - (BOOL)prepareDecoder {
     if (_decoder)
@@ -631,17 +736,29 @@ typedef struct {
     VTSessionSetProperty(_decoder, kVTDecompressionPropertyKey_RealTime, kCFBooleanTrue);
     return YES;
 }
-- (void)nal:(NSData *)nal timestamp:(uint32_t)timestamp marker:(BOOL)marker {
-    if (nal.length < 2 || nal.length > 8 * 1024 * 1024)
+- (void)nalHeader:(const void *)header
+           length:(NSUInteger)headerLength
+          payload:(const void *)payload
+           length:(NSUInteger)payloadLength
+        timestamp:(uint32_t)timestamp
+           marker:(BOOL)marker {
+    NSUInteger length = headerLength + payloadLength;
+    const uint8_t *p = header;
+    if (headerLength < 2 || length > 8 * 1024 * 1024)
         return;
-    _nalCount++;
-    unsigned type = (((const uint8_t *)nal.bytes)[0] >> 1) & 63;
-    _nalTypes |= UINT64_C(1) << type;
-    if (marker)
+    if (_diagnosticsEnabled && !_receivedFrame)
+        _nalCount++;
+    unsigned type = (p[0] >> 1) & 63;
+    if (_diagnosticsEnabled && !_receivedFrame)
+        _nalTypes |= UINT64_C(1) << type;
+    if (_diagnosticsEnabled && marker && !_receivedFrame)
         _markerNALs++;
     if (type == 32 || type == 33 || type == 34) {
-        if (nal.length > 65535)
+        if (length > 65535)
             return;
+        NSMutableData *nal = [NSMutableData dataWithBytes:header length:headerLength];
+        if (payloadLength)
+            [nal appendBytes:payload length:payloadLength];
         NSData *previous = type == 32 ? _vps : type == 33 ? _sps : _pps;
         if (![previous isEqualToData:nal]) {
             [self retireDecoder];
@@ -667,7 +784,7 @@ typedef struct {
         // HEVC first_slice_segment_in_pic_flag is the first RBSP bit. After
         // packet loss, a later slice cannot stand in for a complete picture or
         // become an acknowledged LTR, even if the hardware conceals the damage.
-        if (nal.length < 3 || !(((const uint8_t *)nal.bytes)[2] & 0x80)) {
+        if (length < 3 || !((headerLength > 2 ? p[2] : ((const uint8_t *)payload)[0]) & 0x80)) {
             _accessUnit = nil;
             _waitingForIDR = YES;
             return;
@@ -676,24 +793,47 @@ typedef struct {
         _timestamp = timestamp;
         _accessUnitReferenceIdentifier = _hevc.referenceIdentifier;
     }
-    if (_accessUnit.length + nal.length + 4 > 8 * 1024 * 1024) {
+    if (_accessUnit.length + length + 4 > 8 * 1024 * 1024) {
         _accessUnit = nil;
         _waitingForIDR = YES;
         return;
     }
     uint8_t size[4];
-    W32(size, (uint32_t)nal.length);
+    FCVNCWrite32(size, (uint32_t)length);
     [_accessUnit appendBytes:size length:4];
-    [_accessUnit appendData:nal];
+    [_accessUnit appendBytes:header length:headerLength];
+    if (payloadLength)
+        [_accessUnit appendBytes:payload length:payloadLength];
     if (!marker)
         return;
-    if (![self prepareDecoder]) {
-        _accessUnit = nil;
+    FCVNCAppleAccessUnit *unit = [FCVNCAppleAccessUnit new];
+    unit.bytes = _accessUnit;
+    unit.referenceIdentifier = _accessUnitReferenceIdentifier;
+    unit.markedReference = _hevc.markedReference;
+    unit.randomAccess = randomAccess;
+    _accessUnit = nil;
+    // On overload, discard work preceding the newest IRAP. Never independently
+    // skip P pictures and then display their descendants with missing references.
+    if (randomAccess && _readyUnits.count)
+        [_readyUnits removeAllObjects];
+    if (_readyUnits.count >= 3) {
+        [_readyUnits removeAllObjects];
+        _waitingForIDR = YES;
+        @synchronized(self) {
+            _generation++;
+        }
+        [self feedback:YES];
         return;
     }
-    FCVNCAppleDecodeTicket ticket = {.submitted = Now(),
-                                     .referenceIdentifier = _accessUnitReferenceIdentifier,
-                                     .markedReference = _hevc.markedReference};
+    [_readyUnits addObject:unit];
+}
+- (void)submitAccessUnit:(FCVNCAppleAccessUnit *)unit {
+    if (_waitingForIDR && !unit.randomAccess && !(_longTermReference && _hasAcknowledgement))
+        return;
+    if (![self prepareDecoder])
+        return;
+    FCVNCAppleDecodeTicket ticket = {
+        .submitted = Now(), .referenceIdentifier = unit.referenceIdentifier, .markedReference = unit.markedReference};
     @synchronized(self) {
         // Never build an unbounded decoder queue. Dropping a reference picture
         // requires recovery at an IRAP; decoding only the latest P frame is unsafe.
@@ -713,11 +853,14 @@ typedef struct {
     _waitingForIDR = NO;
     CMBlockBufferRef block = NULL;
     CMSampleBufferRef sample = NULL;
-    size_t length = _accessUnit.length;
-    OSStatus status = CMBlockBufferCreateWithMemoryBlock(kCFAllocatorDefault, NULL, length, kCFAllocatorDefault, NULL,
-                                                         0, length, 0, &block);
-    if (!status)
-        status = CMBlockBufferReplaceDataBytes(_accessUnit.bytes, block, 0, length);
+    size_t length = unit.bytes.length;
+    void *owner = (void *)CFBridgingRetain(unit.bytes);
+    CMBlockBufferCustomBlockSource source = {
+        .version = kCMBlockBufferCustomBlockSourceVersion, .FreeBlock = ReleaseAccessUnit, .refCon = owner};
+    OSStatus status = CMBlockBufferCreateWithMemoryBlock(kCFAllocatorDefault, unit.bytes.mutableBytes, length,
+                                                         kCFAllocatorNull, &source, 0, length, 0, &block);
+    if (status)
+        CFRelease(owner);
     if (!status)
         status = CMSampleBufferCreateReady(kCFAllocatorDefault, block, _format, 1, 0, NULL, 1, &length, &sample);
     if (!status) {

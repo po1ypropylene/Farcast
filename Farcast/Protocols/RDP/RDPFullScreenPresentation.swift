@@ -66,6 +66,8 @@ import CoreGraphics
             surface.expectedDesktopSize = layout.bounds.size
             surface.setDesktopSize(target.monitor.rect.size)
             surface.inputEnabled = desktop.inputEnabled
+            surface.keySymbolForEvent = desktop.keySymbolForEvent
+            surface.sendKeySymbol = desktop.sendKeySymbol
             surface.sendKey = desktop.sendKey
             surface.sendUnicode = desktop.sendUnicode
             surface.synchronizeCapsLock = desktop.synchronizeCapsLock

@@ -21,10 +21,16 @@ NS_ASSUME_NONNULL_BEGIN
 @interface FCVNCAppleHEVC : NSObject
 @property(nonatomic) BOOL decodingOrderNumbers;
 @property(nonatomic, copy, nullable) void (^onNAL)(NSData *nal, uint32_t timestamp, BOOL marker);
+// Borrowed spans are valid only during this synchronous worker callback.
+// Single NALs/APs borrow packet storage; fragmented NALs borrow reassembly storage.
+@property(nonatomic, copy, nullable) void (^onNALParts)
+    (const void *header, NSUInteger headerLength, const void *payload, NSUInteger payloadLength, uint32_t timestamp,
+     BOOL marker);
 @property(nonatomic, readonly) BOOL lostReference;
 @property(nonatomic, readonly) BOOL markedReference;
 @property(nonatomic, readonly) uint32_t referenceIdentifier;
 - (void)consumeRTP:(NSData *)packet;
+- (void)consumeRTPBytes:(const void *)bytes length:(NSUInteger)length;
 - (void)reset;
 @end
 NS_ASSUME_NONNULL_END

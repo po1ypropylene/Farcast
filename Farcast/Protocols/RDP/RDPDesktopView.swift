@@ -123,8 +123,20 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     private var uploadedSequence: UInt64?
     private var renderInFlight = false
     private var redrawPending = false
-    private var presentationTask: DispatchWorkItem?
-    private var lastPresentationTime: TimeInterval = 0
+    private var presentationLink: CADisplayLink?
+    private var presentationRequested = false
+    // CADisplayLink retains its target. The proxy must not retain this view.
+    private final class DisplayTarget: NSObject {
+        weak var view: RDPDesktopView?
+        init(_ view: RDPDesktopView) { self.view = view }
+        @objc func tick(_ link: CADisplayLink) {
+            guard let view else {
+                link.invalidate()
+                return
+            }
+            view.presentLatestFrame(link)
+        }
+    }
     private let forceFullUploads = ProcessInfo.processInfo.environment["FARCAST_FULL_UPLOAD"] == "1"
     private let performanceLog = OSLog(subsystem: "com.peterpo.farcast", category: "DesktopPerformance")
     private(set) var uploadedBytes: UInt64 = 0
@@ -141,8 +153,8 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         if suspended {
             presentedTimes.removeAll()
             presentationEpoch &+= 1
-            presentationTask?.cancel()
-            presentationTask = nil
+            presentationLink?.isPaused = true
+            presentationRequested = false
             redrawPending = false
             texture = nil
             surfaceTexture = nil
@@ -154,34 +166,39 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
             drawLatestFrame()
         }
     }
-    // A macOS full-screen window teardown can stop MTKView's automatic callbacks
-    // after this persistent surface moves to another window. Frame delivery also
-    // drives rendering, coalesced by the shared mailbox, without reconnecting.
+    // Use a view-bound link, recreated on every window transfer. MTKView's
+    // automatic loop remains disabled: its old window link can stop on full-screen exit.
     func drawLatestFrame() {
         guard !renderingSuspended, let window, window.isVisible else { return }
-        // Network publications can greatly exceed the display refresh rate.
-        // Pace uploads too, retaining only the newest mailbox frame until due.
-        let interval = 1 / Double(max(1, window.screen?.maximumFramesPerSecond ?? 60))
-        let delay = lastPresentationTime + interval - ProcessInfo.processInfo.systemUptime
-        if delay > 0 {
-            guard presentationTask == nil else { return }
-            let task = DispatchWorkItem { [weak self] in
-                self?.presentationTask = nil
-                self?.drawLatestFrame()
-            }
-            presentationTask = task
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: task)
+        presentationRequested = true
+        // Occluded windows have no display callbacks. Keep the canonical texture
+        // current for snapshots and owned offscreen consumers without presenting.
+        guard window.occlusionState.contains(.visible) else {
+            draw()
             return
         }
-        presentationTask?.cancel()
-        presentationTask = nil
-        lastPresentationTime = ProcessInfo.processInfo.systemUptime
-        // MTKView.draw() owns the drawable lifecycle. Calling the delegate
-        // directly and releasing all drawable resources for every frame bypasses
-        // that lifecycle and repeatedly rebuilds presentation resources.
+        if presentationLink == nil {
+            let link = displayLink(target: DisplayTarget(self), selector: #selector(DisplayTarget.tick(_:)))
+            link.add(to: .main, forMode: .common)
+            presentationLink = link
+        }
+        presentationLink?.isPaused = false
+    }
+    private func presentLatestFrame(_ link: CADisplayLink) {
+        guard presentationRequested, !renderingSuspended, window?.isVisible == true else {
+            link.isPaused = true
+            return
+        }
+        presentationRequested = false
+        // draw() owns MTKView's drawable lifecycle. Only the latest mailbox
+        // generation is uploaded; one command buffer remains in flight per view.
         draw()
+        if !presentationRequested { link.isPaused = true }
     }
     var sendKey: ((Int, Bool, Bool) -> Void)?
+    var keySymbolForEvent: ((UInt16, String) -> UInt32?)?
+    var sendKeySymbol: ((UInt32, Bool) -> Void)?
+    private var pressedSymbols: [UInt16: UInt32] = [:]
     var sendText: ((String) -> Void)?
     // RFB requires the produced keysym (A/!) instead of an unshifted scan-code
     // mapping (a/1). RDP retains its physical-key fast path.
@@ -333,7 +350,8 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         38: (0x24, false), 39: (0x28, false), 40: (0x25, false), 41: (0x27, false), 42: (0x2B, false),
         43: (0x33, false), 44: (0x35, false), 45: (0x31, false), 46: (0x32, false), 47: (0x34, false),
         48: (0x0F, false), 49: (0x39, false), 50: (0x29, false), 51: (0x0E, false), 53: (0x01, false),
-        65: (0x53, false), 67: (0x37, false), 69: (0x4E, false), 75: (0x35, true), 76: (0x1C, true), 78: (0x4A, false),
+        10: (0x56, false), 65: (0x53, false), 67: (0x37, false), 69: (0x4E, false), 75: (0x35, true), 76: (0x1C, true),
+        78: (0x4A, false),
         81: (0x0D, false), 82: (0x52, false), 83: (0x4F, false), 84: (0x50, false), 85: (0x51, false),
         86: (0x4B, false), 87: (0x4C, false), 88: (0x4D, false), 89: (0x47, false), 91: (0x48, false),
         92: (0x49, false),
@@ -542,7 +560,6 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         else { return }
         encodeImage(encoder, size: drawableSize)
         encoder.endEncoding()
-        lastPresentationTime = ProcessInfo.processInfo.systemUptime
         renderInFlight = true
         let retainedSurface = surfaceTexture
         let retainedPixels = surfaceBuffer
@@ -635,9 +652,9 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         releaseDrawables()
-        presentationTask?.cancel()
-        presentationTask = nil
-        lastPresentationTime = 0
+        presentationLink?.invalidate()
+        presentationLink = nil
+        presentationRequested = false
         presentedTimes.removeAll()
         presentationEpoch &+= 1
         NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
@@ -786,6 +803,18 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         sendPhysicalKey(event)
     }
     private func sendPhysicalKey(_ event: NSEvent) {
+        let symbol =
+            usesTextKeySymbols ? keySymbolForEvent?(event.keyCode, event.charactersIgnoringModifiers ?? "") : nil
+        if let previous = pressedSymbols[event.keyCode], previous != symbol {
+            sendKeySymbol?(previous, false)
+            pressedSymbols.removeValue(forKey: event.keyCode)
+        }
+        if let symbol {
+            if let previous = pressedKeys.removeValue(forKey: event.keyCode) { sendKey?(previous.0, false, previous.1) }
+            sendKeySymbol?(symbol, true)
+            pressedSymbols[event.keyCode] = symbol
+            return
+        }
         if let code = Self.scanCodes[event.keyCode] {
             sendKey?(code.0, true, code.1)
             pressedKeys[event.keyCode] = code
@@ -794,6 +823,7 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     override func keyUp(with event: NSEvent) {
         guard inputEnabled else { return }
         reconcileModifiers(event.modifierFlags)
+        if let symbol = pressedSymbols.removeValue(forKey: event.keyCode) { sendKeySymbol?(symbol, false) }
         if let code = pressedKeys.removeValue(forKey: event.keyCode) { sendKey?(code.0, false, code.1) }
     }
     override func flagsChanged(with event: NSEvent) {
@@ -855,6 +885,8 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
             for button in pressedMouseButtons { sendPointer?(button, Int(point.x), Int(point.y)) }
         }
         pressedMouseButtons.removeAll()
+        for symbol in pressedSymbols.values { sendKeySymbol?(symbol, false) }
+        pressedSymbols.removeAll()
         for code in pressedKeys.values { sendKey?(code.0, false, code.1) }
         for code in modifierKeys.values { sendKey?(code.0, false, code.1) }
         pressedKeys.removeAll()
@@ -906,6 +938,9 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         keyDown(with: event)
         // AppKit may omit keyUp for Command equivalents. Balance the physical
         // nonmodifier now; repeated equivalents still produce repeated taps.
+        if modifiers.contains(.command), let symbol = pressedSymbols.removeValue(forKey: event.keyCode) {
+            sendKeySymbol?(symbol, false)
+        }
         if modifiers.contains(.command), let code = pressedKeys.removeValue(forKey: event.keyCode) {
             sendKey?(code.0, false, code.1)
         }

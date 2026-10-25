@@ -361,8 +361,7 @@ int main(void) {
             memcpy(protected.mutableBytes, raw.bytes, raw.length);
             int length = (int)raw.length;
             Require(srtp_protect(crypto, protected.mutableBytes, &length) == srtp_err_status_ok, "protect media");
-          protected
-            .length = length;
+            protected.length = length;
             [packets addObject:protected];
         }
         // A forged packet must not advance sequence state or reach the decoder.
@@ -412,6 +411,15 @@ int main(void) {
             sendto(udp, packet.bytes, packet.length, 0, (struct sockaddr *)&destination, sizeof(destination));
         [video pump];
         Require(frames == 1, "replay rejected");
+        // Drain feedback generated before the first decode acknowledgement.
+        // Faster startup FIR backoff can legitimately queue reports without LTR.
+        for (;;) {
+            int size = (int)recv(udp, feedback, sizeof(feedback), MSG_DONTWAIT);
+            if (size < 0)
+                break;
+            Require(srtp_unprotect_rtcp(feedbackCrypto, feedback, &size) == srtp_err_status_ok,
+                    "authenticated startup feedback");
+        }
         // Lose a packet after successful display, inside the FIR throttle. A
         // dependent picture cannot recover it, and no new input arrives later.
         uint8_t dependent[] = {2, 1, 9};
@@ -437,8 +445,9 @@ int main(void) {
                 "protect marked decode failure");
         sendto(udp, sealed.bytes, brokenLength, 0, (struct sockaddr *)&destination, sizeof(destination));
         [video pump];
-        for (unsigned retry = 0; retry < 2; retry++) {
-            usleep(550000);
+        const useconds_t recoveryDelays[] = {200000, 350000, 650000};
+        for (unsigned retry = 0; retry < 3; retry++) {
+            usleep(recoveryDelays[retry]);
             [video pump];
             BOOL gotFIR = NO;
             for (unsigned attempt = 0; attempt < 50; attempt++) {
@@ -459,6 +468,41 @@ int main(void) {
             Require(gotFIR, "post-frame loss retries authenticated FIR without input");
         }
         Require(frames == 1, "dependent frame not displayed after loss");
+        // One receive burst contains three complete marked IRAP pictures. Only
+        // the newest needs decoding; its retained backing must survive callbacks.
+        sequence += 3;
+        for (unsigned picture = 0; picture < 3; picture++) {
+            for (NSUInteger i = 0; i < nals.count; i++) {
+                NSMutableData *raw = [Marked(RTP(nals[i], sequence++, i + 1 == nals.count, sender)) mutableCopy];
+                W32((uint8_t *)raw.mutableBytes + 4, 96000 + 3000 * picture);
+                NSMutableData *sealed = [NSMutableData dataWithLength:raw.length + 64];
+                memcpy(sealed.mutableBytes, raw.bytes, raw.length);
+                int length = (int)raw.length;
+                Require(srtp_protect(crypto, sealed.mutableBytes, &length) == srtp_err_status_ok, "seal IRAP burst");
+                Require(sendto(udp, sealed.bytes, length, 0, (struct sockaddr *)&destination, sizeof(destination)) ==
+                            length,
+                        "send IRAP burst");
+            }
+        }
+        for (unsigned i = 0; i < 150 && frames < 2; i++) {
+            [video pump];
+            usleep(10000);
+        }
+        Require(frames == 2, "IRAP burst decodes the latest complete picture only");
+        [video requestRefresh];
+        BOOL newestAcknowledged = NO;
+        for (unsigned attempt = 0; attempt < 100 && !newestAcknowledged; attempt++) {
+            usleep(1000);
+            int length = (int)recv(udp, feedback, sizeof(feedback), MSG_DONTWAIT);
+            if (length < 0)
+                continue;
+            Require(srtp_unprotect_rtcp(feedbackCrypto, feedback, &length) == srtp_err_status_ok,
+                    "authenticate latest IRAP report");
+            const uint8_t *ack = Control(feedback, length, 204);
+            if (ack && R32(ack + 12) == 102000)
+                newestAcknowledged = YES;
+        }
+        Require(newestAcknowledged, "latest queued IRAP reference, not an earlier picture, reaches hardware decode");
         [video close];
         srtp_dealloc(feedbackCrypto);
         srtp_dealloc(crypto);

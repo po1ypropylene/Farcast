@@ -251,6 +251,27 @@ import IOKit.hidsystem
             !events.contains("30:true:false") && !events.contains("2:true:false"),
             "RFB printable text must not fall back to lowercase/unshifted scan codes")
         desktop.releaseInput()
+        var special: [(UInt32, Bool)] = []
+        desktop.keySymbolForEvent = { _, text in text == "\u{F730}" ? 0xFF13 : nil }
+        desktop.sendKeySymbol = { special.append(($0, $1)) }
+        let pause = event(.keyDown, key: 113, flags: [], text: "\u{F730}")
+        desktop.keyDown(with: pause)
+        desktop.keyDown(with: pause)
+        desktop.releaseInput()
+        desktop.keyUp(with: event(.keyUp, key: 113, flags: [], text: "\u{F730}"))
+        precondition(special.map { $0.0 } == [0xFF13, 0xFF13, 0xFF13])
+        precondition(
+            special.map { $0.1 } == [true, true, false], "Native special-key repeat and focus cleanup balance releases")
+        special.removeAll()
+        desktop.keySymbolForEvent = { _, text in text == "q" ? 0x71 : 0x51 }
+        desktop.keyDown(with: event(.keyDown, key: 0, flags: .control, text: "q"))
+        desktop.keyDown(with: event(.keyDown, key: 0, flags: [.control, .shift], text: "Q", repeatKey: true))
+        desktop.keyUp(with: event(.keyUp, key: 0, flags: [.control, .shift], text: "Q"))
+        precondition(special.map { $0.0 } == [0x71, 0x71, 0x51, 0x51])
+        precondition(
+            special.map { $0.1 } == [true, false, true, false],
+            "Shift changes during shortcut repeat release the previous keysym")
+        print("PASS VNC semantic special-key repeat, layout shortcut changes and focus-loss release")
         print(
             "PASS RDP keyboard: duplicate/overlapping modifiers, Shift-letter sequences, lost-release recovery, focus loss, Caps Lock sync, Unicode pairs and native window key repeat"
         )

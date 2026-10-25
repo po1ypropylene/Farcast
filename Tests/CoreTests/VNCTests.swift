@@ -96,6 +96,23 @@ final class VNCTests: XCTestCase {
         XCTAssertEqual(VNCKeyboard.keySym(scanCode: 0x45, extended: false), 0xFF7F)
         XCTAssertEqual(VNCKeyboard.keySym(scanCode: 0x46, extended: false), 0xFF14)
         XCTAssertEqual(VNCKeyboard.keySym(scanCode: 0x37, extended: true), 0xFF61)
+        for (characters, expected) in [
+            ("\u{F730}", UInt32(0xFF13)), ("\u{F72E}", 0xFF61),
+            ("\u{F72F}", 0xFF14), ("\u{F735}", 0xFF67), ("\u{F745}", 0xFF68),
+        ] {
+            XCTAssertEqual(VNCKeyboard.keySym(keyCode: 0, characters: characters), expected)
+        }
+        for scalar in UInt32(0xF704)...0xF726 {
+            XCTAssertEqual(
+                VNCKeyboard.keySym(keyCode: 0, characters: String(Unicode.Scalar(scalar)!)),
+                0xFFBE + scalar - 0xF704)
+        }
+        XCTAssertEqual(VNCKeyboard.keySym(keyCode: 102, characters: ""), 0xFF30)
+        XCTAssertEqual(VNCKeyboard.keySym(keyCode: 104, characters: ""), 0xFF27)
+        XCTAssertEqual(VNCKeyboard.keySym(keyCode: 0, characters: "é"), 0xE9)
+        XCTAssertEqual(VNCKeyboard.keySym(keyCode: 0, characters: "Ж"), 0x0100_0416)
+        XCTAssertEqual(VNCKeyboard.keySym(keyCode: 0, characters: "q"), 0x71)  // AZERTY physical A position.
+        XCTAssertNil(VNCKeyboard.keySym(keyCode: 0, characters: ""))
         XCTAssertNil(VNCKeyboard.keySym(scanCode: 0x7FFF, extended: false))
     }
 }

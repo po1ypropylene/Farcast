@@ -1,7 +1,12 @@
 #import "VNCAppleMediaOffer.h"
+#import "VNCAppleWire.h"
 #import <Security/Security.h>
 #import <zlib.h>
 
+// Generated AVConference bandwidth settings call field 3 configurationExtension:
+// these are mode bitmasks, not startup/minimum rates. Both Wi-Fi and wired modes
+// are required; retain their ceilings pending user-side throughput comparisons.
+enum { FCVNCLowLatencyWiFiModes = 98304, FCVNCLowLatencyWiredMode = 262144 };
 static void Varint(NSMutableData *out, uint64_t n) {
     do {
         uint8_t b = (n & 127) | (n > 127 ? 128 : 0);
@@ -26,17 +31,17 @@ static NSData *Envelope(unsigned mode, unsigned field, NSData *settings, NSStrin
     Number(blob, 1, 1);
     Number(blob, 2, 1);
     Bytes(blob, field, settings);
-    Text(blob, 6, @"Farcast");
+    Text(blob, 6, @FCVNC_APP_NAME);
     Number(bandwidth, 1, 0);
     Number(bandwidth, 2, 20000000);
-    Number(bandwidth, 3, 98304);
+    Number(bandwidth, 3, FCVNCLowLatencyWiFiModes);
     Bytes(blob, 9, bandwidth);
     // Both low-latency profiles are required. Omitting Wired makes Apple's
     // generated transmitter configuration select a maximum bitrate of zero.
     bandwidth = [NSMutableData data];
     Number(bandwidth, 1, 0);
     Number(bandwidth, 2, 60000000);
-    Number(bandwidth, 3, 262144);
+    Number(bandwidth, 3, FCVNCLowLatencyWiredMode);
     Bytes(blob, 9, bandwidth);
     Number(blob, 14, 2);
     uLongf length = compressBound(blob.length);
@@ -47,9 +52,10 @@ static NSData *Envelope(unsigned mode, unsigned field, NSData *settings, NSStrin
     NSMutableData *endpoint = [NSMutableData data];
     Number(endpoint, 1, 0);
     Number(endpoint, 2, 1);
-    Text(endpoint, 3, @"Farcast");
-    Text(endpoint, 4, @"1");
-    Text(endpoint, 5, @"27");
+    Text(endpoint, 3, @FCVNC_APP_NAME);
+    Text(endpoint, 4, [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"1");
+    Text(endpoint, 5,
+         [NSString stringWithFormat:@"%ld", (long)NSProcessInfo.processInfo.operatingSystemVersion.majorVersion]);
     return [NSPropertyListSerialization dataWithPropertyList:@{
         @"avcMediaStreamNegotiatorMode" : @(mode),
         @"avcMediaStreamOptionCallID" : callID,
@@ -59,10 +65,6 @@ static NSData *Envelope(unsigned mode, unsigned field, NSData *settings, NSStrin
                                                       format:NSPropertyListBinaryFormat_v1_0
                                                      options:0
                                                        error:nil];
-}
-static void Put16(uint8_t *p, NSUInteger n) {
-    p[0] = n >> 8;
-    p[1] = n;
 }
 // Limited protobuf reader: preserves repeated fields, refuses malformed lengths,
 // overflowing varints, groups and unsupported fixed-width values.
@@ -157,25 +159,25 @@ static id Single(NSDictionary *fields, unsigned field, Class type) {
 - (NSData *)configurationWithSendKey:(NSData *)sendKey receiveKey:(NSData *)receiveKey {
     if (sendKey.length != 46 || receiveKey.length != 46 || _audio.length > 16000 || _video.length > 16000)
         return nil;
-    NSMutableData *packet = [NSMutableData dataWithLength:220 + _audio.length + _video.length];
+    NSMutableData *packet = [NSMutableData dataWithLength:FCVNCMediaFixedSize + _audio.length + _video.length];
     uint8_t *p = packet.mutableBytes;
     p[0] = 0x1c;
-    Put16(p + 2, packet.length - 4);
-    Put16(p + 4, 3);
+    FCVNCWrite16(p + 2, packet.length - 4);
+    FCVNCWrite16(p + 4, 3);
     p[6] = 5; // One 60 Hz stream; omit the server cursor from the video.
-    Put16(p + 10, _audio.length);
-    Put16(p + 12, _video.length);
+    FCVNCWrite16(p + 10, _audio.length);
+    FCVNCWrite16(p + 12, _video.length);
     uuid_t uuid;
     [_callID getUUIDBytes:uuid];
     memcpy(p + 20, uuid, 16);
     // Audio is disabled, but its mandatory key slots must still be unpredictable.
-    if (SecRandomCopyBytes(kSecRandomDefault, 92, p + 36) != errSecSuccess)
+    if (SecRandomCopyBytes(kSecRandomDefault, 2 * FCVNCMediaKeySize, p + FCVNCMediaHeaderSize) != errSecSuccess)
         return nil;
-    memcpy(p + 128, _audio.bytes, _audio.length);
-    NSUInteger offset = 128 + _audio.length;
-    memcpy(p + offset, sendKey.bytes, 46);
-    memcpy(p + offset + 46, receiveKey.bytes, 46);
-    memcpy(p + offset + 92, _video.bytes, _video.length);
+    memcpy(p + FCVNCMediaAudioOffset, _audio.bytes, _audio.length);
+    NSUInteger offset = FCVNCMediaAudioOffset + _audio.length;
+    memcpy(p + offset, sendKey.bytes, FCVNCMediaKeySize);
+    memcpy(p + offset + FCVNCMediaKeySize, receiveKey.bytes, FCVNCMediaKeySize);
+    memcpy(p + offset + 2 * FCVNCMediaKeySize, _video.bytes, _video.length);
     return packet;
 }
 + (BOOL)acceptVideoAnswer:(NSData *)answer senderSSRC:(uint32_t *)ssrc {

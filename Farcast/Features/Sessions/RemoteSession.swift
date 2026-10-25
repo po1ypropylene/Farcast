@@ -703,6 +703,8 @@ import SwiftTerm
                 }
             }
         }
+        desktop.keySymbolForEvent = VNCKeyboard.keySym(keyCode:characters:)
+        desktop.sendKeySymbol = { [weak client] key, down in client?.sendKeySym(key, pressed: down) }
         desktop.sendKey = { [weak client] code, down, extended in
             if let key = VNCKeyboard.keySym(scanCode: code, extended: extended) {
                 client?.sendKeySym(key, pressed: down)

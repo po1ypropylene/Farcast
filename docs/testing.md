@@ -240,3 +240,21 @@ measurement wrappers and complete channel-close retirement. The short addin name
 The RDP reconnect suite runs session composition with experimental RDP disabled
 and enabled using process-local preference overrides. It checks graphics requests,
 input wakeups and patch callbacks without changing the user’s saved preference.
+
+### Optional Apple negotiation inspection
+
+`scripts/inspect-apple-vnc-negotiation.sh` loads the installed AVConference framework
+in a disposable command-line probe and constructs synthetic bandwidth settings only.
+It checks independent serialized bytes and converts their mode masks into configuration
+objects. Exit 77 means the required private classes are unavailable; it is not a pass.
+The app does not use the framework. The probe opens no network session and reads no
+credentials. This establishes local field meanings, not sender behavior or throughput.
+
+For startup-only Adaptive receive/decode diagnostics, launch the app with
+`FARCAST_VNC_DIAGNOSTICS=1`. Diagnostics contain counters/status codes, no media,
+keys or endpoint identities. They are disabled by default and stop after first frame.
+
+The native full-screen return fixture requires an unlocked interactive Mac. If macOS
+refuses the fixture's full-screen transition while locked, its entry precondition
+fails before exercising renderer return. Offscreen Metal/window-transfer checks
+remain separate evidence; repeat the full-screen fixture after unlocking.

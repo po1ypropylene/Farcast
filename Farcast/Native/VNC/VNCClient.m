@@ -1005,11 +1005,13 @@ static uint32_t KeySym(uint32_t scalar) {
         }
         typing = _typing != nil;
     }
+    if (_apple && ![_apple writeInputs:packets])
+        return NO;
     for (NSData *packet in packets) {
         // TCP framebuffer input uses framebuffer pixels. The display agent
         // applies its own Retina conversion; dividing here scales twice.
         NSData *outgoing = packet;
-        if (![self writeInput:outgoing])
+        if (!_apple && ![self writeInput:outgoing])
             return NO;
         if (outgoing.length && ((const unsigned char *)outgoing.bytes)[0] == 4)
             [self reportKeyboardInput];
@@ -1020,7 +1022,7 @@ static uint32_t KeySym(uint32_t scalar) {
         _reportedTyping = YES;
         NSData *down = [self key:typed.unsignedIntValue pressed:YES], *up = [self key:typed.unsignedIntValue
                                                                               pressed:NO];
-        if (![self writeInput:down] || ![self writeInput:up])
+        if (_apple ? ![_apple writeInputs:@[ down, up ]] : (![self writeInput:down] || ![self writeInput:up]))
             return NO;
         [self reportKeyboardInput];
     }

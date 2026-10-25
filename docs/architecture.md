@@ -119,11 +119,12 @@ workers publish immutable packed damage patches; Swift Data copy-on-write protec
 snapshots retained by renderers. A bounded 64-generation rectangle history lets each
 surface union missed damage; old generations, resize and new/resumed surfaces use
 a full upload. Superseded publications do not build an unbounded UI queue. Mailbox publication coalesces one
-main-queue notification for all live weakly registered surfaces. Rendering follows
-frame delivery and native invalidation rather than MTKView's periodic window-bound
-display link, which can stop after closing a full-screen window during reparenting.
-Uploads are paced to the destination screen's maximum refresh rate, with one
-pending redraw and one GPU command buffer per surface. GPU completion releases
+main-queue notification for all live weakly registered surfaces. Frame delivery and native invalidation request presentation on a view-bound
+CADisplayLink. The link pauses when idle and is invalidated/recreated on window
+transfer; MTKView's automatic loop stays disabled because its old window callback
+can stop after full-screen teardown. A weak target prevents the link retaining the
+surface. Occluded/offscreen consumers can update their canonical texture without
+presenting. Each surface retains one pending redraw and one GPU command buffer. GPU completion releases
 shared-texture ownership asynchronously; updates received meanwhile replace the
 mailbox frame. Explicit draws use MTKView's drawable lifecycle; drawable resources
 are released on window transfer rather than per frame. Presentation suspension
@@ -530,6 +531,15 @@ TCP. `VNCAppleMediaOffer` independently serializes binary-plist/zlib/protobuf
 capabilities for one SDR, 8-bit 4:2:0 tile and validates the server's intersection.
 Both Wi-Fi and wired low-latency bandwidth profiles are supplied; omitting the
 wired ceiling can produce an accepted configuration with a zero transmitter maximum.
+Bandwidth protobuf field 3 is `configurationExtension`, a mode bitmask rather than
+a starting/minimum rate. The 98304 mask produces two Wi-Fi configurations (connection
+types 4/5, arbiter mode 6); 262144 produces the wired configuration (type 7, mode 5).
+Their network ceilings remain 20/60 Mbit/s pending user comparisons. The optional
+`inspect-apple-vnc-negotiation.sh` probe establishes these mappings using only
+synthetic settings with the installed framework's serializer and configuration
+conversion; the app neither links nor loads that private framework. No verified
+intra-refresh capability was found in the inspected generated screen settings;
+unsupported fields are not guessed.
 The mandatory audio offer disables audio by requesting a bitrate below its floor.
 Media flags request one stream without an embedded remote cursor. The local cursor
 remains visible, but the tested host still includes its remote cursor; cursor
@@ -540,9 +550,24 @@ authenticated encrypted control connection. No private Apple framework is linked
 `VNCAppleVideo` binds the server-selected UDP video port on the TCP connection's
 local interface and connects it to that authenticated TCP peer. Static libSRTP
 handles AES-256-CM/HMAC-SHA1-80, rollover, replay checks and authenticated RTCP.
+A shared byte-order/layout header names the unaligned wire fields and client
+identity; endpoint version metadata comes from the built bundle and running OS.
+Authentication is split into version negotiation, approved RSA identity, encrypted
+account identity, SRP computation and proof exchange. Typed NSError categories
+retain caller-readable failure descriptions and actual transport failures override
+phase context. Protocol/cipher state remains exclusively worker-owned.
 An independent HEVC depacketizer follows negotiated interleaving (screen protobuf
 field 14) to include or omit DONL fields, bounds fragments and
-reordering, and requests fresh reference pictures after loss. Public VideoToolbox
+reordering, and requests fresh reference pictures after loss. Reusable 128-slot
+sequence-tagged storage replaces boxed packet dictionaries. Single NALs and aggregates
+are synchronous borrowed spans; fragmented NALs retain bounded reassembly storage.
+Completed access-unit data is retained directly by CMBlockBuffer through decode,
+without another compressed-frame copy. A receive burst keeps at most three ready
+pictures and replaces preceding queued pictures at the newest complete IRAP. If
+only dependent pictures overload the bound, it discards that chain and requests
+recovery rather than decoding an arbitrary P picture. Startup packet/NAL diagnostics
+are opt-in with `FARCAST_VNC_DIAGNOSTICS=1`; counters stop after first delivery.
+Public VideoToolbox
 requires hardware decoding. At most three asynchronous submissions can be outstanding;
 output older than 100 ms is discarded after hardware warmup (up to one second for a
 new decoder). Retirement alone waits for decoder callbacks. Callback generation/sequence
@@ -565,7 +590,8 @@ flag; an orphaned later slice cannot be decoded or acknowledged as a complete pi
 DON when interleaving is negotiated, RTP timestamp otherwise. Failed/stale/incomplete
 pictures never advance it. With a retained acknowledged reference, complete dependent
 pictures may attempt hardware recovery; FIR remains available after failure and retries
-at most twice per second. Eight seconds of unsuccessful reference recovery falls back
+with 150/300/600 ms retry backoff, reset by a delivered picture. FIR does not
+interrupt the bounded NACK repair window. Eight seconds of unsuccessful reference recovery falls back
 to TCP; an idle desktop alone does not trigger that fallback.
 
 The independent LTR wire contract was checked against macOS 27.0.1 AVConference
@@ -584,7 +610,11 @@ The worker polls the authenticated UDP descriptor alongside TCP, including durin
 fragmented TCP receive waits, without introducing concurrent protocol writers. Its
 10 ms timeout still services input and decoder completion when sockets are idle.
 Adjacent pointer events with unchanged non-wheel button masks coalesce; key/button/wheel
-transitions retain order. The separate ECB input context rotates on worker-owned rekeys.
+transitions retain order. The separate ECB input context rotates on worker-owned rekeys. Queued Apple input
+records encrypt sequentially into bounded 16 KiB transport batches with no added
+waiting interval; button/key transitions retain order. Small records use stack
+buffers and a reusable SHA-1 context; larger control messages use bounded heap
+storage. An uncertain send fails the transport instead of retrying CBC state.
 The existing resolution and Retina options remain explicit; no default 4K request is added.
 Audio, HDR, a second virtual display, legacy Apple DH, direct SRP and Kerberos are
 not implemented. A selected VPN keeps the existing TCP destination lease; Adaptive
@@ -599,9 +629,12 @@ is one queued sequence with releases in reverse order. ServerCutText is bounded
 and discarded; no clipboard timer, file transfer or automatic clipboard reads
 exist for VNC. VNC printable input uses AppKit’s committed characters as keysyms, preserving
 Shift, Caps Lock and shifted punctuation. RDP keeps its physical printable-key
-fast path. Nonprinting VNC keys and shortcuts use the existing US scan-code map
-translated to keysyms; server keyboard/Unicode behavior remains an interoperability
-limit.
+fast path. VNC shortcuts use AppKit layout characters where available, while native function
+characters map Pause/Print/Scroll/Menu, F1–F35 and other semantic keys independently
+of set-1 scan codes. JIS Eisu/Kana keys have explicit mappings. The US scan-code map
+is a fallback for keys without semantic characters. Semantic key presses retain
+key-up/focus-loss and omitted Command-key-up cleanup. Server Command/Option, Caps
+Lock and international keyboard behavior remain live interoperability checks.
 
 Protocol sources: [RFB specification](https://www.rfc-editor.org/rfc/rfc6143.html)
 and [RFB extensions including VeNCrypt and Zlib](https://github.com/rfbproto/rfbproto/blob/master/rfbproto.rst).

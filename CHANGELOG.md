@@ -5,6 +5,11 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Synchronize desktop presentation with the destination display and recreate its display link after window transfers.
+- Reduce Adaptive Mac VNC packet/NAL and compressed-frame copies; skip queued work only at complete random-access pictures and retry recovery with bounded backoff.
+- Batch queued Apple VNC input records, reduce record allocations, preserve native layout shortcut symbols and add Pause, extended function and Japanese language keys with balanced releases.
+- Clarify Apple negotiation layouts, bandwidth mode flags and typed authentication errors. Real-Mac interoperability and performance comparisons remain user validation.
+
 ## 2.2.0 — 2026-10-25
 
 - Add native YCbCr rendering, populated RTCP reception reports, bounded packet retransmission requests and negotiated long-term-reference acknowledgements to Adaptive Mac VNC. Production loss recovery and sustained 4K latency still need live validation.

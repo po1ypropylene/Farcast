@@ -9,6 +9,35 @@ enum VNCKeyboard {
         if scanCode == 0x58 { return 0xFFC9 }
         return keys[scanCode]
     }
+    /// AppKit characters keep shortcuts and function keys independent of the US
+    /// scan-code map. JIS language keys do not necessarily carry characters.
+    static func keySym(keyCode: UInt16, characters: String) -> UInt32? {
+        if keyCode == 102 { return 0xFF30 }  // Eisu toggle.
+        if keyCode == 104 { return 0xFF27 }  // Hiragana/Katakana.
+        if keyCode == 71 { return 0xFF7F }  // Clear/Num Lock on extended keyboards.
+        guard let scalar = characters.unicodeScalars.first else { return nil }
+        if (0xF704...0xF726).contains(scalar.value) { return 0xFFBE + scalar.value - 0xF704 }
+        if let key = functionKeys[scalar.value] { return key }
+        if characters.unicodeScalars.count == 1, scalar.value >= 32, scalar.value != 127, scalar.value < 0xF700 {
+            return scalar.value <= 255 ? scalar.value : 0x0100_0000 | scalar.value
+        }
+        return nil
+    }
+    private static let functionKeys: [UInt32: UInt32] = [
+        0xF72E: 0xFF61,  // Print Screen.
+        0xF72F: 0xFF14,  // Scroll Lock.
+        0xF730: 0xFF13,  // Pause (E1 cannot be represented by the RDP E0 boolean).
+        0xF732: 0xFF6B,  // Break.
+        0xF731: 0xFF15,  // System request.
+        0xF743: 0xFF65,  // Undo.
+        0xF744: 0xFF66,  // Redo.
+        0xF735: 0xFF67,  // Menu.
+        0xF741: 0xFF60,  // Select.
+        0xF742: 0xFF62,  // Execute.
+        0xF746: 0xFF6A,  // Help.
+        0xF745: 0xFF68,  // Find.
+        0xF747: 0xFF7E,  // Mode switch.
+    ]
     private static let extendedKeys: [Int: UInt32] = [
         0x1C: 0xFF8D, 0x1D: 0xFFE4, 0x38: 0xFFEA, 0x35: 0xFFAF,
         0x47: 0xFF50, 0x48: 0xFF52, 0x49: 0xFF55, 0x4B: 0xFF51,
