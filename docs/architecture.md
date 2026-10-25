@@ -541,9 +541,12 @@ conversion; the app neither links nor loads that private framework. No verified
 intra-refresh capability was found in the inspected generated screen settings;
 unsupported fields are not guessed.
 The mandatory audio offer disables audio by requesting a bitrate below its floor.
-Media flags request one stream without an embedded remote cursor. The local cursor
-remains visible, but the tested host still includes its remote cursor; cursor
-omission is a request rather than confirmed host behavior. Confirmed display-layout changes request a fresh video picture
+Media flags request one stream with its embedded remote cursor. Apple VNC surfaces
+use a transparent AppKit cursor only inside the enabled desktop image; letterboxes
+and disabled surfaces retain the local arrow. Cursor rectangles scope this policy
+to the view without process-wide hide counts. Full-screen surfaces inherit it,
+and Adaptive/TCP transitions retain it. Standard VNC and RDP keep their existing
+local cursor handling. Confirmed display-layout changes request a fresh video picture
 without waiting for desktop input.
 Media configuration and fresh directional 46-byte SRTP keys travel only inside the
 authenticated encrypted control connection. No private Apple framework is linked.

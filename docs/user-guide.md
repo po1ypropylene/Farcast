@@ -507,9 +507,11 @@ For direct connections, this experimental mode tries encrypted Adaptive HEVC
 video with hardware decoding and falls back to full-quality TCP if negotiation or
 video startup fails. Close another screen-sharing client if it occupies the media
 port. Connection Details identifies Adaptive HEVC after the first decoded frame.
-Some Mac hosts still show both the local and remote cursors despite the request
-to omit the remote cursor. Audio and HDR are not supported. A selected VPN uses full-quality TCP for the
-complete connection; media traffic does not bypass it.
+The Mac draws the pointer in its desktop image. Farcast suppresses its local
+pointer over the connected desktop, including full screen and TCP fallback, and
+keeps the normal local pointer over controls and letterboxing. Audio and HDR are
+not supported. A selected VPN uses full-quality TCP for the complete connection;
+media traffic does not bypass it.
 
 A TCP error such as “No route to host” occurs before authentication. Check network
 access and **System Settings → Privacy & Security → Local Network → Farcast**.

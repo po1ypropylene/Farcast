@@ -5,6 +5,8 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Fix duplicate cursors in Apple VNC by using the server-drawn pointer in the desktop image, including full screen and TCP fallback; keep the local pointer over window controls and letterboxing.
+
 - Synchronize desktop presentation with the destination display and recreate its display link after window transfers.
 - Reduce Adaptive Mac VNC packet/NAL and compressed-frame copies; skip queued work only at complete random-access pictures and retry recovery with bounded backoff.
 - Batch queued Apple VNC input records, reduce record allocations, preserve native layout shortcut symbols and add Pause, extended function and Japanese language keys with balanced releases.

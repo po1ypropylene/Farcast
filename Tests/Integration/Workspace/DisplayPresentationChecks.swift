@@ -9,6 +9,21 @@ import MetalKit
         let desktop = RDPDesktopView(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
         desktop.inputEnabled = true
         desktop.usesTextKeySymbols = true
+        let center = CGPoint(x: 400, y: 300)
+        precondition(desktop.cursor(at: center) === NSCursor.arrow)
+        desktop.serverDrawsCursor = true
+        let embeddedCursor = desktop.cursor(at: center)
+        precondition(embeddedCursor !== NSCursor.arrow)
+        let bitmap = NSBitmapImageRep(data: embeddedCursor.image.tiffRepresentation!)!
+        precondition(bitmap.colorAt(x: 0, y: 0)!.alphaComponent == 0)
+        desktop.inputEnabled = false
+        precondition(desktop.cursor(at: center) === NSCursor.arrow)
+        desktop.inputEnabled = true
+        desktop.setDesktopSize(CGSize(width: 800, height: 400))
+        precondition(desktop.cursor(at: CGPoint(x: 400, y: 20)) === NSCursor.arrow)
+        precondition(desktop.cursor(at: center) === embeddedCursor)
+        desktop.setDesktopSize(CGSize(width: 800, height: 600))
+        print("PASS embedded server cursor is transparent only inside the enabled desktop, excluding letterboxes")
         var pointer: CGPoint?
         desktop.sendPointer = { _, x, y in pointer = CGPoint(x: x, y: y) }
         // Off-screen, owned native windows avoid taking over the user's displays.
@@ -21,10 +36,27 @@ import MetalKit
         var exited = false
         presentation.onExit = { _ in exited = true }
         presentation.show()
-        precondition(presentation.surfaces.allSatisfy { $0.usesTextKeySymbols })
+        precondition(presentation.surfaces.allSatisfy { $0.usesTextKeySymbols && $0.serverDrawsCursor })
+        precondition(presentation.surfaces.allSatisfy { $0.cursor(at: center) === embeddedCursor })
+        presentation.setInputEnabled(false)
+        precondition(presentation.surfaces.allSatisfy { $0.cursor(at: center) === NSCursor.arrow })
+        presentation.setInputEnabled(true)
+        print("PASS full-screen surfaces inherit embedded-cursor policy and restore the arrow when disabled")
         precondition(presentation.windows.count == 2 && presentation.surfaces.count == 2 && desktop.renderingSuspended)
         let primary = presentation.surfaces[0]
         let left = presentation.surfaces[1]
+        let cursorEvent = NSEvent.enterExitEvent(
+            with: .cursorUpdate, location: center, modifierFlags: [], timestamp: 0,
+            windowNumber: presentation.windows[0].windowNumber, context: nil, eventNumber: 0,
+            trackingNumber: 0, userData: nil)!
+        primary.resetCursorRects()
+        primary.cursorUpdate(with: cursorEvent)
+        precondition(NSCursor.current === embeddedCursor)
+        primary.inputEnabled = false
+        primary.cursorUpdate(with: cursorEvent)
+        precondition(NSCursor.current === NSCursor.arrow)
+        primary.inputEnabled = true
+        print("PASS native cursor-update events select transparency and restore the arrow after disconnect")
         precondition(primary.mailbox === desktop.mailbox && left.mailbox === desktop.mailbox)
         precondition(primary.sourceRect == CGRect(x: 800, y: 0, width: 1600, height: 1200))
         precondition(left.sourceRect == CGRect(x: 0, y: 300, width: 800, height: 600))
@@ -131,6 +163,9 @@ import MetalKit
         base[2] = 201
         base[3] = 255
         CVPixelBufferUnlockBaseAddress(video!, [])
+        surface.serverDrawsCursor = true
+        surface.inputEnabled = true
+        surface.setFrameSize(CGSize(width: 640, height: 480))
         surface.submit(video!)
         precondition(surface.mailbox.snapshot()!.1.pixels.isEmpty)
         surface.draw(in: surface)
@@ -151,7 +186,10 @@ import MetalKit
                 $0.baseAddress!, bytesPerRow: 4, from: MTLRegionMake2D(0, 0, 1, 1), mipmapLevel: 0)
         }
         precondition(first == [77, 77, 77, 77] && surface.uploadedBytes == 640 * 480 * 4)
-        print("PASS retained Adaptive IOSurface maps to Metal without CPU upload, resumes and falls back to TCP")
+        precondition(surface.cursor(at: CGPoint(x: 320, y: 240)) === embeddedCursor)
+        print(
+            "PASS retained Adaptive IOSurface maps to Metal without CPU upload, resumes and falls back to TCP with one cursor"
+        )
         surface.sourceRect = CGRect(x: 0, y: 0, width: 640, height: 480)
         let device = surface.device!
         let commandQueue = device.makeCommandQueue()!

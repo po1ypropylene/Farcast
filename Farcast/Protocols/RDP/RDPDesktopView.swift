@@ -209,8 +209,16 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     var preparePaste: (() -> Void)?
     var sendPointer: ((Int, Int, Int) -> Void)?
     var resizeRemote: ((Int, Int, Int) -> Void)?
+    // Apple VNC includes its cursor in the desktop image, for both TCP and HEVC.
+    // Use a scoped transparent cursor instead of process-wide hide/unhide calls.
+    var serverDrawsCursor = false {
+        didSet { window?.invalidateCursorRects(for: self) }
+    }
+    private static let transparentCursor = NSCursor(
+        image: NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true }, hotSpot: .zero)
     var inputEnabled = false {
         willSet { if !newValue { releaseInput() } }
+        didSet { window?.invalidateCursorRects(for: self) }
     }
     var displayMode = RDPDisplayMode.fit
     weak var viewport: RDPViewport?
@@ -685,6 +693,7 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         requestResize()
     }
     private func refreshCursor() {
+        window?.invalidateCursorRects(for: self)
         guard let image = cursorImage else { return }
         let rect = displayRect(in: bounds.size)
         guard rect.width > 0, rect.height > 0 else { return }
@@ -705,8 +714,26 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
             userInfo: nil)
         addTrackingArea(tracking!)
     }
-    override func resetCursorRects() { addCursorRect(bounds, cursor: remoteCursor) }
-    override func cursorUpdate(with event: NSEvent) { remoteCursor.set() }
+    private var serverCursorRect: CGRect {
+        displayRect(in: bounds.size).intersection(bounds)
+    }
+    func cursor(at point: CGPoint) -> NSCursor {
+        guard serverDrawsCursor else { return remoteCursor }
+        return inputEnabled && serverCursorRect.contains(point) ? Self.transparentCursor : .arrow
+    }
+    override func resetCursorRects() {
+        guard serverDrawsCursor else {
+            addCursorRect(bounds, cursor: remoteCursor)
+            return
+        }
+        addCursorRect(bounds, cursor: .arrow)
+        if inputEnabled, !serverCursorRect.isEmpty {
+            addCursorRect(serverCursorRect, cursor: Self.transparentCursor)
+        }
+    }
+    override func cursorUpdate(with event: NSEvent) {
+        cursor(at: convert(event.locationInWindow, from: nil)).set()
+    }
     func setRemoteCursor(_ data: Data, width: Int, height: Int, hotX: Int, hotY: Int) {
         guard width > 0, height > 0, width <= 512, height <= 512 else {
             cursorImage = nil

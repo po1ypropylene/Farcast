@@ -616,6 +616,7 @@ import SwiftTerm
         client.appleVirtualDisplay = profile.vncRemoteIsMac
         client.adaptiveVideo = profile.vncRemoteIsMac && tunnelPort == 0
         desktop.usesTextKeySymbols = true
+        desktop.serverDrawsCursor = profile.vncRemoteIsMac
         client.retinaDisplay = profile.retinaDisplay
         client.desktopWidth = profile.desktopWidth
         client.desktopHeight = profile.desktopHeight

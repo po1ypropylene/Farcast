@@ -164,7 +164,7 @@ static id Single(NSDictionary *fields, unsigned field, Class type) {
     p[0] = 0x1c;
     FCVNCWrite16(p + 2, packet.length - 4);
     FCVNCWrite16(p + 4, 3);
-    p[6] = 5; // One 60 Hz stream; omit the server cursor from the video.
+    p[6] = 1; // One 60 Hz stream, with the server cursor included in the video.
     FCVNCWrite16(p + 10, _audio.length);
     FCVNCWrite16(p + 12, _video.length);
     uuid_t uuid;

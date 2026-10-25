@@ -290,8 +290,8 @@ int main(void) {
         NSData *configuration = [video configure:[NSData dataWithBytes:request length:38] width:640 height:480];
         Require(configuration != nil, "media configuration");
         const uint8_t *p = configuration.bytes;
-        Require(p[0] == 0x1c && p[1] == 0 && R16(p + 2) + 4 == configuration.length && p[6] == 5,
-                "offer framing and cursor omission request");
+        Require(p[0] == 0x1c && p[1] == 0 && R16(p + 2) + 4 == configuration.length && p[6] == 1,
+                "offer framing retains the server cursor");
         size_t audioLength = R16(p + 10), videoLength = R16(p + 12), offset = 128 + audioLength;
         NSData *offer = [configuration subdataWithRange:NSMakeRange(offset + 92, videoLength)];
         uint32_t sender;

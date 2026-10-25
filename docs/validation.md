@@ -112,8 +112,11 @@ Production Windows startup smoothness still requires live validation.
 - **VNC:** classic password/no-auth has no desktop encryption or server identity;
   use WireGuard on untrusted networks. VeNCrypt requires supported X509 modes.
   Apple virtual-display mode supports RSA-SRP, full-quality TCP and experimental direct Adaptive HEVC.
-  Live resize refreshes without pointer movement. The tested host still displays
-  both local and remote cursors despite the media cursor-omission request.
+  Live resize refreshes without pointer movement. Apple sessions use the embedded
+  server cursor with a transparent local cursor over the enabled desktop image.
+  Owned native-surface checks cover transparency, letterboxing, disabled input,
+  full-screen inheritance and Adaptive-to-TCP transitions. Cursor shape, movement
+  latency and actual host composition still need live confirmation on the final build.
   Media startup can receive no UDP datagrams and fall back to TCP; reconnect retries Adaptive.
   HDR, legacy Apple DH/Kerberos/direct-SRP, anonymous TLS and
   file/audio/cursor channels are unsupported. Standard VNC cannot request resolution changes. Clipboard typing depends on server Unicode

@@ -195,7 +195,7 @@ def run(s):
         if scenario=='adaptive-answer-refusal':
             configuration=records.read()
             assert configuration[0:2]==bytes([0x1c,0]) and len(configuration)==struct.unpack('>H',configuration[2:4])[0]+4
-            assert configuration[6:10]==bytes([5,0,0,0]), 'One stream, no embedded cursor'
+            assert configuration[6:10]==bytes([1,0,0,0]), 'One stream with embedded cursor'
             # Server refusal is a framed media message, not a top-level RFB type.
             records.send(b'\0\0\0\1'+struct.pack('>HHHHi',0,0,0,0,0x3f2)+u16(4)+u16(3)+u16(1))
             assert records.read()[0]==3
