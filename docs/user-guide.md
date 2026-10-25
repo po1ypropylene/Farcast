@@ -491,6 +491,12 @@ not a separate VNC password. Verify the Apple RSA public-key fingerprint before
 approving its identity; this trust decision is separate from VNC TLS identities.
 The option requests one virtual display and can blank the Mac’s physical display
 while the session is active. Existing profiles keep this option off.
+When the Mac requests session selection, Farcast can hand off the same credentials
+through Apple's encrypted desktop-login exchange. This does not guarantee that
+macOS will unlock an existing desktop: its session state and security policy may
+still require the password inside the remote screen. The fixed handoff fields
+support up to 63 UTF-8 bytes per username/password, without embedded NULs; Farcast
+reports unsupported values instead of truncating them.
 
 In **Display**, choose an initial resolution, **Optimize for Retina**, or
 **Resize with window**. The maximum backing size is 3840 × 2160 pixels; Retina

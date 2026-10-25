@@ -10,10 +10,13 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) BOOL authenticationRejected;
 @property(nonatomic, readonly) BOOL encrypted;
 @property(nonatomic, readonly) BOOL hasBufferedBytes;
+@property(nonatomic, readonly) BOOL desktopLoginRequested;
+- (BOOL)selectDesktopWithServerInfo:(NSData *)info username:(NSString *)username password:(NSString *)password;
 - (BOOL)authenticateUsername:(NSString *)username password:(NSString *)password;
 - (BOOL)bootstrapWidth:(NSUInteger)width height:(NSUInteger)height retina:(BOOL)retina;
 - (BOOL)read:(void *)bytes count:(NSUInteger)count;
 - (BOOL)write:(const void *)bytes count:(NSUInteger)count;
+- (BOOL)writeInput:(NSData *)event;
 - (BOOL)rekey:(NSData *)payload;
 + (nullable NSData *)displayWidth:(NSUInteger)width height:(NSUInteger)height retina:(BOOL)retina;
 @end

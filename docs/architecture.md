@@ -496,12 +496,32 @@ exchange; mutual SRP proof and record integrity must succeed, with no downgrade 
 classic VNC. Apple RSA identities have a separate endpoint suffix from TLS pins.
 No system private framework is linked and no unrelated adapter code is copied.
 
+When ServerInit advertises Apple's session-selection phase, the worker submits
+version-2 virtual-session selection with the account username/password encrypted
+in separate fixed 64-byte AES-ECB fields under the mutually verified SRP key.
+The handoff precedes record-layer activation, is sent once, and requires explicit
+server acceptance. Unsupported capabilities, malformed replies and refusal stop
+the attempt; refusal does not invalidate credentials that already passed SRP.
+Credentials are never typed into a screen. The handoff rejects embedded NULs and
+fields exceeding 63 UTF-8 bytes instead of truncating them. A server that does not
+request this phase follows the existing connection path.
+
 The Apple mode requests one SDR virtual display and negotiates only the supported
 framebuffer/metadata encodings. Encrypted receive records preserve stream state
 across fragmentation; bounded metadata is consumed before pixel rectangles.
-Rekeys rotate cipher contexts without resetting record counters. Window requests
-are coalesced on the protocol worker; logical versus backing geometry remains
-separate for Retina and pointer mapping. Server layout confirms effective size;
+Rekeys rotate cipher contexts without resetting record counters. Display-agent changes
+renew control mode and framebuffer subscriptions. Apple keyboard/pointer events use
+the native 18-byte encrypted-event envelope inside the authenticated record layer,
+with the current session key, rotated together with the record ciphers. Queued
+releases and clipboard typing use the same event encoder. Receive waits service
+input on the owning worker; writable waits never recurse into the input pump.
+Full-quality TCP delivery requests the next incremental
+update after each framebuffer response, including empty responses; a renewed layout
+subscription already supplies its own full refresh. It never relies solely on push
+delivery after the first image. Window requests are coalesced on the protocol worker;
+logical versus backing geometry remains separate for Retina. TCP framebuffer
+pointer events retain framebuffer-pixel coordinates; the remote display agent
+applies its Retina conversion. Server layout confirms effective size;
 request submission does not establish acceptance. Session generations and prompt
 cancellation remain owned by RemoteSession.
 

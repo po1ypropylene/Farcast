@@ -68,7 +68,7 @@ static NSData *TakeAtom(NSData *d, NSUInteger *offset, BOOL shortLength) {
 
 @implementation FCVNCAppleSession {
     NSString *_failure;
-    BOOL _authenticationRejected, _encrypted;
+    BOOL _authenticationRejected, _encrypted, _desktopLoginRequested, _authenticated;
     unsigned char _wrapKey[16];
     EVP_CIPHER_CTX *_sendCipher, *_receiveCipher;
     uint64_t _sendSequence, _receiveSequence;
@@ -288,9 +288,9 @@ static NSData *TakeAtom(NSData *d, NSUInteger *offset, BOOL shortLength) {
             M1 = Digest(EVP_sha512(), @[ xor, hi, salt, publicA, BNBytes(B, 512), K ]);
             M2 = Digest(EVP_sha512(), @[ publicA, M1, K ]);
             NSData *wrap = Digest(EVP_sha256(), @[ K ]);
-            if (wrap.length == 32)
+            if (wrap.length == 32) {
                 memcpy(_wrapKey, wrap.bytes, 16);
-            else
+            } else
                 ok = NO;
         }
     }
@@ -344,6 +344,7 @@ static NSData *TakeAtom(NSData *d, NSUInteger *offset, BOOL shortLength) {
         return NO;
     }
     _failure = @"Apple Screen Sharing sent invalid encrypted protocol data.";
+    _authenticated = YES;
     return YES;
 }
 - (BOOL)rekey:(NSData *)payload {
@@ -399,6 +400,33 @@ static NSData *TakeAtom(NSData *d, NSUInteger *offset, BOOL shortLength) {
         return NO;
     _sendSequence++;
     return self.writeTransport(cipher.bytes, cipher.length);
+}
+- (BOOL)writeInput:(NSData *)event {
+    const unsigned char *p = event.bytes;
+    BOOL keyboard = event.length == 8 && p[0] == 4;
+    BOOL pointer = event.length == 6 && p[0] == 5;
+    if (!_authenticated || !_encrypted || (!keyboard && !pointer))
+        return NO;
+    // Apple input has a separate ECB envelope inside the authenticated record.
+    // The event cipher follows the current session key after every rekey.
+    unsigned char clear[16] = {0}, packet[18] = {0x10, pointer ? 1 : 0};
+    if (keyboard) {
+        clear[0] = 0xff;
+        clear[1] = p[1];
+        memcpy(clear + 2, p + 4, 4);
+    } else {
+        clear[10] = 0xff;
+        clear[11] = p[1];
+        memcpy(clear + 12, p + 2, 4);
+    }
+    EVP_CIPHER_CTX *cipher = EVP_CIPHER_CTX_new();
+    int n = 0;
+    BOOL ok = cipher && EVP_EncryptInit_ex(cipher, EVP_aes_128_ecb(), NULL, _wrapKey, NULL) == 1 &&
+              EVP_CIPHER_CTX_set_padding(cipher, 0) == 1 &&
+              EVP_EncryptUpdate(cipher, packet + 2, &n, clear, sizeof(clear)) == 1 && n == sizeof(clear);
+    EVP_CIPHER_CTX_free(cipher);
+    OPENSSL_cleanse(clear, sizeof(clear));
+    return ok && [self write:packet count:sizeof(packet)];
 }
 - (BOOL)read:(void *)bytes count:(NSUInteger)count {
     if (!_encrypted)
@@ -479,6 +507,72 @@ static NSData *TakeAtom(NSData *d, NSUInteger *offset, BOOL shortLength) {
     for (int i = 0; i < 8; i++)
         mode[16 + i] = bits >> (56 - i * 8);
     return d;
+}
+- (BOOL)desktopLoginRequested {
+    return _desktopLoginRequested;
+}
+- (BOOL)selectDesktopWithServerInfo:(NSData *)info username:(NSString *)username password:(NSString *)password {
+    // Apple puts its capability header before the printable ServerInit name.
+    // Only a server-requested selection phase accepts this non-RFB exchange.
+    if (info.length < 22 || A16(info.bytes) != 0 || !(A32((const unsigned char *)info.bytes + 2) & 4))
+        return YES;
+    _desktopLoginRequested = YES;
+    _failure = @"The Mac sent unsupported desktop-login capabilities.";
+    const unsigned char *metadata = info.bytes;
+    if (info.length < 98 || A16(metadata + 22) != 74 || A16(metadata + 24) != 1 || !(A32(metadata + 26) & 4) ||
+        _encrypted || !_authenticated)
+        return NO;
+    NSData *user = [username dataUsingEncoding:NSUTF8StringEncoding],
+           *pass = [password dataUsingEncoding:NSUTF8StringEncoding];
+    _failure = @"Apple automatic desktop login requires a username and password of at most 63 UTF-8 bytes each, "
+               @"without embedded NUL characters.";
+    if (!user.length || user.length >= 64 || pass.length >= 64 || memchr(user.bytes, 0, user.length) ||
+        (pass.length && memchr(pass.bytes, 0, pass.length)))
+        return NO;
+    // RFBSelectSession v2, command 2. Each fixed-size credential field is
+    // encrypted with the SRP-derived AES key, after mutual proof verification.
+    // This is protocol login, never keyboard input into an unidentified screen.
+    unsigned char packet[202] = {0}, clear[128];
+    S16(packet, 200);
+    S16(packet + 2, 2);
+    packet[8] = 2;
+    memcpy(packet + 10, "Farcast", 8);
+    BOOL ok = RAND_bytes(clear, sizeof(clear)) == 1;
+    if (ok) {
+        memcpy(clear, user.bytes, user.length);
+        clear[user.length] = 0;
+        memcpy(clear + 64, pass.bytes, pass.length);
+        clear[64 + pass.length] = 0;
+        EVP_CIPHER_CTX *cipher = EVP_CIPHER_CTX_new();
+        int count = 0;
+        ok = cipher && EVP_EncryptInit_ex(cipher, EVP_aes_128_ecb(), NULL, _wrapKey, NULL) == 1 &&
+             EVP_CIPHER_CTX_set_padding(cipher, 0) == 1 &&
+             EVP_EncryptUpdate(cipher, packet + 74, &count, clear, sizeof(clear)) == 1 && count == sizeof(clear);
+        EVP_CIPHER_CTX_free(cipher);
+    }
+    OPENSSL_cleanse(clear, sizeof(clear));
+    _failure = @"Apple desktop login ended before the Mac acknowledged the encrypted credentials.";
+    ok = ok && !self.isCancelled() && self.writeTransport(packet, sizeof(packet));
+    OPENSSL_cleanse(packet, sizeof(packet));
+    if (!ok)
+        return NO;
+    NSData *prefix = [self transportData:2];
+    NSUInteger size = prefix ? A16(prefix.bytes) : 0;
+    if (size < 10 || size > 4096)
+        return NO;
+    NSData *reply = [self transportData:size];
+    if (!reply)
+        return NO;
+    const unsigned char *p = reply.bytes;
+    // Prefix was consumed separately: version and status are offsets 0 and 2.
+    if (A16(p) != 1)
+        return NO;
+    if (p[2] != 2) {
+        _failure = @"The Mac did not accept automatic desktop login. Check the account and remote login policy.";
+        return NO;
+    }
+    _failure = @"Apple Screen Sharing sent invalid encrypted protocol data.";
+    return YES;
 }
 - (BOOL)bootstrapWidth:(NSUInteger)width height:(NSUInteger)height retina:(BOOL)retina {
     // Bootstrap writes remain cleartext until the server's first rekey is consumed.

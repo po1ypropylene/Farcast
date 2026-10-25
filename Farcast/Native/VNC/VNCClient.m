@@ -41,7 +41,7 @@ static uint32_t KeySym(uint32_t scalar) {
 
 @implementation FCVNCClient {
     atomic_bool _cancelled, _ready;
-    BOOL _started, _reportedTyping, _reportedFrame;
+    BOOL _started, _reportedTyping, _reportedFrame, _reportedKeyboard;
     int _fd;
     SSL_CTX *_context;
     SSL *_tls;
@@ -56,7 +56,6 @@ static uint32_t KeySym(uint32_t scalar) {
     BOOL _inflating;
     NSString *_failure;
     FCVNCAppleSession *_apple;
-    NSUInteger _appleLogicalWidth, _appleLogicalHeight;
     NSData *_pendingAppleResize;
 }
 - (instancetype)init {
@@ -91,6 +90,10 @@ static uint32_t KeySym(uint32_t scalar) {
 }
 - (BOOL)waitSocket:(short)events deadline:(double)deadline {
     while (![self cancelled] && FCWireGuardSocketTime() < deadline) {
+        // Receive fragments can pause while the user is interacting. Drain on
+        // the same worker; writable waits never recurse into the input pump.
+        if (events == POLLIN && _ready && ![self flushInput])
+            return NO;
         struct pollfd p = {_fd, events, 0};
         int r = poll(&p, 1, 10);
         if (r < 0 && errno == EINTR)
@@ -484,13 +487,6 @@ static uint32_t KeySym(uint32_t scalar) {
         return NO;
     _width = width;
     _height = height;
-    if (_apple.encrypted) {
-        NSUInteger factor = self.retinaDisplay ? 2 : 1;
-        if (width % factor == 0 && height % factor == 0) {
-            _appleLogicalWidth = width / factor;
-            _appleLogicalHeight = height / factor;
-        }
-    }
     _pixels = [NSMutableData dataWithLength:width * height * 4];
     if (self.onDesktopSize)
         self.onDesktopSize(width, height);
@@ -502,13 +498,24 @@ static uint32_t KeySym(uint32_t scalar) {
     Put16(request + 8, (uint16_t)_height);
     return [self write:request count:10];
 }
-- (BOOL)initializeDesktop {
+- (BOOL)initializeDesktopUsername:(NSString *)username password:(NSString *)password {
     unsigned char shared = _apple ? 0xc1 : 1, init[24];
     if (![self write:&shared count:1] || ![self read:init count:24])
         return NO;
     uint32_t nameLength = Read32(init + 20);
-    if (nameLength > 1048576 || ![self discard:nameLength] || ![self sizeWidth:Read16(init) height:Read16(init + 2)])
+    if (nameLength > 1048576)
         return NO;
+    NSMutableData *serverInfo = [NSMutableData dataWithLength:nameLength];
+    if (![self read:serverInfo.mutableBytes count:nameLength] || ![self sizeWidth:Read16(init) height:Read16(init + 2)])
+        return NO;
+    if (_apple && ![_apple selectDesktopWithServerInfo:serverInfo username:username password:password]) {
+        _failure = _apple.failure;
+        return NO;
+    }
+    if (_apple)
+        [self status:@"authenticating"
+             message:_apple.desktopLoginRequested ? @"The Mac accepted encrypted desktop login credentials."
+                                                  : @"The Mac did not request desktop login selection."];
     // Little-endian BGRX8888; server converts from its native format.
     unsigned char format[20] = {0, 0, 0, 0, 32, 24, 0, 1, 0, 255, 0, 255, 0, 255, 16, 8, 0, 0, 0, 0};
     if (_apple && ![_apple bootstrapWidth:self.desktopWidth height:self.desktopHeight retina:self.retinaDisplay]) {
@@ -643,7 +650,11 @@ static uint32_t KeySym(uint32_t scalar) {
     unsigned char packet[16] = {9, 0, 0, 1, 255, 255, 255, 255};
     Put16(packet + 12, _width);
     Put16(packet + 14, _height);
-    return [self write:packet count:sizeof(packet)] && [self requestFrame:NO];
+    // A replacement display agent must receive control mode as well as the
+    // renewed framebuffer subscription. Streaming alone does not enable input.
+    const unsigned char control[] = {0x0a, 0, 0, 1};
+    return [self write:control count:sizeof(control)] && [self write:packet count:sizeof(packet)] &&
+           [self requestFrame:NO];
 }
 - (BOOL)appleMetadata:(int32_t)encoding x:(NSUInteger)x y:(NSUInteger)y width:(NSUInteger)w height:(NSUInteger)h {
     if (encoding == 0x44f) {
@@ -693,8 +704,6 @@ static uint32_t KeySym(uint32_t scalar) {
         if (_width != backingW || _height != backingH)
             if (![self sizeWidth:backingW height:backingH])
                 return NO;
-        _appleLogicalWidth = logicalW;
-        _appleLogicalHeight = logicalH;
         if (self.onAppleLayout)
             self.onAppleLayout(logicalW, logicalH, backingW, backingH);
         return [self armAppleUpdates];
@@ -708,7 +717,7 @@ static uint32_t KeySym(uint32_t scalar) {
     NSUInteger count = Read16(header + 1);
     if (count > 4096)
         return NO;
-    BOOL resized = NO, damaged = NO;
+    BOOL resized = NO, damaged = NO, appleRearmed = NO;
     for (NSUInteger i = 0; i < count; i++) {
         unsigned char rect[12];
         if (![self read:rect count:12])
@@ -719,6 +728,7 @@ static uint32_t KeySym(uint32_t scalar) {
                        encoding == 0x455 || encoding == 0x456)) {
             if (![self appleMetadata:encoding x:x y:y width:w height:h])
                 return NO;
+            appleRearmed |= encoding == 0x451;
             continue;
         }
         if (encoding == -223) {
@@ -764,7 +774,11 @@ static uint32_t KeySym(uint32_t scalar) {
     }
     // Apple drops the update subscription during virtual-display/agent changes.
     // Both its vendor layout and standard DesktopSize notifications must re-arm.
-    return _apple ? (!resized || [self armAppleUpdates]) : [self requestFrame:!resized];
+    if (_apple && resized)
+        return [self armAppleUpdates];
+    // Full-quality TCP peers can require one request per framebuffer update,
+    // even after accepting the Apple subscription. Keep the pull loop alive.
+    return appleRearmed || [self requestFrame:!resized];
 }
 - (NSData *)key:(uint32_t)key pressed:(BOOL)pressed {
     unsigned char packet[8] = {4, pressed ? 1 : 0};
@@ -840,6 +854,24 @@ static uint32_t KeySym(uint32_t scalar) {
         _typing = nil;
     }
 }
+- (void)reportKeyboardInput {
+    if (!_reportedKeyboard) {
+        _reportedKeyboard = YES;
+        if (self.onKeyboardInput)
+            self.onKeyboardInput();
+    }
+}
+- (BOOL)writeInput:(NSData *)packet {
+    if (!_apple)
+        return [self write:packet.bytes count:packet.length];
+    if (packet.length && ((const unsigned char *)packet.bytes)[0] == 4 && packet.length % 8 == 0) {
+        for (NSUInteger offset = 0; offset < packet.length; offset += 8)
+            if (![_apple writeInput:[packet subdataWithRange:NSMakeRange(offset, 8)]])
+                return NO;
+        return YES;
+    }
+    return [_apple writeInput:packet];
+}
 - (BOOL)flushInput {
     NSData *resize;
     @synchronized(self) {
@@ -864,21 +896,13 @@ static uint32_t KeySym(uint32_t scalar) {
         typing = _typing != nil;
     }
     for (NSData *packet in packets) {
+        // TCP framebuffer input uses framebuffer pixels. The display agent
+        // applies its own Retina conversion; dividing here scales twice.
         NSData *outgoing = packet;
-        if (_apple && _appleLogicalWidth && packet.length == 6 && ((const unsigned char *)packet.bytes)[0] == 5) {
-            NSMutableData *pointer = [packet mutableCopy];
-            unsigned char *p = pointer.mutableBytes;
-            Put16(p + 2, MIN(_appleLogicalWidth - 1, Read16(p + 2) * _appleLogicalWidth / MAX(1, _width)));
-            Put16(p + 4, MIN(_appleLogicalHeight - 1, Read16(p + 4) * _appleLogicalHeight / MAX(1, _height)));
-            outgoing = pointer;
-        }
-        if (_apple && outgoing.length > 8 && outgoing.length % 8 == 0 &&
-            ((const unsigned char *)outgoing.bytes)[0] == 4) {
-            for (NSUInteger offset = 0; offset < outgoing.length; offset += 8)
-                if (![self write:(const unsigned char *)outgoing.bytes + offset count:8])
-                    return NO;
-        } else if (![self write:outgoing.bytes count:outgoing.length])
+        if (![self writeInput:outgoing])
             return NO;
+        if (outgoing.length && ((const unsigned char *)outgoing.bytes)[0] == 4)
+            [self reportKeyboardInput];
     }
     if (typed) {
         if (!_reportedTyping && self.onTyping)
@@ -886,8 +910,9 @@ static uint32_t KeySym(uint32_t scalar) {
         _reportedTyping = YES;
         NSData *down = [self key:typed.unsignedIntValue pressed:YES], *up = [self key:typed.unsignedIntValue
                                                                               pressed:NO];
-        if (![self write:down.bytes count:down.length] || ![self write:up.bytes count:up.length])
+        if (![self writeInput:down] || ![self writeInput:up])
             return NO;
+        [self reportKeyboardInput];
     }
     if (_reportedTyping != typing) {
         _reportedTyping = typing;
@@ -913,7 +938,7 @@ static uint32_t KeySym(uint32_t scalar) {
               ok = [self authenticateHost:host username:username password:password];
           }
           if (ok)
-              ok = [self initializeDesktop];
+              ok = [self initializeDesktopUsername:username password:password];
           if (ok) {
               @synchronized(self) {
                   self->_ready = !self->_cancelled;

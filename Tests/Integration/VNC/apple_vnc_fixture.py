@@ -68,14 +68,16 @@ class Records:
     def send(self, d, bad=False):
         for offset in range(0, len(d), 4096):
             part = d[offset:offset+4096]
-            prefix = u16(len(part))+part
-            prefix += b'\xa5' * ((-len(prefix)-20) % 16)
-            tag = hashlib.sha1(u32(self.tx)+prefix).digest()
-            if bad: tag = bytes([tag[0]^1])+tag[1:]
-            wire = self.enc.update(prefix+tag)
-            out = u16(len(wire))+wire
+            out = self.encode(part,bad)
             self.s.sendall(out[:1]); self.s.sendall(out[1:7]); self.s.sendall(out[7:])
-            self.tx += 1
+    def encode(self, part, bad=False):
+        prefix = u16(len(part))+part
+        prefix += b'\xa5' * ((-len(prefix)-20) % 16)
+        tag = hashlib.sha1(u32(self.tx)+prefix).digest()
+        if bad: tag = bytes([tag[0]^1])+tag[1:]
+        wire = self.enc.update(prefix+tag)
+        self.tx += 1
+        return u16(len(wire))+wire
 
 def run(s):
     s.settimeout(15)
@@ -131,7 +133,32 @@ def run(s):
         return
     s.sendall(u32(0))
     assert exact(s,1) == b'\xc1'
-    s.sendall(struct.pack('>HH',640,480)+bytes([32,24,0,1])+struct.pack('>HHH',255,255,255)+bytes([16,8,0,0,0,0])+u32(0))
+    name = b''
+    if scenario.startswith('desktop-login'):
+        selection = u16(74)+u16(1)+u32(0 if scenario=='desktop-login-capabilities' else 4)+u32(0)+bytes(64)
+        name = u16(0)+u32(4)+bytes(16)+selection
+    s.sendall(struct.pack('>HH',640,480)+bytes([32,24,0,1])+struct.pack('>HHH',255,255,255)+bytes([16,8,0,0,0,0])+u32(len(name))+name)
+    if scenario.startswith('desktop-login'):
+        if scenario=='desktop-login-capabilities':
+            assert s.recv(1)==b''
+            return
+        login=exact(s,202)
+        assert login[:10]==u16(200)+u16(2)+u32(0)+bytes([2,0])
+        assert login[10:18]==b'Farcast\0'
+        wrap=hashlib.sha256(K).digest()[:16]
+        decoder=Cipher(algorithms.AES(wrap),modes.ECB()).decryptor()
+        credentials=decoder.update(login[74:202])
+        assert credentials[:64].split(b'\0')[0]==b'fixture'
+        assert credentials[64:].split(b'\0')[0]==b'fixture-password'
+        # Account bytes must be inside the encrypted credential fields only.
+        assert b'fixture' not in login and b'fixture-password' not in login
+        status=3 if scenario=='desktop-login-denied' else 2
+        reply=u16(0 if scenario=='desktop-login-version' else 1)+bytes([status])+bytes(77)
+        wire=u16(len(reply))+reply
+        s.sendall(wire[:1]);s.sendall(wire[1:5]);s.sendall(wire[5:])
+        if scenario in ('desktop-login-denied','desktop-login-version'):
+            assert s.recv(1)==b''
+            return
     viewer = exact(s,66)
     assert viewer[:6] == bytes.fromhex('2100003e0001')
     assert viewer[36] & 8  # Supports framed server status commands.
@@ -149,28 +176,74 @@ def run(s):
     assert struct.unpack('>HHHH',configuration[4:12])[:2]==(1,1)
     assert records.read()[0]==2
     assert records.read()[0]==0
+    assert records.read()==bytes.fromhex('0a000001')
     assert records.read()[0]==9
     assert records.read()[0]==3
+    if scenario=='rekey-input':
+        nextkey,nextiv=os.urandom(16),os.urandom(16)
+        encoder=Cipher(algorithms.AES(newkey),modes.ECB()).encryptor()
+        records.send(b'\0\0\0\1'+struct.pack('>HHHHi',0,0,0,0,0x44f)+u32(2)+encoder.update(nextkey+nextiv))
+        # Retain sequence counters while replacing both directional ciphers.
+        records.enc=Cipher(algorithms.AES(nextkey),modes.CBC(nextiv)).encryptor()
+        records.dec=Cipher(algorithms.AES(nextkey),modes.CBC(nextiv)).decryptor()
+        newkey=nextkey
+        assert records.read()[0:2]==bytes([3,1])
     def draw(w,h):
         body=bytearray(76)
         struct.pack_into('>HIIH',body,0,5,0,0x02000000,1)
         struct.pack_into('>HHHH',body,32,0,0,w,h)
-        struct.pack_into('>HHHH',body,40,0,0,w,h)
+        factor=2 if scenario=='retina-input' else 1
+        struct.pack_into('>HHHH',body,40,0,0,w//factor,h//factor)
         layout=(struct.pack('>HHHHi',0,0,w,h,-223) if scenario == 'desktop-size' else struct.pack('>HHHHi',0,0,w,h,0x451)+u16(len(body))+body)
         records.send(b'\0\0\0\1'+layout,bad=scenario=='bad-integrity')
         if scenario=='bad-integrity': return
+        assert records.read()==bytes.fromhex('0a000001')
         assert records.read()[0]==9 and records.read()[0]==3
         pixels=bytes([17,41,83,255])*(w*h)
         compressed=zlib.compress(pixels)
         records.send(b'\0\0\0\1'+struct.pack('>HHHHi',0,0,w,h,6)+u32(len(compressed))+compressed)
-    draw(640,480)
+    factor=2 if scenario=='retina-input' else 1
+    draw(640*factor,480*factor)
     if scenario=='bad-integrity':
         assert s.recv(1)==b''
         return
+    refresh=records.read()
+    assert refresh[0:2]==bytes([3,1]), 'Missing incremental request after first pixels'
+    assert struct.unpack('>HH',refresh[6:10])==(640*factor,480*factor)
     resize=records.read()
     assert resize[0]==0x1d
-    assert struct.unpack('>IIII',resize[168:184])==(800,600,800,600)
-    draw(800,600)
+    assert struct.unpack('>IIII',resize[168:184])==(800*factor,600*factor,800,600)
+    def input_event(flags, expected):
+        packet=records.read()
+        assert len(packet)==18 and packet[:2]==bytes([0x10,flags])
+        # Native input ECB and outer CBC both adopt the current session key.
+        decoder=Cipher(algorithms.AES(newkey),modes.ECB()).decryptor()
+        assert decoder.update(packet[2:])==expected
+    input_event(0, bytes.fromhex('ff010000ff0900000000000000000000'))
+    input_event(0, bytes.fromhex('ff000000ff0900000000000000000000'))
+    for mask in (1,0):
+        input_event(1, bytes(10)+bytes([0xff,mask])+u16(640*factor-1)+u16(480*factor-1))
+    for down,keys in ((1,(0xffe3,0xffe9,0xffff)),(0,(0xffff,0xffe9,0xffe3))):
+        for key in keys:
+            input_event(0, bytes([0xff,down])+u32(key)+bytes(10))
+    for key in (0x41,0x0101f600):
+        for down in (1,0):
+            input_event(0, bytes([0xff,down])+u32(key)+bytes(10))
+    # The peer stays silent until a refresh request, then changes a pixel in
+    # response to input without a resize or a fresh connection.
+    redraw=b'\0\0\0\1'+struct.pack('>HHHHi',0,0,1,1,0)+bytes([29,41,83,255])
+    if scenario=='input-latency':
+        wire=records.encode(redraw)
+        s.sendall(wire[:10])
+        s.settimeout(2)
+        for down in (1,0):
+            input_event(0, bytes([0xff,down])+u32(0xff1b)+bytes(10))
+        s.settimeout(15)
+        s.sendall(wire[10:])
+    else:
+        records.send(redraw)
+    assert records.read()[0:2]==bytes([3,1]), 'Refresh loop stopped after interactive redraw'
+    draw(800*factor,600*factor)
     try:
         while s.recv(4096): pass
     except ConnectionResetError: pass

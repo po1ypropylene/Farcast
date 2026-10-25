@@ -18,6 +18,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, copy, nullable) void (^onAuthenticationRejected)(void);
 @property(nonatomic, copy, nullable) BOOL (^onTrust)(NSString *fingerprint, NSString *details);
 @property(nonatomic, copy, nullable) void (^onTyping)(BOOL typing);
+// One content-free notification after the first keyboard packet is written.
+@property(nonatomic, copy, nullable) void (^onKeyboardInput)(void);
 - (void)connectHost:(NSString *)host port:(NSInteger)port username:(NSString *)username password:(NSString *)password;
 - (void)sendKeySym:(uint32_t)key pressed:(BOOL)pressed;
 - (void)sendPointerMask:(NSInteger)mask x:(NSInteger)x y:(NSInteger)y;

@@ -20,7 +20,7 @@ scripts/prepare-rdp-fixture.sh
 | Command | Coverage |
 | --- | --- |
 | `swift test --scratch-path .build/core-tests` | Domain, persistence, credentials, trust, prompts, imports and display/resize geometry |
-| `scripts/test-vnc-apple.sh` | Owned RSA-SRP peer, encrypted fragmented records, display configuration/resize, server-key refusal, invalid group/proof/integrity rejection |
+| `scripts/test-vnc-apple.sh` | Owned RSA-SRP peer, encrypted fragmented records, desktop-login handoff/denial/capability checks, display resize/control renewal, encrypted key/click releases and Unicode typing after initial and subsequent rekeys, Retina framebuffer coordinates, request-driven interactive redraws, input delivery during a deliberately stalled receive fragment, server-key refusal and invalid group/proof/integrity rejection |
 | `scripts/test-vnc-migration.sh` | Existing VNC metadata migrates with Mac mode off; explicit opt-in and profile identities survive reopening |
 | `scripts/test-vnc.sh` | RFB 3.3/3.7/3.8, password/no-auth, VeNCrypt X509 modes/refusal, marked frames, malformed geometry/encoding, Unicode typing, Ctrl+Alt+Delete, pointer and cancellation |
 | `scripts/test-ssh.sh` | Password/key/interactive authentication, trust, input, stable PTY EAGAIN retries, final resize, partial writes, explicit queue overflow and cancellation |

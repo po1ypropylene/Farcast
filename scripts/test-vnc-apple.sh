@@ -7,7 +7,7 @@ xcrun clang -fobjc-arc -arch arm64 -mmacosx-version-min=27.0 -I Vendor/Native/in
   Farcast/Native/VNC/*.m Tests/Integration/VNC/apple_vnc_integration.m \
   -framework Foundation -framework Security -L Vendor/Native/lib -lcrypto -lssl -lz \
   -Wl,-rpath,"$PWD/Vendor/Native/lib" -o "$fixture_root/client"
-for mode in success desktop-size trust-refusal bad-group bad-proof bad-integrity; do
+for mode in success desktop-size retina-input rekey-input input-latency desktop-login desktop-login-denied desktop-login-capabilities desktop-login-version trust-refusal bad-group bad-proof bad-integrity; do
   root="$fixture_root/$mode"
   mkdir -p "$root"
   "$python_bin" Tests/Integration/VNC/apple_vnc_fixture.py "$root" "$mode" > "$root/server.log" 2>&1 &

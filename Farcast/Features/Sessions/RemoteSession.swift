@@ -631,6 +631,12 @@ import SwiftTerm
                 self.credentialsRejected = true
             }
         }
+        client.onKeyboardInput = { [weak self] in
+            DispatchQueue.main.async {
+                guard let self, self.generation == attempt, self.state.active else { return }
+                self.record("VNC keyboard input sent. Key contents are not recorded.")
+            }
+        }
         client.onTyping = { [weak self] typing in
             DispatchQueue.main.async {
                 guard let self, self.generation == attempt else { return }
