@@ -5,6 +5,8 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Preserve uppercase letters and shifted punctuation in VNC by sending AppKit’s committed character keysyms; RDP retains physical scan-code input.
+
 - Fix Mac VNC keyboard and pointer input with Apple's encrypted event format and session-key rotation. Preserve framebuffer-pixel coordinates for Retina, keep framebuffer refreshes running, and service queued input during receive waits.
 - Support server-requested encrypted Mac desktop-login handoff using the saved account credentials; macOS session state and policy can still require manual login.
 

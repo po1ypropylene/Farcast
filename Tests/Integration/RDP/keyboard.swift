@@ -232,6 +232,25 @@ import IOKit.hidsystem
             "PASS RDP display: 100% scrolling, panned pointer coordinates, fixed resolution, initial window size, fit")
         print(
             "PASS RDP keyboard: editing shortcuts, paste ordering, modifier release, app shortcuts, disconnected input")
+        desktop.releaseInput()
+        events.removeAll()
+        desktop.usesTextKeySymbols = true
+        var keySymbols: [String] = []
+        desktop.sendText = { keySymbols.append($0) }
+        for (flags, text, key) in [
+            (leftShift, "A", UInt16(0)), (.capsLock, "A", 0),
+            (leftShift.union(.capsLock), "a", 0), (leftShift, "!", 18),
+            (NSEvent.ModifierFlags(), "a", 0),
+        ] {
+            desktop.keyDown(with: event(.keyDown, key: key, flags: flags, text: text))
+            desktop.keyUp(with: event(.keyUp, key: key, flags: flags, text: text))
+        }
+        precondition(keySymbols == ["A", "A", "a", "!", "a"], "RFB keeps committed Shift/Caps Lock symbols")
+        print("PASS VNC committed keysyms preserve Shift, Caps Lock, Shift+Caps Lock and punctuation")
+        precondition(
+            !events.contains("30:true:false") && !events.contains("2:true:false"),
+            "RFB printable text must not fall back to lowercase/unshifted scan codes")
+        desktop.releaseInput()
         print(
             "PASS RDP keyboard: duplicate/overlapping modifiers, Shift-letter sequences, lost-release recovery, focus loss, Caps Lock sync, Unicode pairs and native window key repeat"
         )

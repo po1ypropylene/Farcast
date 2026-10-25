@@ -558,8 +558,11 @@ cannot retract characters already delivered. Focus loss releases pressed input;
 selection changes, disconnect and Ctrl+Alt+Delete cancel pending typing. Ctrl+Alt+Delete
 is one queued sequence with releases in reverse order. ServerCutText is bounded
 and discarded; no clipboard timer, file transfer or automatic clipboard reads
-exist for VNC. Physical shortcuts use the existing US scan-code map translated to
-keysyms; server keyboard/Unicode behavior remains a live interoperability limit.
+exist for VNC. VNC printable input uses AppKit’s committed characters as keysyms, preserving
+Shift, Caps Lock and shifted punctuation. RDP keeps its physical printable-key
+fast path. Nonprinting VNC keys and shortcuts use the existing US scan-code map
+translated to keysyms; server keyboard/Unicode behavior remains an interoperability
+limit.
 
 Protocol sources: [RFB specification](https://www.rfc-editor.org/rfc/rfc6143.html)
 and [RFB extensions including VeNCrypt and Zlib](https://github.com/rfbproto/rfbproto/blob/master/rfbproto.rst).

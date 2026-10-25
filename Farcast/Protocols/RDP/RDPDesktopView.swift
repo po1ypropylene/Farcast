@@ -177,6 +177,9 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     }
     var sendKey: ((Int, Bool, Bool) -> Void)?
     var sendText: ((String) -> Void)?
+    // RFB requires the produced keysym (A/!) instead of an unshifted scan-code
+    // mapping (a/1). RDP retains its physical-key fast path.
+    var usesTextKeySymbols = false
     var typeClipboard: (() -> Void)?
     var sendUnicode: ((Int, Bool) -> Void)?
     var synchronizeCapsLock: ((Bool) -> Void)?
@@ -810,7 +813,9 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     func insertText(_ string: Any, replacementRange: NSRange) {
         guard inputEnabled else { return }
         let text = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
-        if let event = interpretingEvent, !hasMarkedText(), let pair = Self.printableKeys[event.keyCode] {
+        if !usesTextKeySymbols, let event = interpretingEvent, !hasMarkedText(),
+            let pair = Self.printableKeys[event.keyCode]
+        {
             let characters = Array(pair)
             let letter = characters[0].isLetter
             let shifted = event.modifierFlags.contains(.shift) != (letter && event.modifierFlags.contains(.capsLock))
