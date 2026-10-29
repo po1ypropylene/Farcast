@@ -65,6 +65,9 @@ import UniformTypeIdentifiers
     func session(in slot: UUID) -> RemoteSession? { sessions.first { $0.id == detachedSessions[slot] } }
     let trust: TrustStore
     private let loadCredential: (UUID) throws -> ConnectionCredential?
+    private var powerObservers: Set<AnyCancellable> = []
+    private(set) var systemSleeping = false
+    var reconnectRDPAfterWake: Bool { defaults.bool(forKey: "reconnectRDPAfterWake") }
     private let defaults: UserDefaults
     private(set) var isShuttingDown = false
     private var shutdownFinished = false
@@ -81,6 +84,27 @@ import UniformTypeIdentifiers
         trust = TrustStore(defaults: defaults)
         inspectorPinned = defaults.bool(forKey: "connectionDetailsPinned")
         super.init()
+        let notifications = NSWorkspace.shared.notificationCenter
+        notifications.publisher(for: NSWorkspace.willSleepNotification).sink { [weak self] _ in
+            MainActor.assumeIsolated { self?.systemWillSleep() }
+        }.store(in: &powerObservers)
+        notifications.publisher(for: NSWorkspace.didWakeNotification).sink { [weak self] _ in
+            MainActor.assumeIsolated { self?.systemDidWake() }
+        }.store(in: &powerObservers)
+    }
+
+    func systemWillSleep() {
+        guard !isShuttingDown else { return }
+        systemSleeping = true
+        for session in sessions { session.suspendRDPForSleep() }
+    }
+
+    func systemDidWake() {
+        guard !isShuttingDown else { return }
+        // Conservatively retire pre-wake transports even if willSleep was missed.
+        if !systemSleeping { systemWillSleep() }
+        systemSleeping = false
+        for session in sessions { session.resumeRDPAfterWake() }
     }
 
     /// Resolve transport settings independently of the session protocol. The same

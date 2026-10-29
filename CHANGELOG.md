@@ -5,6 +5,8 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Disconnect RDP sessions for Mac sleep, stop their connected timers and hide outdated desktops. Add an off-by-default Settings option to reconnect after wake, waiting for old transport cleanup.
+
 - Fix duplicate cursors in Apple VNC by using the server-drawn pointer in the desktop image, including full screen and TCP fallback; keep the local pointer over window controls and letterboxing.
 
 - Synchronize desktop presentation with the destination display and recreate its display link after window transfers.

@@ -251,7 +251,9 @@ import SwiftUI
             settle()
             window.setContentSize(settings.fittingSize)
             settle()
-            for title in ["General", "Terminal", "Security", "About"] { precondition(labels().contains(title)) }
+            for title in [
+                "General", "Terminal", "Remote Desktop", "About", "Automatically reconnect RDP after Mac wakes",
+            ] { precondition(labels().contains(title)) }
             try capture("settings-\(scheme)")
         }
         for scheme in [ColorScheme.light, .dark] {

@@ -65,6 +65,9 @@ struct SessionPane: View {
                     }
                 } else if let desktop = session.desktop {
                     DesktopSurface(view: desktop)
+                        .opacity(session.state == .connected ? 1 : 0)
+                        .allowsHitTesting(session.state == .connected)
+                        .accessibilityHidden(session.state != .connected)
                 }
                 if session.state != .connected {
                     VStack(spacing: 16) {

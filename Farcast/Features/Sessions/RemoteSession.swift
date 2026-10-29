@@ -44,6 +44,7 @@ import SwiftTerm
     private var rdpReconnectTask: Task<Void, Never>?
     private var rdpHealthTask: Task<Void, Never>?
     private var rdpTunnelFailed = false
+    private var rdpSleepInterrupted = false
     private var fullScreen: RDPFullScreenPresentation?
     private var displayLayout: RDPDisplayLayout?
     private var displayScreens: [RDPDisplayScreen] = []
@@ -131,7 +132,7 @@ import SwiftTerm
         }
     }
     func start(credential: ConnectionCredential) {
-        guard workspace?.isShuttingDown != true else { return }
+        guard workspace?.isShuttingDown != true, workspace?.systemSleeping != true else { return }
         record(
             "Starting \(profile.kind.rawValue) session via \(profile.wireGuardID == nil ? "direct transport" : "VPN").")
         if profile.kind == .rdp { rdpCredential = credential }
@@ -909,7 +910,7 @@ import SwiftTerm
         }
     }
     private func update(_ status: String, message: String, attempt: UUID) {
-        guard generation == attempt else { return }
+        guard generation == attempt, !rdpSleepInterrupted else { return }
         state = SessionState(rawValue: status) ?? .failed
         self.message = message
         if profile.kind == .rdp, rdpReconnect.attempts > 0,
@@ -1002,6 +1003,10 @@ import SwiftTerm
         rdp = nil
         rdpHealthTask?.cancel()
         rdpHealthTask = nil
+        if rdpSleepInterrupted {
+            resumeRDPAfterWake()
+            return
+        }
         guard retryable || rdpTunnelFailed, rdpCredential != nil,
             let delay = rdpReconnect.nextDelay(now: ProcessInfo.processInfo.systemUptime)
         else {
@@ -1029,6 +1034,49 @@ import SwiftTerm
             self.start(credential: credential)
         }
     }
+    func suspendRDPForSleep() {
+        guard profile.kind == .rdp, state.active || rdp != nil, rdpCredential != nil, !rdpSleepInterrupted else {
+            return
+        }
+        rdpReconnectTask?.cancel()
+        rdpReconnectTask = nil
+        update("disconnected", message: "RDP disconnected for Mac sleep.", attempt: generation)
+        rdpSleepInterrupted = true
+        message = "RDP disconnected for Mac sleep. Reconnect after waking to continue."
+        if workspace?.reconnectRDPAfterWake != true { rdpCredential = nil }
+        // Interrupt socket waits as well as cancelling queued protocol work. Cleanup
+        // and onStopped remain worker-owned; wake must not replace a live worker.
+        rdp?.disconnect()
+    }
+
+    func resumeRDPAfterWake() {
+        guard rdpSleepInterrupted, workspace?.systemSleeping == false, rdp == nil else { return }
+        rdpSleepInterrupted = false
+        generation = UUID()
+        desktop?.discardDesktopFrame()
+        guard workspace?.reconnectRDPAfterWake == true, rdpCredential != nil,
+            workspace?.isShuttingDown != true
+        else {
+            rdpCredential = nil
+            return
+        }
+        let attempt = generation
+        state = .reconnecting
+        message = "Mac woke from sleep. Reconnecting in 2 seconds…"
+        record(message)
+        rdpReconnectTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(2)) } catch { return }
+            guard let self, self.generation == attempt, self.state == .reconnecting,
+                self.workspace?.systemSleeping == false, self.workspace?.isShuttingDown != true
+            else { return }
+            guard self.workspace?.reconnectRDPAfterWake == true, let credential = self.rdpCredential else {
+                self.disconnect()
+                return
+            }
+            self.start(credential: credential)
+        }
+    }
+
     func askForCredentials() {
         let waiter = PromptWaiter()
         pendingWaiters.append(waiter)
@@ -1051,6 +1099,7 @@ import SwiftTerm
         }
     }
     func disconnect() {
+        rdpSleepInterrupted = false
         appleResizeObservation?.cancel()
         appleResizeObservation = nil
         rdpReconnectTask?.cancel()

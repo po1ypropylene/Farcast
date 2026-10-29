@@ -5,6 +5,7 @@ struct AppSettings: View {
     @AppStorage("appearance") private var appearance = "System"
     @AppStorage("restoreWorkspace") private var restoreWorkspace = true
     @AppStorage(SSHInteractionView.rightClickPreference) private var sshRightClickAction = "menu"
+    @AppStorage("reconnectRDPAfterWake") private var reconnectRDPAfterWake = false
     @AppStorage("experimentalRDP") private var experimentalRDP = false
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -37,6 +38,11 @@ struct AppSettings: View {
                 }
             }
             FormSection(title: "Remote Desktop") {
+                Toggle("Automatically reconnect RDP after Mac wakes", isOn: $reconnectRDPAfterWake)
+                Text(
+                    "RDP disconnects when the Mac sleeps. Reconnect after waking using this session’s sign-in details. Off by default."
+                )
+                .font(.caption).foregroundStyle(.secondary)
                 Toggle("Experimental RDP features", isOn: $experimentalRDP)
                 Text(
                     "Enables GFX/H.264, immediate input wakeups, dirty-region updates and diagnostic metrics. Off by default. Applies when connecting or reconnecting."

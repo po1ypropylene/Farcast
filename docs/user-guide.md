@@ -307,6 +307,14 @@ See [known limits](validation.md) for remaining interoperability checks.
 
 ### RDP
 
+RDP sessions disconnect when the Mac sleeps. Farcast stops the connected timer and
+hides the old desktop, including after waking. In **Farcast → Settings → Remote
+Desktop**, enable **Automatically reconnect RDP after Mac wakes** to reconnect
+interrupted sessions in the same tabs after wake. This is off by default; otherwise
+choose Reconnect yourself. Automatic recovery waits for the old connection to close
+and uses the session’s sign-in details in memory. Closing, disconnecting or cancelling
+a session prevents its automatic wake recovery. Display sleep alone does not disconnect.
+
 - If an established connection is lost, Farcast shows its status and tries to
   reconnect in the same tab up to three times, after 2, 5 and 10 seconds. A stalled
   protocol worker shows **Stale** while it is stopped. **Cancel connection** stops

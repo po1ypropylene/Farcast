@@ -19,6 +19,8 @@ import SwiftData
     func start(credential: ConnectionCredential) { state = .connected }
     func askForCredentials() { state = .authenticating }
     func disconnect() { state = .disconnected }
+    func suspendRDPForSleep() {}
+    func resumeRDPAfterWake() {}
     func focus() {}
 }
 @MainActor final class DesktopDouble {

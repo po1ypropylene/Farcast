@@ -132,6 +132,69 @@ private final class ControlledRDPClient: FCRDPClient {
         pump(2.2)
         precondition(stale.state == .disconnected && stalledClient.cancelled)
         print("PASS stale worker disables input, interrupts transport and honors Cancel before cleanup")
+        // Sleep notifications must invalidate the visible connected state before
+        // native cleanup, independently of worker health or the reconnect setting.
+        let sleeping = makeSession()
+        let sleepingClient = clients.last!
+        sleepingClient.connected()
+        wait { sleeping.state == .connected }
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+        precondition(sleeping.state == .disconnected && sleeping.connectedAt == nil)
+        precondition(sleeping.desktop?.inputEnabled == false && sleepingClient.cancelled)
+        sleepingClient.connected()
+        pump()
+        precondition(sleeping.state == .disconnected)
+        let sleepCount = clients.count
+        sleepingClient.onStopped?(false)
+        pump()
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didWakeNotification, object: nil)
+        pump(2.2)
+        precondition(clients.count == sleepCount && sleeping.state == .disconnected)
+        print("PASS default sleep disconnect stops uptime/input and rejects late Connected without reconnecting")
+
+        defaults.set(true, forKey: "reconnectRDPAfterWake")
+        let waking = makeSession()
+        let wakingClient = clients.last!
+        wakingClient.connected()
+        wait { waking.state == .connected }
+        waking.desktop?.submit(Data(repeating: 127, count: 16), width: 2, height: 2, stride: 8)
+        workspace.systemWillSleep()
+        workspace.systemDidWake()
+        let wakeCount = clients.count
+        pump(2.2)
+        precondition(clients.count == wakeCount && waking.state == .disconnected)
+        wakingClient.onStopped?(false)
+        wait { waking.state == .reconnecting }
+        precondition(waking.desktop?.mailbox.snapshot() == nil, "Old desktop must not survive wake recovery")
+        wakingClient.connected()
+        pump()
+        precondition(waking.state == .reconnecting)
+        wait { clients.count == wakeCount + 1 }
+        clients.last!.connected()
+        wait { waking.state == .connected }
+        precondition(workspace.sessions.contains { $0 === waking })
+        print("PASS opt-in wake reconnect waits for cleanup and retains the session tab")
+
+        workspace.systemWillSleep()
+        clients.last!.onStopped?(false)
+        pump()
+        workspace.systemDidWake()
+        precondition(waking.state == .reconnecting)
+        let cancelWakeCount = clients.count
+        waking.disconnect()
+        pump(2.2)
+        precondition(clients.count == cancelWakeCount && waking.state == .disconnected)
+        print("PASS Cancel prevents wake reconnect after cleanup completed during sleep")
+
+        let missed = makeSession()
+        clients.last!.connected()
+        wait { missed.state == .connected }
+        workspace.systemDidWake()
+        precondition(missed.state == .disconnected && missed.connectedAt == nil)
+        missed.disconnect()
+        defaults.set(false, forKey: "reconnectRDPAfterWake")
+        print("PASS missed willSleep still retires the pre-wake connection")
+
         // Exercise the full production path against an owned TLS peer after the
         // controlled callback cases. The native worker is interrupted as if stale.
         profile.port = Int(CommandLine.arguments[2])!
@@ -160,6 +223,13 @@ private final class ControlledRDPClient: FCRDPClient {
         wait(12) { live.state == .connected && nativeClients.count == 2 }
         precondition(workspace.sessions.last === live && live.desktop?.inputEnabled == true)
         print("PASS native TLS session reauthenticates in the same tab after interrupted transport cleanup")
+        defaults.set(true, forKey: "reconnectRDPAfterWake")
+        workspace.systemWillSleep()
+        precondition(live.state == .disconnected && live.connectedAt == nil && live.desktop?.inputEnabled == false)
+        workspace.systemDidWake()
+        wait(15) { live.state == .connected && nativeClients.count == 3 && live.desktop?.mailbox.snapshot() != nil }
+        precondition(workspace.sessions.last === live && live.desktop?.inputEnabled == true)
+        print("PASS sleep cancellation closes the native TLS worker and wake reconnect receives a fresh desktop")
         for session in workspace.sessions { session.disconnect() }
         var drained = false
         FCRDPClient.whenAllDisconnected { DispatchQueue.main.async { drained = true } }

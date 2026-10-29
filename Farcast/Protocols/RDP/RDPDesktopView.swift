@@ -237,6 +237,17 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         viewport?.layoutDesktop()
         refreshCursor()
     }
+    /// Call only after the previous transport worker has retired.
+    func discardDesktopFrame() {
+        _ = mailbox.take()
+        texture = nil
+        surfaceTexture = nil
+        surfaceBuffer = nil
+        chromaSurfaceTexture = nil
+        chromaTexture = nil
+        renderedSequence = nil
+        setNeedsDisplay(bounds)
+    }
     func adoptDesktopSize(_ size: CGSize) {
         expectedDesktopSize = size
         if texture?.width != Int(size.width) || texture?.height != Int(size.height) {

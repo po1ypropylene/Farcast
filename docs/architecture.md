@@ -145,6 +145,17 @@ established for 60 seconds to replenish the retry budget, preventing rapid flapp
 from retrying indefinitely. This is fresh authentication, not RDP reconnect-cookie
 resumption; server policy determines whether the existing desktop is restored.
 
+Workspace observes Mac system sleep/wake independently of worker progress. Sleep
+retires active RDP transports, clears Connected/uptime, disables input/clipboard and
+hides the desktop until connected again. Settings offers an off-by-default wake
+reconnect preference; only interrupted active sessions retain in-memory credentials
+when enabled. Wake waits for native cleanup, then reconnects in the same tab after
+two seconds with a fresh transport/VPN lease. Cancel/close/quit prevents recovery;
+late status callbacks cannot restore Connected. A wake without an observed sleep
+also retires pre-wake active transports conservatively. Display sleep alone does not
+end sessions. This policy intentionally disconnects even connections that might
+otherwise survive system sleep.
+
 Direct RDP TCP sockets use a 15-second keepalive idle interval, three probes spaced
 five seconds apart, and Darwin's 20-second retransmission drop timeout. The latter
 supplements FreeRDP's TCP_USER_TIMEOUT setting, which is unavailable on macOS.
