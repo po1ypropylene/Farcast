@@ -5,6 +5,7 @@
 #import <arpa/inet.h>
 #import <ifaddrs.h>
 #import <net/if.h>
+#import <poll.h>
 #import <srtp2/srtp.h>
 #import <unistd.h>
 #import <zlib.h>
@@ -13,6 +14,14 @@ static void Require(BOOL condition, const char *message) {
         fprintf(stderr, "FAIL %s\n", message);
         exit(1);
     }
+}
+static void WaitForDatagram(int socket) {
+    struct pollfd descriptor = {socket, POLLIN, 0};
+    int result;
+    do {
+        result = poll(&descriptor, 1, 1000);
+    } while (result < 0 && errno == EINTR);
+    Require(result > 0 && (descriptor.revents & POLLIN), "fixture datagram reaches media socket");
 }
 static void W16(uint8_t *p, unsigned n) {
     p[0] = n >> 8;
@@ -357,17 +366,18 @@ int main(void) {
         NSMutableArray<NSData *> *packets = [NSMutableArray array];
         for (NSUInteger i = 0; i < nals.count; i++) {
             NSData *raw = Marked(RTP(nals[i], sequence++, i + 1 == nals.count, sender));
-            NSMutableData *protected = [NSMutableData dataWithLength:raw.length + 64];
-            memcpy(protected.mutableBytes, raw.bytes, raw.length);
+            NSMutableData *sealedPacket = [NSMutableData dataWithLength:raw.length + 64];
+            memcpy(sealedPacket.mutableBytes, raw.bytes, raw.length);
             int length = (int)raw.length;
-            Require(srtp_protect(crypto, protected.mutableBytes, &length) == srtp_err_status_ok, "protect media");
-            protected.length = length;
-            [packets addObject:protected];
+            Require(srtp_protect(crypto, sealedPacket.mutableBytes, &length) == srtp_err_status_ok, "protect media");
+            sealedPacket.length = length;
+            [packets addObject:sealedPacket];
         }
         // A forged packet must not advance sequence state or reach the decoder.
         NSMutableData *forged = [packets[0] mutableCopy];
         ((uint8_t *)forged.mutableBytes)[forged.length - 1] ^= 1;
         sendto(udp, forged.bytes, forged.length, 0, (struct sockaddr *)&destination, sizeof(destination));
+        WaitForDatagram(video.socketDescriptor);
         [video pump];
         Require(frames == 0, "unauthenticated packet ignored");
         // Send one packet, then reorder the following pair within the bounded window.
@@ -377,7 +387,22 @@ int main(void) {
             Require(sendto(udp, packet.bytes, packet.length, 0, (struct sockaddr *)&destination, sizeof(destination)) ==
                         packet.length,
                     "send media");
+            WaitForDatagram(video.socketDescriptor);
             [video pump];
+            if (i == 0 && packets.count > 2) {
+                // Encoder warmup can outlast the startup FIR interval. Consume
+                // those authenticated reports, including delayed loopback
+                // delivery, before introducing packet loss. The repair-window
+                // assertion must observe only new feedback.
+                struct pollfd control = {udp, POLLIN, 0};
+                while (poll(&control, 1, 10) > 0) {
+                    int feedbackLength = (int)recv(udp, feedback, sizeof(feedback), MSG_DONTWAIT);
+                    if (feedbackLength < 0)
+                        break;
+                    Require(srtp_unprotect_rtcp(feedbackCrypto, feedback, &feedbackLength) == srtp_err_status_ok,
+                            "authenticated feedback before repair window");
+                }
+            }
             if (i == 1 && packets.count > 2) {
                 usleep(10000);
                 [video pump];

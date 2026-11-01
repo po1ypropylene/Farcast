@@ -5,6 +5,8 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Improve readability of VNC authentication, media negotiation and recovery, RDP drive registration and color conversion, and VPN ZIP validation with descriptive names and clearer authentication stages; preserve existing protocol behavior.
+
 ## 2.3.0 — 2026-11-01
 
 - Count files recursively across all selected SFTP transfer folders using reusable preflight scans, and open the local folder picker from the path instead of the Local Mac heading.

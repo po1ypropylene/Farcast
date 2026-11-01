@@ -25,17 +25,17 @@ typedef struct {
     char *name;
 } FCDriveDevice;
 static UINT deviceRequest(DEVICE *device, IRP *irp) {
-    FCDriveDevice *d = (void *)device;
-    FCRDPDrive *backend = (__bridge FCRDPDrive *)d->backend;
-    dispatch_async((__bridge dispatch_queue_t)d->queue, ^{
+    FCDriveDevice *driveDevice = (void *)device;
+    FCRDPDrive *backend = (__bridge FCRDPDrive *)driveDevice->backend;
+    dispatch_async((__bridge dispatch_queue_t)driveDevice->queue, ^{
       [backend processIRP:irp];
     });
     return CHANNEL_RC_OK;
 }
 static UINT deviceFree(DEVICE *device) {
-    FCDriveDevice *d = (void *)device;
-    FCRDPDrive *backend = (__bridge_transfer FCRDPDrive *)d->backend;
-    dispatch_queue_t queue = (__bridge_transfer dispatch_queue_t)d->queue;
+    FCDriveDevice *driveDevice = (void *)device;
+    FCRDPDrive *backend = (__bridge_transfer FCRDPDrive *)driveDevice->backend;
+    dispatch_queue_t queue = (__bridge_transfer dispatch_queue_t)driveDevice->queue;
     // Reject queued IRPs before the barrier; draining first could execute
     // writes or delete-on-close after the session has started shutting down.
     [backend cancel];
@@ -43,50 +43,53 @@ static UINT deviceFree(DEVICE *device) {
       [backend shutdown];
     });
     Stream_Free(device->data, TRUE);
-    free(d->name);
-    free(d);
+    free(driveDevice->name);
+    free(driveDevice);
     return CHANNEL_RC_OK;
 }
-static UINT driveEntry(DEVICE_SERVICE_ENTRY_POINTS *ep) {
-    RDPDR_DRIVE *drive = (void *)ep->device;
-    NSString *deviceName = ep->device->Name ? [NSString stringWithUTF8String:ep->device->Name] : nil;
+static UINT driveEntry(DEVICE_SERVICE_ENTRY_POINTS *entryPoints) {
+    RDPDR_DRIVE *drive = (void *)entryPoints->device;
+    NSString *deviceName = entryPoints->device->Name ? [NSString stringWithUTF8String:entryPoints->device->Name] : nil;
     NSString *path = drive->Path ? [NSString stringWithUTF8String:drive->Path] : nil;
     if (!deviceName || !path)
         return ERROR_INVALID_DATA;
-    NSDictionary *config;
+    NSDictionary *configuration;
     @synchronized(registry()) {
-        config = registry()[[NSString stringWithFormat:@"%p|%@|%@", ep->rdpcontext->settings, deviceName, path]];
+        configuration =
+            registry()[[NSString stringWithFormat:@"%p|%@|%@", entryPoints->rdpcontext->settings, deviceName, path]];
     }
-    if (!config)
+    if (!configuration)
         return ERROR_ACCESS_DENIED;
-    FCRDPDrive *backend = [[FCRDPDrive alloc] initWithURL:config[@"url"] readOnly:[config[@"readOnly"] boolValue]];
+    FCRDPDrive *backend = [[FCRDPDrive alloc] initWithURL:configuration[@"url"]
+                                                 readOnly:[configuration[@"readOnly"] boolValue]];
     if (!backend)
         return ERROR_ACCESS_DENIED;
-    FCDriveDevice *d = calloc(1, sizeof(*d));
-    if (!d)
+    FCDriveDevice *driveDevice = calloc(1, sizeof(*driveDevice));
+    if (!driveDevice)
         return CHANNEL_RC_NO_MEMORY;
-    d->name = strdup([config[@"shortName"] UTF8String]);
-    d->device.name = d->name;
-    d->device.type = RDPDR_DTYP_FILESYSTEM;
-    d->device.IRPRequest = deviceRequest;
-    d->device.Free = deviceFree;
+    driveDevice->name = strdup([configuration[@"shortName"] UTF8String]);
+    driveDevice->device.name = driveDevice->name;
+    driveDevice->device.type = RDPDR_DTYP_FILESYSTEM;
+    driveDevice->device.IRPRequest = deviceRequest;
+    driveDevice->device.Free = deviceFree;
     // Windows App and FreeRDP encode the full drive name as terminated UTF-8.
     // UTF-16 introduces embedded zero bytes that Windows can treat as a short name.
-    NSData *name = [[config[@"name"] stringByAppendingString:[NSString stringWithCharacters:(unichar[]){0} length:1]]
+    NSData *name = [[configuration[@"name"] stringByAppendingString:[NSString stringWithCharacters:(unichar[]){0}
+                                                                                            length:1]]
         dataUsingEncoding:NSUTF8StringEncoding];
-    d->device.data = Stream_New(NULL, name.length);
-    if (!d->device.data || !d->name) {
-        Stream_Free(d->device.data, TRUE);
-        free(d->name);
-        free(d);
+    driveDevice->device.data = Stream_New(NULL, name.length);
+    if (!driveDevice->device.data || !driveDevice->name) {
+        Stream_Free(driveDevice->device.data, TRUE);
+        free(driveDevice->name);
+        free(driveDevice);
         return CHANNEL_RC_NO_MEMORY;
     }
-    Stream_Write(d->device.data, name.bytes, name.length);
-    d->backend = (__bridge_retained void *)backend;
-    d->queue = (__bridge_retained void *)dispatch_queue_create("Farcast.RDP.Folder", DISPATCH_QUEUE_SERIAL);
-    UINT status = ep->RegisterDevice(ep->devman, &d->device);
+    Stream_Write(driveDevice->device.data, name.bytes, name.length);
+    driveDevice->backend = (__bridge_retained void *)backend;
+    driveDevice->queue = (__bridge_retained void *)dispatch_queue_create("Farcast.RDP.Folder", DISPATCH_QUEUE_SERIAL);
+    UINT status = entryPoints->RegisterDevice(entryPoints->devman, &driveDevice->device);
     if (status)
-        deviceFree(&d->device);
+        deviceFree(&driveDevice->device);
     return status;
 }
 static PVIRTUALCHANNELENTRY addin(LPCSTR name, LPCSTR subsystem, LPCSTR type, DWORD flags) {

@@ -507,6 +507,10 @@ account-specific PBKDF2 work. RSA key approval precedes the encrypted identity
 exchange; mutual SRP proof and record integrity must succeed, with no downgrade to
 classic VNC. Apple RSA identities have a separate endpoint suffix from TLS pins.
 No system private framework is linked and no unrelated adapter code is copied.
+Authentication keeps negotiation, identity approval/encryption, SRP computation and
+mutual-proof exchange separate. SRP values use descriptive names with the standard
+notation alongside them; a private named result carries the client public value,
+client proof, expected server proof and options without positional array indexing.
 
 When ServerInit advertises Apple's session-selection phase, the worker submits
 version-2 virtual-session selection with the account username/password encrypted

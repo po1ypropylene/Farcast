@@ -5,69 +5,76 @@ import zlib
 struct BoundedZIP {
     static func read(_ data: Data) throws -> [String: Data] {
         let bytes = [UInt8](data)
-        func number(_ offset: Int, _ count: Int) throws -> Int {
-            guard offset >= 0, offset <= bytes.count - count else { throw OpenVPNError.invalidArchive }
-            return (0..<count).reduce(0) { $0 | Int(bytes[offset + $1]) << ($1 * 8) }
+        func readLittleEndian(_ offset: Int, _ byteCount: Int) throws -> Int {
+            guard offset >= 0, offset <= bytes.count - byteCount else { throw OpenVPNError.invalidArchive }
+            return (0..<byteCount).reduce(0) { $0 | Int(bytes[offset + $1]) << ($1 * 8) }
         }
         guard bytes.count >= 22, bytes.count <= 4 * 1024 * 1024 else { throw OpenVPNError.invalidArchive }
-        var end: Int?
+        var endOfCentralDirectoryOffset: Int?
         for offset in stride(from: bytes.count - 22, through: max(0, bytes.count - 65_557), by: -1) {
-            if try number(offset, 4) == 0x0605_4b50,
-                offset + 22 + (try number(offset + 20, 2)) == bytes.count
+            if try readLittleEndian(offset, 4) == 0x0605_4b50,
+                offset + 22 + (try readLittleEndian(offset + 20, 2)) == bytes.count
             {
-                end = offset
+                endOfCentralDirectoryOffset = offset
                 break
             }
         }
-        guard let end, try number(end + 4, 2) == 0, try number(end + 6, 2) == 0 else {
+        guard let endOfCentralDirectoryOffset, try readLittleEndian(endOfCentralDirectoryOffset + 4, 2) == 0,
+            try readLittleEndian(endOfCentralDirectoryOffset + 6, 2) == 0
+        else {
             throw OpenVPNError.invalidArchive
         }
-        let count = try number(end + 10, 2)
-        let size = try number(end + 12, 4)
-        var cursor = try number(end + 16, 4)
-        guard (1...64).contains(count), try number(end + 8, 2) == count, cursor + size == end else {
+        let entryCount = try readLittleEndian(endOfCentralDirectoryOffset + 10, 2)
+        let directorySize = try readLittleEndian(endOfCentralDirectoryOffset + 12, 4)
+        var directoryEntryOffset = try readLittleEndian(endOfCentralDirectoryOffset + 16, 4)
+        guard (1...64).contains(entryCount), try readLittleEndian(endOfCentralDirectoryOffset + 8, 2) == entryCount,
+            directoryEntryOffset + directorySize == endOfCentralDirectoryOffset
+        else {
             throw OpenVPNError.invalidArchive
         }
         var result: [String: Data] = [:]
         var names = Set<String>()
-        var total = 0
-        for _ in 0..<count {
-            guard try number(cursor, 4) == 0x0201_4b50 else { throw OpenVPNError.invalidArchive }
-            let flags = try number(cursor + 8, 2)
-            let method = try number(cursor + 10, 2)
-            let checksum = try number(cursor + 16, 4)
-            let compressed = try number(cursor + 20, 4)
-            let expanded = try number(cursor + 24, 4)
-            let nameLength = try number(cursor + 28, 2)
-            let extraLength = try number(cursor + 30, 2)
-            let commentLength = try number(cursor + 32, 2)
-            let attributes = try number(cursor + 38, 4)
-            let local = try number(cursor + 42, 4)
-            let nameStart = cursor + 46
-            let next = nameStart + nameLength + extraLength + commentLength
-            guard next <= end, nameLength > 0,
+        var totalExpandedSize = 0
+        for _ in 0..<entryCount {
+            guard try readLittleEndian(directoryEntryOffset, 4) == 0x0201_4b50 else {
+                throw OpenVPNError.invalidArchive
+            }
+            let flags = try readLittleEndian(directoryEntryOffset + 8, 2)
+            let method = try readLittleEndian(directoryEntryOffset + 10, 2)
+            let checksum = try readLittleEndian(directoryEntryOffset + 16, 4)
+            let compressedSize = try readLittleEndian(directoryEntryOffset + 20, 4)
+            let expandedSize = try readLittleEndian(directoryEntryOffset + 24, 4)
+            let nameLength = try readLittleEndian(directoryEntryOffset + 28, 2)
+            let extraLength = try readLittleEndian(directoryEntryOffset + 30, 2)
+            let commentLength = try readLittleEndian(directoryEntryOffset + 32, 2)
+            let attributes = try readLittleEndian(directoryEntryOffset + 38, 4)
+            let localHeaderOffset = try readLittleEndian(directoryEntryOffset + 42, 4)
+            let nameStart = directoryEntryOffset + 46
+            let nextEntryOffset = nameStart + nameLength + extraLength + commentLength
+            guard nextEntryOffset <= endOfCentralDirectoryOffset, nameLength > 0,
                 let name = String(bytes: bytes[nameStart..<(nameStart + nameLength)], encoding: .utf8),
                 safePath(name), names.insert(name.lowercased()).inserted,
-                flags & 0x2041 == 0, [0, 8].contains(method), expanded <= 1_048_576,
-                (attributes >> 16) & 0xf000 != 0xa000, try number(cursor + 34, 2) == 0
+                flags & 0x2041 == 0, [0, 8].contains(method), expandedSize <= 1_048_576,
+                (attributes >> 16) & 0xf000 != 0xa000, try readLittleEndian(directoryEntryOffset + 34, 2) == 0
             else { throw OpenVPNError.invalidArchive }
-            total += expanded
-            guard total <= 4 * 1024 * 1024, try number(local, 4) == 0x0403_4b50,
-                try number(local + 6, 2) == flags, try number(local + 8, 2) == method,
-                try number(local + 26, 2) == nameLength
+            totalExpandedSize += expandedSize
+            guard totalExpandedSize <= 4 * 1024 * 1024, try readLittleEndian(localHeaderOffset, 4) == 0x0403_4b50,
+                try readLittleEndian(localHeaderOffset + 6, 2) == flags,
+                try readLittleEndian(localHeaderOffset + 8, 2) == method,
+                try readLittleEndian(localHeaderOffset + 26, 2) == nameLength
             else { throw OpenVPNError.invalidArchive }
-            let start = local + 30 + nameLength + (try number(local + 28, 2))
-            guard start <= cursor, compressed <= cursor - start,
-                bytes[(local + 30)..<(local + 30 + nameLength)].elementsEqual(
+            let payloadOffset = localHeaderOffset + 30 + nameLength + (try readLittleEndian(localHeaderOffset + 28, 2))
+            guard payloadOffset <= directoryEntryOffset, compressedSize <= directoryEntryOffset - payloadOffset,
+                bytes[(localHeaderOffset + 30)..<(localHeaderOffset + 30 + nameLength)].elementsEqual(
                     bytes[nameStart..<(nameStart + nameLength)])
             else { throw OpenVPNError.invalidArchive }
-            let payload = Array(bytes[start..<(start + compressed)])
+            let payload = Array(bytes[payloadOffset..<(payloadOffset + compressedSize)])
             let output: [UInt8]
             if method == 0 {
-                guard compressed == expanded else { throw OpenVPNError.invalidArchive }
+                guard compressedSize == expandedSize else { throw OpenVPNError.invalidArchive }
                 output = payload
             } else {
-                var buffer = [UInt8](repeating: 0, count: max(1, expanded))
+                var buffer = [UInt8](repeating: 0, count: max(1, expandedSize))
                 var stream = z_stream()
                 guard inflateInit2_(&stream, -MAX_WBITS, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK
                 else {
@@ -83,17 +90,19 @@ struct BoundedZIP {
                         return inflate(&stream, Z_FINISH)
                     }
                 }
-                guard status == Z_STREAM_END, stream.total_out == expanded, stream.total_in == compressed else {
+                guard status == Z_STREAM_END, stream.total_out == expandedSize, stream.total_in == compressedSize else {
                     throw OpenVPNError.invalidArchive
                 }
-                output = Array(buffer.prefix(expanded))
+                output = Array(buffer.prefix(expandedSize))
             }
-            let crc = output.withUnsafeBytes { crc32(0, $0.bindMemory(to: UInt8.self).baseAddress, uInt($0.count)) }
-            guard crc == checksum else { throw OpenVPNError.invalidArchive }
+            let actualChecksum = output.withUnsafeBytes {
+                crc32(0, $0.bindMemory(to: UInt8.self).baseAddress, uInt($0.count))
+            }
+            guard actualChecksum == checksum else { throw OpenVPNError.invalidArchive }
             if !name.hasSuffix("/") { result[name] = Data(output) }
-            cursor = next
+            directoryEntryOffset = nextEntryOffset
         }
-        guard cursor == end else { throw OpenVPNError.invalidArchive }
+        guard directoryEntryOffset == endOfCentralDirectoryOffset else { throw OpenVPNError.invalidArchive }
         return result
     }
 

@@ -2,6 +2,7 @@
 #import "../Transport/WireGuardSocket.h"
 #import "VNCAppleSession.h"
 #import "VNCAppleVideo.h"
+#import "VNCAppleWire.h"
 #import <Security/Security.h>
 #import <arpa/inet.h>
 #import <fcntl.h>
@@ -21,16 +22,6 @@ static dispatch_group_t FCVNCWorkers(void) {
       group = dispatch_group_create();
     });
     return group;
-}
-static uint16_t Read16(const unsigned char *p) { return ((uint16_t)p[0] << 8) | p[1]; }
-static uint32_t Read32(const unsigned char *p) { return ((uint32_t)Read16(p) << 16) | Read16(p + 2); }
-static void Put16(unsigned char *p, uint16_t n) {
-    p[0] = n >> 8;
-    p[1] = n;
-}
-static void Put32(unsigned char *p, uint32_t n) {
-    Put16(p, n >> 16);
-    Put16(p + 2, n);
 }
 static uint32_t KeySym(uint32_t scalar) {
     if (scalar == 10 || scalar == 13)
@@ -101,77 +92,80 @@ static uint32_t KeySym(uint32_t scalar) {
             [self pumpVideo];
         if (events == POLLIN && _ready && ![self flushInput])
             return NO;
-        struct pollfd p[2] = {
+        struct pollfd descriptors[2] = {
             {_fd, events, 0},
             {events == POLLIN && _video && !_adaptiveDisabled ? _video.socketDescriptor : -1, POLLIN, 0}};
-        int r = poll(p, 2, 10);
-        if (r > 0 && p[1].revents)
+        int pollResult = poll(descriptors, 2, 10);
+        if (pollResult > 0 && descriptors[1].revents)
             [self pumpVideo];
-        if (r < 0 && errno == EINTR)
+        if (pollResult < 0 && errno == EINTR)
             continue;
-        if (r < 0 || (p[0].revents & POLLNVAL))
+        if (pollResult < 0 || (descriptors[0].revents & POLLNVAL))
             return NO;
-        if (r && (p[0].revents & (events | POLLHUP | POLLERR)))
+        if (pollResult && (descriptors[0].revents & (events | POLLHUP | POLLERR)))
             return YES;
     }
     return NO;
 }
 - (BOOL)writeTransport:(const void *)bytes count:(NSUInteger)count {
     double deadline = FCWireGuardSocketTime() + 30;
-    NSUInteger done = 0;
-    while (done < count && ![self cancelled]) {
-        int n;
+    NSUInteger transferredBytes = 0;
+    while (transferredBytes < count && ![self cancelled]) {
+        int transferResult;
         if (_tls) {
-            n = SSL_write(_tls, (const char *)bytes + done, (int)MIN(count - done, 65536));
-            if (n <= 0) {
-                int e = SSL_get_error(_tls, n);
-                if ((e == SSL_ERROR_WANT_READ || e == SSL_ERROR_WANT_WRITE) &&
-                    [self waitSocket:e == SSL_ERROR_WANT_READ ? POLLIN : POLLOUT deadline:deadline])
+            transferResult =
+                SSL_write(_tls, (const char *)bytes + transferredBytes, (int)MIN(count - transferredBytes, 65536));
+            if (transferResult <= 0) {
+                int tlsError = SSL_get_error(_tls, transferResult);
+                if ((tlsError == SSL_ERROR_WANT_READ || tlsError == SSL_ERROR_WANT_WRITE) &&
+                    [self waitSocket:tlsError == SSL_ERROR_WANT_READ ? POLLIN : POLLOUT deadline:deadline])
                     continue;
                 return NO;
             }
         } else {
             if (![self waitSocket:POLLOUT deadline:deadline])
                 return NO;
-            n = (int)send(_fd, (const char *)bytes + done, count - done, MSG_DONTWAIT);
-            if (n < 0 && (errno == EAGAIN || errno == EINTR))
+            transferResult =
+                (int)send(_fd, (const char *)bytes + transferredBytes, count - transferredBytes, MSG_DONTWAIT);
+            if (transferResult < 0 && (errno == EAGAIN || errno == EINTR))
                 continue;
-            if (n <= 0)
+            if (transferResult <= 0)
                 return NO;
         }
-        done += n;
+        transferredBytes += transferResult;
     }
-    return done == count;
+    return transferredBytes == count;
 }
 - (BOOL)readTransport:(void *)bytes count:(NSUInteger)count {
     double deadline = FCWireGuardSocketTime() + 30;
-    NSUInteger done = 0;
-    while (done < count && ![self cancelled]) {
+    NSUInteger transferredBytes = 0;
+    while (transferredBytes < count && ![self cancelled]) {
         if (_ready && ![self flushInput])
             return NO;
-        int n;
+        int transferResult;
         if (_tls) {
-            n = SSL_read(_tls, (char *)bytes + done, (int)MIN(count - done, 65536));
-            if (n <= 0) {
-                int e = SSL_get_error(_tls, n);
-                if ((e == SSL_ERROR_WANT_READ || e == SSL_ERROR_WANT_WRITE) &&
-                    [self waitSocket:e == SSL_ERROR_WANT_READ ? POLLIN : POLLOUT deadline:deadline])
+            transferResult =
+                SSL_read(_tls, (char *)bytes + transferredBytes, (int)MIN(count - transferredBytes, 65536));
+            if (transferResult <= 0) {
+                int tlsError = SSL_get_error(_tls, transferResult);
+                if ((tlsError == SSL_ERROR_WANT_READ || tlsError == SSL_ERROR_WANT_WRITE) &&
+                    [self waitSocket:tlsError == SSL_ERROR_WANT_READ ? POLLIN : POLLOUT deadline:deadline])
                     continue;
                 return NO;
             }
         } else {
             if (![self waitSocket:POLLIN deadline:deadline])
                 return NO;
-            n = (int)recv(_fd, (char *)bytes + done, count - done, MSG_DONTWAIT);
-            if (n < 0 && (errno == EAGAIN || errno == EINTR))
+            transferResult = (int)recv(_fd, (char *)bytes + transferredBytes, count - transferredBytes, MSG_DONTWAIT);
+            if (transferResult < 0 && (errno == EAGAIN || errno == EINTR))
                 continue;
-            if (n <= 0)
+            if (transferResult <= 0)
                 return NO;
         }
-        done += n;
+        transferredBytes += transferResult;
         deadline = FCWireGuardSocketTime() + 30;
     }
-    return done == count;
+    return transferredBytes == count;
 }
 - (BOOL)write:(const void *)bytes count:(NSUInteger)count {
     BOOL ok = _apple ? [_apple write:bytes count:count] : [self writeTransport:bytes count:count];
@@ -408,7 +402,7 @@ static uint32_t KeySym(uint32_t scalar) {
         unsigned char value[4];
         if (![self read:value count:4])
             return NO;
-        security = Read32(value);
+        security = FCVNCRead32(value);
     } else {
         unsigned char count, types[255];
         if (![self read:&count count:1] || !count || ![self read:types count:count])
@@ -446,14 +440,14 @@ static uint32_t KeySym(uint32_t scalar) {
             unsigned char value[4];
             if (![self read:value count:4])
                 return NO;
-            uint32_t type = Read32(value);
+            uint32_t type = FCVNCRead32(value);
             if (type == 261 || (type == 262 && subtype != 261) || (type == 260 && !subtype))
                 subtype = type;
         }
         if (!subtype)
             return NO;
         unsigned char value[4];
-        Put32(value, subtype);
+        FCVNCWrite32(value, subtype);
         if (![self write:value count:4] || ![self read:&status count:1] || status != 1 || ![self tlsHost:host])
             return NO;
         if (subtype == 261 && ![self vncAuth:password])
@@ -466,8 +460,8 @@ static uint32_t KeySym(uint32_t scalar) {
                 return NO;
             }
             unsigned char lengths[8];
-            Put32(lengths, (uint32_t)user.length);
-            Put32(lengths + 4, (uint32_t)pass.length);
+            FCVNCWrite32(lengths, (uint32_t)user.length);
+            FCVNCWrite32(lengths + 4, (uint32_t)pass.length);
             if (![self write:lengths count:8] || ![self write:user.bytes count:user.length] ||
                 ![self write:pass.bytes count:pass.length])
                 return NO;
@@ -483,7 +477,7 @@ static uint32_t KeySym(uint32_t scalar) {
         unsigned char result[4];
         if (![self read:result count:4])
             return NO;
-        if (Read32(result)) {
+        if (FCVNCRead32(result)) {
             _failure = @"VNC authentication was rejected. Retry sign-in with the server’s VNC password.";
             if (self.onAuthenticationRejected)
                 self.onAuthenticationRejected();
@@ -505,19 +499,20 @@ static uint32_t KeySym(uint32_t scalar) {
 }
 - (BOOL)requestFrame:(BOOL)incremental {
     unsigned char request[10] = {3, incremental ? 1 : 0};
-    Put16(request + 6, (uint16_t)_width);
-    Put16(request + 8, (uint16_t)_height);
+    FCVNCWrite16(request + 6, (uint16_t)_width);
+    FCVNCWrite16(request + 8, (uint16_t)_height);
     return [self write:request count:10];
 }
 - (BOOL)initializeDesktopUsername:(NSString *)username password:(NSString *)password {
     unsigned char shared = _apple ? 0xc1 : 1, init[24];
     if (![self write:&shared count:1] || ![self read:init count:24])
         return NO;
-    uint32_t nameLength = Read32(init + 20);
+    uint32_t nameLength = FCVNCRead32(init + 20);
     if (nameLength > 1048576)
         return NO;
     NSMutableData *serverInfo = [NSMutableData dataWithLength:nameLength];
-    if (![self read:serverInfo.mutableBytes count:nameLength] || ![self sizeWidth:Read16(init) height:Read16(init + 2)])
+    if (![self read:serverInfo.mutableBytes count:nameLength] || ![self sizeWidth:FCVNCRead16(init)
+                                                                           height:FCVNCRead16(init + 2)])
         return NO;
     if (_apple && ![_apple selectDesktopWithServerInfo:serverInfo username:username password:password]) {
         _failure = _apple.failure;
@@ -560,23 +555,23 @@ static uint32_t KeySym(uint32_t scalar) {
 }
 - (BOOL)setEncodings {
     unsigned char encodings[52] = {2, 0, 0, _apple ? 11 : 5};
-    Put32(encodings + 4, 6);
-    Put32(encodings + 8, 5);
-    Put32(encodings + 12, 1);
-    Put32(encodings + 16, 0);
-    Put32(encodings + 20, (uint32_t)-223);
-    Put32(encodings + 24, 0x44f);
-    Put32(encodings + 28, 0x450);
-    Put32(encodings + 32, 0x451);
-    Put32(encodings + 36, 0x455);
-    Put32(encodings + 40, 0x456);
-    Put32(encodings + 44, 0x453);
+    FCVNCWrite32(encodings + 4, 6);
+    FCVNCWrite32(encodings + 8, 5);
+    FCVNCWrite32(encodings + 12, 1);
+    FCVNCWrite32(encodings + 16, 0);
+    FCVNCWrite32(encodings + 20, (uint32_t)-223);
+    FCVNCWrite32(encodings + 24, 0x44f);
+    FCVNCWrite32(encodings + 28, 0x450);
+    FCVNCWrite32(encodings + 32, 0x451);
+    FCVNCWrite32(encodings + 36, 0x455);
+    FCVNCWrite32(encodings + 40, 0x456);
+    FCVNCWrite32(encodings + 44, 0x453);
     if (_video && !_adaptiveDisabled) {
         encodings[3] = 12;
         // Apple selects the first codec as primary; advertising media only
         // at the end initializes UDP but leaves the TCP encoder selected.
         memmove(encodings + 8, encodings + 4, 44);
-        Put32(encodings + 4, 0x3f2);
+        FCVNCWrite32(encodings + 4, 0x3f2);
     }
     return [self write:encodings count:_apple ? (encodings[3] * 4 + 4) : 24];
 }
@@ -603,7 +598,7 @@ static uint32_t KeySym(uint32_t scalar) {
     unsigned char prefix[2];
     if (![self read:prefix count:2])
         return NO;
-    NSUInteger length = Read16(prefix);
+    NSUInteger length = FCVNCRead16(prefix);
     if (length < 4 || length > 65533)
         return NO;
     NSMutableData *data = [NSMutableData dataWithLength:length + 2];
@@ -613,7 +608,7 @@ static uint32_t KeySym(uint32_t scalar) {
     if (!_video || _adaptiveDisabled)
         return YES;
     const uint8_t *p = data.bytes;
-    if (Read16(p + 2) == 1) {
+    if (FCVNCRead16(p + 2) == 1) {
         NSData *configuration = [_video configure:data width:_width height:_height];
         if (!configuration) {
             [self fallbackVideo];
@@ -622,7 +617,7 @@ static uint32_t KeySym(uint32_t scalar) {
         [self status:_reportedFrame ? @"connected" : @"connecting" message:@"Negotiating Adaptive HEVC video…"];
         return [self write:configuration.bytes count:configuration.length];
     }
-    if (Read16(p + 2) != 2 || ![_video acceptAnswer:data])
+    if (FCVNCRead16(p + 2) != 2 || ![_video acceptAnswer:data])
         [self fallbackVideo];
     return YES;
 }
@@ -705,7 +700,7 @@ static uint32_t KeySym(uint32_t scalar) {
     unsigned char lengthBytes[4];
     if (![self read:lengthBytes count:4])
         return NO;
-    uint32_t length = Read32(lengthBytes);
+    uint32_t length = FCVNCRead32(lengthBytes);
     if (!length || length > 64 * 1024 * 1024)
         return NO;
     NSMutableData *compressed = [NSMutableData dataWithLength:length],
@@ -737,8 +732,8 @@ static uint32_t KeySym(uint32_t scalar) {
 }
 - (BOOL)armAppleUpdates {
     unsigned char packet[16] = {9, 0, 0, 1, 255, 255, 255, 255};
-    Put16(packet + 12, _width);
-    Put16(packet + 14, _height);
+    FCVNCWrite16(packet + 12, _width);
+    FCVNCWrite16(packet + 14, _height);
     // A replacement display agent must receive control mode as well as the
     // renewed framebuffer subscription. Streaming alone does not enable input.
     const unsigned char control[] = {0x0a, 0, 0, 1};
@@ -756,7 +751,7 @@ static uint32_t KeySym(uint32_t scalar) {
         unsigned char header[8];
         if (![self read:header count:8])
             return NO;
-        uint32_t length = Read32(header + 4);
+        uint32_t length = FCVNCRead32(header + 4);
         if (length > 1024 * 1024 || w > 512 || h > 512)
             return NO;
         // Cursor STORE/SELECT is framed independently of framebuffer pixel damage.
@@ -765,7 +760,7 @@ static uint32_t KeySym(uint32_t scalar) {
     unsigned char prefix[2];
     if (![self read:prefix count:2])
         return NO;
-    NSUInteger size = Read16(prefix);
+    NSUInteger size = FCVNCRead16(prefix);
     if (size > 65535 || size < 2)
         return NO;
     NSMutableData *data = [NSMutableData dataWithLength:size];
@@ -775,13 +770,13 @@ static uint32_t KeySym(uint32_t scalar) {
         // Version-5 layout starts with version, display selector and flags. Geometry
         // is carried in the first screen's backing/scaled bounds, not its identifier.
         const unsigned char *p = data.bytes;
-        if (size < 66 || Read16(p) != 5) {
+        if (size < 66 || FCVNCRead16(p) != 5) {
             _failure = [NSString stringWithFormat:@"Unsupported Apple display-layout format (version %u, size %lu).",
-                                                  size >= 2 ? Read16(p) : 0, (unsigned long)size];
+                                                  size >= 2 ? FCVNCRead16(p) : 0, (unsigned long)size];
             return NO;
         }
-        NSUInteger backingW = Read16(p + 36), backingH = Read16(p + 38), logicalW = Read16(p + 44),
-                   logicalH = Read16(p + 46);
+        NSUInteger backingW = FCVNCRead16(p + 36), backingH = FCVNCRead16(p + 38), logicalW = FCVNCRead16(p + 44),
+                   logicalH = FCVNCRead16(p + 46);
         if (!logicalW || !logicalH || logicalW > 3840 || logicalH > 2160 || !backingW || !backingH || backingW > 3840 ||
             backingH > 2160) {
             _failure =
@@ -806,7 +801,7 @@ static uint32_t KeySym(uint32_t scalar) {
     unsigned char header[3];
     if (![self read:header count:3])
         return NO;
-    NSUInteger count = Read16(header + 1);
+    NSUInteger count = FCVNCRead16(header + 1);
     if (count > 4096)
         return NO;
     BOOL resized = NO, damaged = NO, appleRearmed = NO;
@@ -814,8 +809,9 @@ static uint32_t KeySym(uint32_t scalar) {
         unsigned char rect[12];
         if (![self read:rect count:12])
             return NO;
-        NSUInteger x = Read16(rect), y = Read16(rect + 2), w = Read16(rect + 4), h = Read16(rect + 6);
-        int32_t encoding = (int32_t)Read32(rect + 8);
+        NSUInteger x = FCVNCRead16(rect), y = FCVNCRead16(rect + 2), w = FCVNCRead16(rect + 4),
+                   h = FCVNCRead16(rect + 6);
+        int32_t encoding = (int32_t)FCVNCRead32(rect + 8);
         if (_apple && encoding == 0x3f2) {
             if (![self mediaEncoding])
                 return NO;
@@ -850,7 +846,7 @@ static uint32_t KeySym(uint32_t scalar) {
             unsigned char source[4];
             if (![self read:source count:4])
                 return NO;
-            NSUInteger sx = Read16(source), sy = Read16(source + 2);
+            NSUInteger sx = FCVNCRead16(source), sy = FCVNCRead16(source + 2);
             if (sx + w > _width || sy + h > _height)
                 return NO;
             unsigned char *pixels = _pixels.mutableBytes;
@@ -879,7 +875,7 @@ static uint32_t KeySym(uint32_t scalar) {
 }
 - (NSData *)key:(uint32_t)key pressed:(BOOL)pressed {
     unsigned char packet[8] = {4, pressed ? 1 : 0};
-    Put32(packet + 4, key);
+    FCVNCWrite32(packet + 4, key);
     return [NSData dataWithBytes:packet length:8];
 }
 - (void)enqueue:(NSData *)packet {
@@ -912,8 +908,8 @@ static uint32_t KeySym(uint32_t scalar) {
 }
 - (void)sendPointerMask:(NSInteger)mask x:(NSInteger)x y:(NSInteger)y {
     unsigned char packet[6] = {5, (unsigned char)mask};
-    Put16(packet + 2, (uint16_t)MAX(0, MIN(65535, x)));
-    Put16(packet + 4, (uint16_t)MAX(0, MIN(65535, y)));
+    FCVNCWrite16(packet + 2, (uint16_t)MAX(0, MIN(65535, x)));
+    FCVNCWrite16(packet + 4, (uint16_t)MAX(0, MIN(65535, y)));
     [self enqueue:[NSData dataWithBytes:packet length:6]];
 }
 - (void)sendControlAltDelete {
@@ -1098,12 +1094,12 @@ static uint32_t KeySym(uint32_t scalar) {
                       } else if (self->_apple && type == 0x14) {
                           unsigned char header[3];
                           ok = [self read:header count:3];
-                          NSUInteger length = ok ? Read16(header + 1) : 0;
+                          NSUInteger length = ok ? FCVNCRead16(header + 1) : 0;
                           ok = ok && length <= 4096 && [self discard:length];
                       } else if (type == 3) {
                           unsigned char header[7];
                           ok = [self read:header count:7];
-                          uint32_t size = ok ? Read32(header + 3) : 0;
+                          uint32_t size = ok ? FCVNCRead32(header + 3) : 0;
                           ok = ok && size <= 1048576 && [self discard:size];
                       } else
                           ok = NO;

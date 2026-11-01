@@ -455,32 +455,35 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     }
     nonisolated static func yuvConversion(_ buffer: CVPixelBuffer) -> [SIMD4<Float>] {
         let matrix = CVBufferCopyAttachment(buffer, kCVImageBufferYCbCrMatrixKey, nil)
-        let kr: Float
-        let kb: Float
+        let redLumaWeight: Float
+        let blueLumaWeight: Float
         if let matrix, CFEqual(matrix, kCVImageBufferYCbCrMatrix_ITU_R_601_4) {
-            kr = 0.299
-            kb = 0.114
+            redLumaWeight = 0.299
+            blueLumaWeight = 0.114
         } else if let matrix, CFEqual(matrix, kCVImageBufferYCbCrMatrix_ITU_R_2020) {
-            kr = 0.2627
-            kb = 0.0593
+            redLumaWeight = 0.2627
+            blueLumaWeight = 0.0593
         } else {
             // The negotiated SDR HD stream uses BT.709 when VUI omits a matrix.
-            kr = 0.2126
-            kb = 0.0722
+            redLumaWeight = 0.2126
+            blueLumaWeight = 0.0722
         }
         let fullRange = CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-        let yScale: Float = fullRange ? 1 : 255 / 219
-        let cScale: Float = fullRange ? 1 : 255 / 224
-        let yOffset: Float = fullRange ? 0 : 16 / 255
-        let center: Float = 128 / 255
-        let r = 2 * (1 - kr) * cScale
-        let b = 2 * (1 - kb) * cScale
-        let gU = -2 * kb * (1 - kb) / (1 - kr - kb) * cScale
-        let gV = -2 * kr * (1 - kr) / (1 - kr - kb) * cScale
+        let lumaScale: Float = fullRange ? 1 : 255 / 219
+        let chromaScale: Float = fullRange ? 1 : 255 / 224
+        let lumaOffset: Float = fullRange ? 0 : 16 / 255
+        let chromaCenter: Float = 128 / 255
+        let redFromCr = 2 * (1 - redLumaWeight) * chromaScale
+        let blueFromCb = 2 * (1 - blueLumaWeight) * chromaScale
+        let greenFromCb =
+            -2 * blueLumaWeight * (1 - blueLumaWeight) / (1 - redLumaWeight - blueLumaWeight) * chromaScale
+        let greenFromCr = -2 * redLumaWeight * (1 - redLumaWeight) / (1 - redLumaWeight - blueLumaWeight) * chromaScale
         return [
-            SIMD4(yScale, 0, r, -yOffset * yScale - center * r),
-            SIMD4(yScale, gU, gV, -yOffset * yScale - center * (gU + gV)),
-            SIMD4(yScale, b, 0, -yOffset * yScale - center * b),
+            SIMD4(lumaScale, 0, redFromCr, -lumaOffset * lumaScale - chromaCenter * redFromCr),
+            SIMD4(
+                lumaScale, greenFromCb, greenFromCr,
+                -lumaOffset * lumaScale - chromaCenter * (greenFromCb + greenFromCr)),
+            SIMD4(lumaScale, blueFromCb, 0, -lumaOffset * lumaScale - chromaCenter * blueFromCb),
         ]
     }
     func draw(in view: MTKView) {

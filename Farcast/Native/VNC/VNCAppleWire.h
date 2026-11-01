@@ -1,23 +1,23 @@
 #import <Foundation/Foundation.h>
 
-// Unaligned, host-independent access to the Apple/RTP network byte order.
+// Unaligned, host-independent access to the RFB/Apple/RTP network byte order.
 static inline uint16_t FCVNCRead16(const void *bytes) {
-    const uint8_t *p = bytes;
-    return (uint16_t)p[0] << 8 | p[1];
+    const uint8_t *networkBytes = bytes;
+    return (uint16_t)networkBytes[0] << 8 | networkBytes[1];
 }
 static inline uint32_t FCVNCRead32(const void *bytes) {
-    const uint8_t *p = bytes;
-    return (uint32_t)FCVNCRead16(p) << 16 | FCVNCRead16(p + 2);
+    const uint8_t *networkBytes = bytes;
+    return (uint32_t)FCVNCRead16(networkBytes) << 16 | FCVNCRead16(networkBytes + 2);
 }
-static inline void FCVNCWrite16(void *bytes, NSUInteger n) {
-    uint8_t *p = bytes;
-    p[0] = n >> 8;
-    p[1] = n;
+static inline void FCVNCWrite16(void *bytes, NSUInteger value) {
+    uint8_t *networkBytes = bytes;
+    networkBytes[0] = value >> 8;
+    networkBytes[1] = value;
 }
-static inline void FCVNCWrite32(void *bytes, uint32_t n) {
-    uint8_t *p = bytes;
-    FCVNCWrite16(p, n >> 16);
-    FCVNCWrite16(p + 2, n);
+static inline void FCVNCWrite32(void *bytes, uint32_t value) {
+    uint8_t *networkBytes = bytes;
+    FCVNCWrite16(networkBytes, value >> 16);
+    FCVNCWrite16(networkBytes + 2, value);
 }
 
 #define FCVNC_APP_NAME "Farcast"

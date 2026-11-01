@@ -14,7 +14,7 @@ static double Now(void) { return NSProcessInfo.processInfo.systemUptime; }
 
 @implementation FCVNCAppleHEVC {
     NSMutableData *_fragment;
-    uint16_t _nextSequence, _don;
+    uint16_t _nextSequence, _fragmentDecodingOrderNumber;
     uint32_t _timestamp;
     BOOL _sequenced;
     uint32_t _referenceTimestamp;
@@ -47,114 +47,114 @@ static double Now(void) { return NSProcessInfo.processInfo.systemUptime; }
     }
 }
 - (void)consumeRTPBytes:(const void *)bytes length:(NSUInteger)length {
-    const uint8_t *p = bytes;
-    if (length < 12 || (p[0] >> 6) != 2 || (p[1] & 127) != 100)
+    const uint8_t *packetBytes = bytes;
+    if (length < 12 || (packetBytes[0] >> 6) != 2 || (packetBytes[1] & 127) != 100)
         return;
-    uint32_t timestamp = FCVNCRead32(p + 4);
+    uint32_t timestamp = FCVNCRead32(packetBytes + 4);
     if (timestamp != _referenceTimestamp) {
         _referenceTimestamp = timestamp;
         _markedReference = NO;
     }
-    NSUInteger offset = 12 + 4 * (p[0] & 15);
+    NSUInteger offset = 12 + 4 * (packetBytes[0] & 15);
     if (offset > length)
         return;
-    if (p[0] & 16) {
+    if (packetBytes[0] & 16) {
         if (length - offset < 4)
             return;
-        NSUInteger extension = 4 + 4 * FCVNCRead16(p + offset + 2);
-        if (extension > length - offset)
+        NSUInteger extensionLength = 4 + 4 * FCVNCRead16(packetBytes + offset + 2);
+        if (extensionLength > length - offset)
             return;
         // Apple's FaceTime video control header occupies the RTP extension
         // profile/length words: version in byte 0 bits 6-7; LTR mark in byte 1
         // bit 4. Unknown extension versions never create reference acknowledgements.
-        unsigned version = p[offset] >> 6;
-        if ((version == 1 || version == 2) && (p[offset + 1] & 0x10))
+        unsigned version = packetBytes[offset] >> 6;
+        if ((version == 1 || version == 2) && (packetBytes[offset + 1] & 0x10))
             _markedReference = YES;
-        offset += extension;
+        offset += extensionLength;
     }
-    if (p[0] & 32) {
-        uint8_t padding = p[length - 1];
+    if (packetBytes[0] & 32) {
+        uint8_t padding = packetBytes[length - 1];
         if (!padding || padding > length - offset)
             return;
         length -= padding;
     }
-    uint16_t sequence = FCVNCRead16(p + 2);
+    uint16_t sequence = FCVNCRead16(packetBytes + 2);
     if (_sequenced && sequence != _nextSequence) {
         _fragment = nil;
         _lostReference = YES;
     }
     _sequenced = YES;
     _nextSequence = sequence + 1;
-    BOOL marker = (p[1] & 128) != 0;
-    NSUInteger donBytes = self.decodingOrderNumbers ? 2 : 0;
-    if (length - offset < 2 + donBytes) {
+    BOOL marker = (packetBytes[1] & 128) != 0;
+    NSUInteger decodingOrderNumberSize = self.decodingOrderNumbers ? 2 : 0;
+    if (length - offset < 2 + decodingOrderNumberSize) {
         _lostReference = YES;
         return;
     }
-    p += offset;
+    const uint8_t *payloadBytes = packetBytes + offset;
     length -= offset;
-    unsigned type = (p[0] >> 1) & 63;
-    if ((p[0] & 128) || !(p[1] & 7)) {
+    unsigned nalType = (payloadBytes[0] >> 1) & 63;
+    if ((payloadBytes[0] & 128) || !(payloadBytes[1] & 7)) {
         _lostReference = YES;
         return;
     }
-    if (type < 48) {
-        _referenceIdentifier = donBytes ? FCVNCRead16(p + 2) : timestamp;
+    if (nalType < 48) {
+        _referenceIdentifier = decodingOrderNumberSize ? FCVNCRead16(payloadBytes + 2) : timestamp;
         _fragment = nil;
-        [self emitHeader:p
+        [self emitHeader:payloadBytes
                   length:2
-                 payload:p + 2 + donBytes
-                  length:length - 2 - donBytes
+                 payload:payloadBytes + 2 + decodingOrderNumberSize
+                  length:length - 2 - decodingOrderNumberSize
                timestamp:timestamp
                   marker:marker];
-    } else if (type == 48) {
-        _referenceIdentifier = donBytes ? FCVNCRead16(p + 2) : timestamp;
+    } else if (nalType == 48) {
+        _referenceIdentifier = decodingOrderNumberSize ? FCVNCRead16(payloadBytes + 2) : timestamp;
         _fragment = nil;
-        NSUInteger cursor = 2 + donBytes;
-        NSRange ranges[64];
-        unsigned count = 0;
+        NSUInteger cursor = 2 + decodingOrderNumberSize;
+        NSRange nalRanges[64];
+        unsigned nalCount = 0;
         while (cursor < length) {
             if (length - cursor < 2) {
                 _lostReference = YES;
                 return;
             }
-            NSUInteger size = FCVNCRead16(p + cursor);
+            NSUInteger nalLength = FCVNCRead16(payloadBytes + cursor);
             cursor += 2;
-            if (size < 2 || size > length - cursor || count >= 64) {
+            if (nalLength < 2 || nalLength > length - cursor || nalCount >= 64) {
                 _lostReference = YES;
                 return;
             }
-            ranges[count++] = NSMakeRange(cursor, size);
-            cursor += size;
+            nalRanges[nalCount++] = NSMakeRange(cursor, nalLength);
+            cursor += nalLength;
         }
-        for (unsigned i = 0; i < count; i++)
-            [self emitHeader:p + ranges[i].location
-                      length:ranges[i].length
+        for (unsigned i = 0; i < nalCount; i++)
+            [self emitHeader:payloadBytes + nalRanges[i].location
+                      length:nalRanges[i].length
                      payload:NULL
                       length:0
                    timestamp:timestamp
-                      marker:marker && i + 1 == count];
-    } else if (type == 49) {
-        if (length < 4 + donBytes || (p[2] & 63) >= 48 || (p[2] & 192) == 192) {
+                      marker:marker && i + 1 == nalCount];
+    } else if (nalType == 49) {
+        if (length < 4 + decodingOrderNumberSize || (payloadBytes[2] & 63) >= 48 || (payloadBytes[2] & 192) == 192) {
             _lostReference = YES;
             return;
         }
-        uint16_t don = donBytes ? FCVNCRead16(p + 3) : 0;
-        if (p[2] & 128) {
-            uint8_t header[] = {(p[0] & 129) | ((p[2] & 63) << 1), p[1]};
+        uint16_t decodingOrderNumber = decodingOrderNumberSize ? FCVNCRead16(payloadBytes + 3) : 0;
+        if (payloadBytes[2] & 128) {
+            uint8_t header[] = {(payloadBytes[0] & 129) | ((payloadBytes[2] & 63) << 1), payloadBytes[1]};
             _fragment = [NSMutableData dataWithBytes:header length:2];
-            _don = don;
+            _fragmentDecodingOrderNumber = decodingOrderNumber;
             _timestamp = timestamp;
         }
-        if (!_fragment || _don != don || _timestamp != timestamp ||
-            _fragment.length + length - 3 - donBytes > 8 * 1024 * 1024) {
+        if (!_fragment || _fragmentDecodingOrderNumber != decodingOrderNumber || _timestamp != timestamp ||
+            _fragment.length + length - 3 - decodingOrderNumberSize > 8 * 1024 * 1024) {
             _fragment = nil;
             _lostReference = YES;
             return;
         }
-        [_fragment appendBytes:p + 3 + donBytes length:length - 3 - donBytes];
-        if (p[2] & 64) {
-            _referenceIdentifier = donBytes ? _don : timestamp;
+        [_fragment appendBytes:payloadBytes + 3 + decodingOrderNumberSize length:length - 3 - decodingOrderNumberSize];
+        if (payloadBytes[2] & 64) {
+            _referenceIdentifier = decodingOrderNumberSize ? _fragmentDecodingOrderNumber : timestamp;
             NSData *nal = _fragment;
             _fragment = nil;
             [self emitHeader:nal.bytes length:nal.length payload:NULL length:0 timestamp:timestamp marker:marker];
@@ -207,12 +207,12 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
     NSMutableArray<FCVNCAppleAccessUnit *> *_readyUnits;
     double _keyframeInterval;
     uint16_t _nextSequence;
-    BOOL _sequenced, _waitingForIDR, _longTermReference, _hasAcknowledgement;
+    BOOL _sequenced, _needsReferenceRecovery, _longTermReference, _hasAcknowledgement;
     uint32_t _acknowledgedReference;
     double _gapSince, _lastFeedback, _started, _lastFrame, _lastKeyframe;
     uint32_t _timestamp, _accessUnitReferenceIdentifier;
     NSMutableData *_accessUnit;
-    NSData *_vps, *_sps, *_pps;
+    NSData *_videoParameterSet, *_sequenceParameterSet, *_pictureParameterSet;
     CMVideoFormatDescriptionRef _format;
     VTDecompressionSessionRef _decoder;
     // All protocol state belongs to the VNC worker. Only these callback/mailbox
@@ -220,8 +220,8 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
     CVPixelBufferRef _pendingBuffer;
     NSNumber *_pendingAcknowledgement;
     BOOL _decodeFailed, _decoderWarm;
-    NSUInteger _inFlight, _generation, _submitted, _completed;
-    double _oldestDecode;
+    NSUInteger _inFlightDecodes, _decodeGeneration, _submittedDecodeCount, _lastCompletedDecodeSerial;
+    double _decodeProgressTime;
     NSUInteger _datagrams, _authenticatedPackets, _nalCount, _rtcpPackets, _otherPackets;
     int _lastAuthenticationError;
     uint64_t _nalTypes;
@@ -260,7 +260,7 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
     [_readyUnits removeAllObjects];
     _hasAcknowledgement = NO;
     @synchronized(self) {
-        _generation++;
+        _decodeGeneration++;
         _decoderWarm = NO;
         _pendingAcknowledgement = nil;
         if (_pendingBuffer)
@@ -304,16 +304,16 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
     }
     _offer = nil;
     _feedback = nil;
-    _vps = nil;
-    _sps = nil;
-    _pps = nil;
+    _videoParameterSet = nil;
+    _sequenceParameterSet = nil;
+    _pictureParameterSet = nil;
     _accessUnit = nil;
     @synchronized(self) {
         if (_pendingBuffer)
             CVPixelBufferRelease(_pendingBuffer);
         _pendingBuffer = NULL;
         _decodeFailed = NO;
-        _inFlight = 0;
+        _inFlightDecodes = 0;
     }
     [self clearPackets];
     [_hevc reset];
@@ -334,7 +334,7 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
     _hasAcknowledgement = NO;
     _longTermReference = NO;
     _nackEnabled = NO;
-    _waitingForIDR = YES;
+    _needsReferenceRecovery = YES;
 }
 - (void)dealloc {
     [self close];
@@ -342,12 +342,12 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
 - (NSData *)configure:(NSData *)request width:(NSUInteger)width height:(NSUInteger)height {
     [self close];
     _failure = nil;
-    const uint8_t *p = request.bytes;
-    if (request.length != 38 || FCVNCRead16(p) != 36 || FCVNCRead16(p + 2) != 1 || FCVNCRead16(p + 4) != 1 ||
-        !(FCVNCRead32(p + 18) & 1))
+    const uint8_t *requestBytes = request.bytes;
+    if (request.length != 38 || FCVNCRead16(requestBytes) != 36 || FCVNCRead16(requestBytes + 2) != 1 ||
+        FCVNCRead16(requestBytes + 4) != 1 || !(FCVNCRead32(requestBytes + 18) & 1))
         return nil;
-    uint16_t port = FCVNCRead16(p + 16);
-    if (!port)
+    uint16_t mediaPort = FCVNCRead16(requestBytes + 16);
+    if (!mediaPort)
         return nil;
     struct sockaddr_storage peer = {0}, local = {0};
     socklen_t peerLength = sizeof(peer), localLength = sizeof(local);
@@ -355,11 +355,11 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
         getsockname(_tcp, (struct sockaddr *)&local, &localLength))
         return nil;
     if (peer.ss_family == AF_INET) {
-        ((struct sockaddr_in *)&peer)->sin_port = htons(port);
-        ((struct sockaddr_in *)&local)->sin_port = htons(port);
+        ((struct sockaddr_in *)&peer)->sin_port = htons(mediaPort);
+        ((struct sockaddr_in *)&local)->sin_port = htons(mediaPort);
     } else if (peer.ss_family == AF_INET6) {
-        ((struct sockaddr_in6 *)&peer)->sin6_port = htons(port);
-        ((struct sockaddr_in6 *)&local)->sin6_port = htons(port);
+        ((struct sockaddr_in6 *)&peer)->sin6_port = htons(mediaPort);
+        ((struct sockaddr_in6 *)&local)->sin6_port = htons(mediaPort);
     } else
         return nil;
     _socket = socket(peer.ss_family, SOCK_DGRAM, 0);
@@ -367,8 +367,8 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
         return nil;
     // Bound kernel backlog without assuming dependent HEVC pictures can be
     // skipped independently. Overflow follows the authenticated loss/IRAP path.
-    int buffer = 512 * 1024;
-    setsockopt(_socket, SOL_SOCKET, SO_RCVBUF, &buffer, sizeof(buffer));
+    int receiveBufferSize = 512 * 1024;
+    setsockopt(_socket, SOL_SOCKET, SO_RCVBUF, &receiveBufferSize, sizeof(receiveBufferSize));
     if (bind(_socket, (struct sockaddr *)&local, localLength) ||
         connect(_socket, (struct sockaddr *)&peer, peerLength) || fcntl(_socket, F_SETFL, O_NONBLOCK) < 0) {
         _failure = @"Adaptive video could not bind its UDP port.";
@@ -391,19 +391,21 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
     return [_offer configurationWithSendKey:_sendKey receiveKey:_receiveKey];
 }
 - (BOOL)acceptAnswer:(NSData *)answer {
-    const uint8_t *p = answer.bytes;
-    if (!_offer || answer.length < 20 || FCVNCRead16(p) + 2 != answer.length || FCVNCRead16(p + 2) != 2 ||
-        FCVNCRead16(p + 4) != 2)
+    const uint8_t *answerBytes = answer.bytes;
+    if (!_offer || answer.length < 20 || FCVNCRead16(answerBytes) + 2 != answer.length ||
+        FCVNCRead16(answerBytes + 2) != 2 || FCVNCRead16(answerBytes + 4) != 2)
         return NO;
-    NSUInteger audio = FCVNCRead16(p + 10), video = FCVNCRead16(p + 12);
-    if (FCVNCRead16(p + 14) || 20 + audio + video != answer.length || !video)
+    NSUInteger audioAnswerLength = FCVNCRead16(answerBytes + 10), videoAnswerLength = FCVNCRead16(answerBytes + 12);
+    if (FCVNCRead16(answerBytes + 14) || 20 + audioAnswerLength + videoAnswerLength != answer.length ||
+        !videoAnswerLength)
         return NO;
     BOOL decodingOrderNumbers = NO;
-    if (![FCVNCAppleMediaOffer acceptVideoAnswer:[answer subdataWithRange:NSMakeRange(20 + audio, video)]
-                                      senderSSRC:&_senderSSRC
-                            decodingOrderNumbers:&decodingOrderNumbers
-                               longTermReference:&_longTermReference
-                                   allowFeedback:&_nackEnabled])
+    if (![FCVNCAppleMediaOffer
+               acceptVideoAnswer:[answer subdataWithRange:NSMakeRange(20 + audioAnswerLength, videoAnswerLength)]
+                      senderSSRC:&_senderSSRC
+            decodingOrderNumbers:&decodingOrderNumbers
+               longTermReference:&_longTermReference
+                   allowFeedback:&_nackEnabled])
         return NO;
     _hevc.decodingOrderNumbers = decodingOrderNumbers;
     srtp_policy_t policy = {0};
@@ -568,7 +570,7 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
             [_hevc reset];
             _nextSequence = sequence;
             _accessUnit = nil;
-            _waitingForIDR = YES;
+            _needsReferenceRecovery = YES;
             [self feedback:YES];
         }
         FCVNCApplePacket *slot = &_reorder[sequence % FCVNCReorderSlots];
@@ -599,14 +601,14 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
         for (unsigned i = 0; i < FCVNCReorderSlots; i++) {
             if (!_reorder[i].length)
                 continue;
-            unsigned d = (uint16_t)(_reorder[i].sequence - _nextSequence);
-            if (d < distance) {
+            unsigned sequenceDistance = (uint16_t)(_reorder[i].sequence - _nextSequence);
+            if (sequenceDistance < distance) {
                 nearest = _reorder[i].sequence;
-                distance = d;
+                distance = sequenceDistance;
             }
         }
         _nextSequence = nearest;
-        _waitingForIDR = YES;
+        _needsReferenceRecovery = YES;
         _accessUnit = nil;
         [_hevc reset];
         [self feedback:YES];
@@ -622,10 +624,10 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
     BOOL failed;
     NSNumber *acknowledgement;
     @synchronized(self) {
-        failed = _decodeFailed || (_inFlight && now - _oldestDecode > (_decoderWarm ? .1 : 1));
+        failed = _decodeFailed || (_inFlightDecodes && now - _decodeProgressTime > (_decoderWarm ? .1 : 1));
         _decodeFailed = NO;
         if (failed) {
-            _generation++;
+            _decodeGeneration++;
             _pendingAcknowledgement = nil;
             if (_pendingBuffer)
                 CVPixelBufferRelease(_pendingBuffer);
@@ -637,7 +639,7 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
         _pendingBuffer = NULL;
     }
     if (failed) {
-        _waitingForIDR = YES;
+        _needsReferenceRecovery = YES;
         _accessUnit = nil;
     }
     if (acknowledgement) {
@@ -646,7 +648,7 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
     }
     // Retry after every loss with 150/300/600 ms backoff, including after startup.
     BOOL repairingGap = _reorderCount && _gapSince && now - _gapSince <= (_nackEnabled ? .075 : .025);
-    if ((_waitingForIDR || !_receivedFrame) && !repairingGap)
+    if ((_needsReferenceRecovery || !_receivedFrame) && !repairingGap)
         [self feedback:YES];
     else if (now - _lastFeedback > .2)
         [self feedback:NO];
@@ -669,10 +671,11 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
                           @"%llx, parameters %lu/%lu/%lu, format %d, decode %d, authentication %d, no decoded frame.",
                           (unsigned long)_datagrams, (unsigned long)_authenticatedPackets, (unsigned long)_rtcpPackets,
                           (unsigned long)_nalCount, (unsigned long)_markerNALs, (unsigned long long)_nalTypes,
-                          (unsigned long)_vps.length, (unsigned long)_sps.length, (unsigned long)_pps.length,
-                          (int)_formatStatus, (int)_decodeStatus, _lastAuthenticationError];
+                          (unsigned long)_videoParameterSet.length, (unsigned long)_sequenceParameterSet.length,
+                          (unsigned long)_pictureParameterSet.length, (int)_formatStatus, (int)_decodeStatus,
+                          _lastAuthenticationError];
     }
-    if (_receivedFrame && _waitingForIDR && now - _lastFrame > 8)
+    if (_receivedFrame && _needsReferenceRecovery && now - _lastFrame > 8)
         _failure = @"Adaptive video could not recover its reference pictures.";
 }
 - (FCVNCApplePacket *)packetForSequence:(uint16_t)sequence {
@@ -693,7 +696,7 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
         slot->length = 0;
         _reorderCount--;
         if (_hevc.lostReference) {
-            _waitingForIDR = YES;
+            _needsReferenceRecovery = YES;
             _accessUnit = nil;
             [_readyUnits removeAllObjects];
             [self feedback:YES];
@@ -705,16 +708,18 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
 - (BOOL)prepareDecoder {
     if (_decoder)
         return YES;
-    if (!_vps || !_sps || !_pps)
+    if (!_videoParameterSet || !_sequenceParameterSet || !_pictureParameterSet)
         return NO;
     if (_format) {
         CFRelease(_format);
         _format = NULL;
     }
-    const uint8_t *sets[] = {_vps.bytes, _sps.bytes, _pps.bytes};
-    size_t sizes[] = {_vps.length, _sps.length, _pps.length};
-    _formatStatus =
-        CMVideoFormatDescriptionCreateFromHEVCParameterSets(kCFAllocatorDefault, 3, sets, sizes, 4, NULL, &_format);
+    const uint8_t *parameterSets[] = {_videoParameterSet.bytes, _sequenceParameterSet.bytes,
+                                      _pictureParameterSet.bytes};
+    size_t parameterSetLengths[] = {_videoParameterSet.length, _sequenceParameterSet.length,
+                                    _pictureParameterSet.length};
+    _formatStatus = CMVideoFormatDescriptionCreateFromHEVCParameterSets(kCFAllocatorDefault, 3, parameterSets,
+                                                                        parameterSetLengths, 4, NULL, &_format);
     if (_formatStatus)
         return NO;
     CMVideoDimensions dimensions = CMVideoFormatDescriptionGetDimensions(_format);
@@ -743,50 +748,52 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
         timestamp:(uint32_t)timestamp
            marker:(BOOL)marker {
     NSUInteger length = headerLength + payloadLength;
-    const uint8_t *p = header;
+    const uint8_t *headerBytes = header;
     if (headerLength < 2 || length > 8 * 1024 * 1024)
         return;
     if (_diagnosticsEnabled && !_receivedFrame)
         _nalCount++;
-    unsigned type = (p[0] >> 1) & 63;
+    unsigned nalType = (headerBytes[0] >> 1) & 63;
     if (_diagnosticsEnabled && !_receivedFrame)
-        _nalTypes |= UINT64_C(1) << type;
+        _nalTypes |= UINT64_C(1) << nalType;
     if (_diagnosticsEnabled && marker && !_receivedFrame)
         _markerNALs++;
-    if (type == 32 || type == 33 || type == 34) {
+    if (nalType == 32 || nalType == 33 || nalType == 34) {
         if (length > 65535)
             return;
         NSMutableData *nal = [NSMutableData dataWithBytes:header length:headerLength];
         if (payloadLength)
             [nal appendBytes:payload length:payloadLength];
-        NSData *previous = type == 32 ? _vps : type == 33 ? _sps : _pps;
+        NSData *previous = nalType == 32   ? _videoParameterSet
+                           : nalType == 33 ? _sequenceParameterSet
+                                           : _pictureParameterSet;
         if (![previous isEqualToData:nal]) {
             [self retireDecoder];
-            _waitingForIDR = YES;
+            _needsReferenceRecovery = YES;
             _accessUnit = nil;
-            if (type == 32)
-                _vps = nal;
-            else if (type == 33)
-                _sps = nal;
+            if (nalType == 32)
+                _videoParameterSet = nal;
+            else if (nalType == 33)
+                _sequenceParameterSet = nal;
             else
-                _pps = nal;
+                _pictureParameterSet = nal;
         }
         return;
     }
-    if (type > 31)
+    if (nalType > 31)
         return;
-    BOOL randomAccess = type >= 16 && type <= 21;
+    BOOL randomAccess = nalType >= 16 && nalType <= 21;
     // With negotiated LTR the hardware decoder retains acknowledged reference
     // pictures. Try complete dependent pictures; failure still requests FIR.
-    if (_waitingForIDR && !randomAccess && !(_longTermReference && _hasAcknowledgement))
+    if (_needsReferenceRecovery && !randomAccess && !(_longTermReference && _hasAcknowledgement))
         return;
     if (!_accessUnit || _timestamp != timestamp) {
         // HEVC first_slice_segment_in_pic_flag is the first RBSP bit. After
         // packet loss, a later slice cannot stand in for a complete picture or
         // become an acknowledged LTR, even if the hardware conceals the damage.
-        if (length < 3 || !((headerLength > 2 ? p[2] : ((const uint8_t *)payload)[0]) & 0x80)) {
+        if (length < 3 || !((headerLength > 2 ? headerBytes[2] : ((const uint8_t *)payload)[0]) & 0x80)) {
             _accessUnit = nil;
-            _waitingForIDR = YES;
+            _needsReferenceRecovery = YES;
             return;
         }
         _accessUnit = [NSMutableData data];
@@ -795,12 +802,12 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
     }
     if (_accessUnit.length + length + 4 > 8 * 1024 * 1024) {
         _accessUnit = nil;
-        _waitingForIDR = YES;
+        _needsReferenceRecovery = YES;
         return;
     }
-    uint8_t size[4];
-    FCVNCWrite32(size, (uint32_t)length);
-    [_accessUnit appendBytes:size length:4];
+    uint8_t nalLengthBytes[4];
+    FCVNCWrite32(nalLengthBytes, (uint32_t)length);
+    [_accessUnit appendBytes:nalLengthBytes length:4];
     [_accessUnit appendBytes:header length:headerLength];
     if (payloadLength)
         [_accessUnit appendBytes:payload length:payloadLength];
@@ -818,9 +825,9 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
         [_readyUnits removeAllObjects];
     if (_readyUnits.count >= 3) {
         [_readyUnits removeAllObjects];
-        _waitingForIDR = YES;
+        _needsReferenceRecovery = YES;
         @synchronized(self) {
-            _generation++;
+            _decodeGeneration++;
         }
         [self feedback:YES];
         return;
@@ -828,7 +835,7 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
     [_readyUnits addObject:unit];
 }
 - (void)submitAccessUnit:(FCVNCAppleAccessUnit *)unit {
-    if (_waitingForIDR && !unit.randomAccess && !(_longTermReference && _hasAcknowledgement))
+    if (_needsReferenceRecovery && !unit.randomAccess && !(_longTermReference && _hasAcknowledgement))
         return;
     if (![self prepareDecoder])
         return;
@@ -837,20 +844,20 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
     @synchronized(self) {
         // Never build an unbounded decoder queue. Dropping a reference picture
         // requires recovery at an IRAP; decoding only the latest P frame is unsafe.
-        if (_inFlight >= 3) {
-            _generation++;
-            _waitingForIDR = YES;
+        if (_inFlightDecodes >= 3) {
+            _decodeGeneration++;
+            _needsReferenceRecovery = YES;
             _accessUnit = nil;
             return;
         }
-        if (!_inFlight)
-            _oldestDecode = Now();
-        _inFlight++;
-        ticket.generation = _generation;
+        if (!_inFlightDecodes)
+            _decodeProgressTime = Now();
+        _inFlightDecodes++;
+        ticket.generation = _decodeGeneration;
         ticket.budget = _decoderWarm ? .1 : 1;
-        ticket.serial = ++_submitted;
+        ticket.serial = ++_submittedDecodeCount;
     }
-    _waitingForIDR = NO;
+    _needsReferenceRecovery = NO;
     CMBlockBufferRef block = NULL;
     CMSampleBufferRef sample = NULL;
     size_t length = unit.bytes.length;
@@ -879,17 +886,17 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
     _decodeStatus = status;
     if (status) {
         @synchronized(self) {
-            _inFlight--;
+            _inFlightDecodes--;
         }
-        _waitingForIDR = YES;
+        _needsReferenceRecovery = YES;
         [self feedback:YES];
     }
 }
 - (void)decoded:(CVImageBufferRef)image status:(OSStatus)status ticket:(FCVNCAppleDecodeTicket)ticket {
     @synchronized(self) {
-        _inFlight--;
-        _oldestDecode = Now();
-        if (ticket.generation != _generation || ticket.serial <= _completed)
+        _inFlightDecodes--;
+        _decodeProgressTime = Now();
+        if (ticket.generation != _decodeGeneration || ticket.serial <= _lastCompletedDecodeSerial)
             return;
         OSType pixelFormat = image ? CVPixelBufferGetPixelFormatType(image) : 0;
         if (status || !image || Now() - ticket.submitted > ticket.budget ||
@@ -911,7 +918,7 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
         _pendingBuffer = CVPixelBufferRetain(image);
         if (ticket.markedReference)
             _pendingAcknowledgement = @(ticket.referenceIdentifier);
-        _completed = ticket.serial;
+        _lastCompletedDecodeSerial = ticket.serial;
     }
 }
 @end

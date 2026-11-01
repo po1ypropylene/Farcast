@@ -7,55 +7,57 @@
 // these are mode bitmasks, not startup/minimum rates. Both Wi-Fi and wired modes
 // are required; retain their ceilings pending user-side throughput comparisons.
 enum { FCVNCLowLatencyWiFiModes = 98304, FCVNCLowLatencyWiredMode = 262144 };
-static void Varint(NSMutableData *out, uint64_t n) {
+static void AppendVarint(NSMutableData *out, uint64_t value) {
     do {
-        uint8_t b = (n & 127) | (n > 127 ? 128 : 0);
-        [out appendBytes:&b length:1];
-        n >>= 7;
-    } while (n);
+        uint8_t encodedByte = (value & 127) | (value > 127 ? 128 : 0);
+        [out appendBytes:&encodedByte length:1];
+        value >>= 7;
+    } while (value);
 }
-static void Number(NSMutableData *out, unsigned field, uint64_t n) {
-    Varint(out, field << 3);
-    Varint(out, n);
+static void AppendNumberField(NSMutableData *out, unsigned field, uint64_t value) {
+    AppendVarint(out, field << 3);
+    AppendVarint(out, value);
 }
-static void Bytes(NSMutableData *out, unsigned field, NSData *data) {
-    Varint(out, (field << 3) | 2);
-    Varint(out, data.length);
+static void AppendBytesField(NSMutableData *out, unsigned field, NSData *data) {
+    AppendVarint(out, (field << 3) | 2);
+    AppendVarint(out, data.length);
     [out appendData:data];
 }
-static void Text(NSMutableData *out, unsigned field, NSString *text) {
-    Bytes(out, field, [text dataUsingEncoding:NSUTF8StringEncoding]);
+static void AppendTextField(NSMutableData *out, unsigned field, NSString *text) {
+    AppendBytesField(out, field, [text dataUsingEncoding:NSUTF8StringEncoding]);
 }
 static NSData *Envelope(unsigned mode, unsigned field, NSData *settings, NSString *callID) {
     NSMutableData *blob = [NSMutableData data], *bandwidth = [NSMutableData data];
-    Number(blob, 1, 1);
-    Number(blob, 2, 1);
-    Bytes(blob, field, settings);
-    Text(blob, 6, @FCVNC_APP_NAME);
-    Number(bandwidth, 1, 0);
-    Number(bandwidth, 2, 20000000);
-    Number(bandwidth, 3, FCVNCLowLatencyWiFiModes);
-    Bytes(blob, 9, bandwidth);
+    AppendNumberField(blob, 1, 1);
+    AppendNumberField(blob, 2, 1);
+    AppendBytesField(blob, field, settings);
+    AppendTextField(blob, 6, @FCVNC_APP_NAME);
+    AppendNumberField(bandwidth, 1, 0);
+    AppendNumberField(bandwidth, 2, 20000000);
+    AppendNumberField(bandwidth, 3, FCVNCLowLatencyWiFiModes);
+    AppendBytesField(blob, 9, bandwidth);
     // Both low-latency profiles are required. Omitting Wired makes Apple's
     // generated transmitter configuration select a maximum bitrate of zero.
     bandwidth = [NSMutableData data];
-    Number(bandwidth, 1, 0);
-    Number(bandwidth, 2, 60000000);
-    Number(bandwidth, 3, FCVNCLowLatencyWiredMode);
-    Bytes(blob, 9, bandwidth);
-    Number(blob, 14, 2);
+    AppendNumberField(bandwidth, 1, 0);
+    AppendNumberField(bandwidth, 2, 60000000);
+    AppendNumberField(bandwidth, 3, FCVNCLowLatencyWiredMode);
+    AppendBytesField(blob, 9, bandwidth);
+    AppendNumberField(blob, 14, 2);
     uLongf length = compressBound(blob.length);
     NSMutableData *compressed = [NSMutableData dataWithLength:length];
     if (compress2(compressed.mutableBytes, &length, blob.bytes, blob.length, Z_DEFAULT_COMPRESSION) != Z_OK)
         return nil;
     compressed.length = length;
     NSMutableData *endpoint = [NSMutableData data];
-    Number(endpoint, 1, 0);
-    Number(endpoint, 2, 1);
-    Text(endpoint, 3, @FCVNC_APP_NAME);
-    Text(endpoint, 4, [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"1");
-    Text(endpoint, 5,
-         [NSString stringWithFormat:@"%ld", (long)NSProcessInfo.processInfo.operatingSystemVersion.majorVersion]);
+    AppendNumberField(endpoint, 1, 0);
+    AppendNumberField(endpoint, 2, 1);
+    AppendTextField(endpoint, 3, @FCVNC_APP_NAME);
+    AppendTextField(endpoint, 4,
+                    [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"1");
+    AppendTextField(
+        endpoint, 5,
+        [NSString stringWithFormat:@"%ld", (long)NSProcessInfo.processInfo.operatingSystemVersion.majorVersion]);
     return [NSPropertyListSerialization dataWithPropertyList:@{
         @"avcMediaStreamNegotiatorMode" : @(mode),
         @"avcMediaStreamOptionCallID" : callID,
@@ -68,39 +70,39 @@ static NSData *Envelope(unsigned mode, unsigned field, NSData *settings, NSStrin
 }
 // Limited protobuf reader: preserves repeated fields, refuses malformed lengths,
 // overflowing varints, groups and unsupported fixed-width values.
-static BOOL ReadVarint(const uint8_t *p, NSUInteger length, NSUInteger *offset, uint64_t *value) {
+static BOOL ReadVarint(const uint8_t *bytes, NSUInteger length, NSUInteger *offset, uint64_t *value) {
     *value = 0;
     for (unsigned shift = 0; shift < 70 && *offset < length; shift += 7) {
-        uint8_t b = p[(*offset)++];
-        if (shift == 63 && b > 1)
+        uint8_t encodedByte = bytes[(*offset)++];
+        if (shift == 63 && encodedByte > 1)
             return NO;
-        *value |= (uint64_t)(b & 127) << shift;
-        if (!(b & 128))
+        *value |= (uint64_t)(encodedByte & 127) << shift;
+        if (!(encodedByte & 128))
             return YES;
     }
     return NO;
 }
-static NSDictionary<NSNumber *, NSArray *> *Fields(NSData *data) {
+static NSDictionary<NSNumber *, NSArray *> *ParseFields(NSData *data) {
     NSMutableDictionary *result = [NSMutableDictionary dictionary];
-    const uint8_t *p = data.bytes;
+    const uint8_t *bytes = data.bytes;
     NSUInteger offset = 0, count = 0;
     while (offset < data.length) {
-        uint64_t tag, n;
-        if (++count > 256 || !ReadVarint(p, data.length, &offset, &tag) || !(tag >> 3) || tag >> 3 > 0x1fffffff)
+        uint64_t tag, valueOrLength;
+        if (++count > 256 || !ReadVarint(bytes, data.length, &offset, &tag) || !(tag >> 3) || tag >> 3 > 0x1fffffff)
             return nil;
-        unsigned wire = tag & 7;
-        if (wire != 0 && wire != 2)
+        unsigned wireType = tag & 7;
+        if (wireType != 0 && wireType != 2)
             return nil;
-        if (!ReadVarint(p, data.length, &offset, &n))
+        if (!ReadVarint(bytes, data.length, &offset, &valueOrLength))
             return nil;
         id value;
-        if (wire == 0)
-            value = @(n);
+        if (wireType == 0)
+            value = @(valueOrLength);
         else {
-            if (n > data.length - offset)
+            if (valueOrLength > data.length - offset)
                 return nil;
-            value = [data subdataWithRange:NSMakeRange(offset, (NSUInteger)n)];
-            offset += n;
+            value = [data subdataWithRange:NSMakeRange(offset, (NSUInteger)valueOrLength)];
+            offset += valueOrLength;
         }
         NSNumber *field = @(tag >> 3);
         if (!result[field])
@@ -109,7 +111,7 @@ static NSDictionary<NSNumber *, NSArray *> *Fields(NSData *data) {
     }
     return result;
 }
-static id Single(NSDictionary *fields, unsigned field, Class type) {
+static id SingleField(NSDictionary *fields, unsigned field, Class type) {
     NSArray *values = fields[@(field)];
     return values.count == 1 && [values[0] isKindOfClass:type] ? values[0] : nil;
 }
@@ -127,32 +129,32 @@ static id Single(NSDictionary *fields, unsigned field, Class type) {
     if (!_receiverSSRC)
         _receiverSSRC = 1;
     NSMutableData *rule = [NSMutableData data], *payload = [NSMutableData data], *screen = [NSMutableData data];
-    Number(rule, 1, 1); // Wi-Fi/IP transport.
-    Number(rule, 2, 2); // Receive/decode only.
-    Number(rule, 3, 50115);
-    Number(rule, 4, 0);
-    Number(payload, 1, 100); // HEVC payload type.
-    Bytes(payload, 2, rule);
-    Text(payload, 3, @"FLS;LF:-1;LTR;POS:5;EOD:1;HTS:2;RR:3;POSE:4;SW:0;AR:8/5,5/8;XR:8/5,5/8;");
-    Number(payload, 4, 14);
-    Number(screen, 1, _receiverSSRC);
-    Number(screen, 2, 1);
-    Bytes(screen, 3, payload);
-    Number(screen, 4, width);
-    Number(screen, 5, height);
-    Number(screen, 6, 1); // One tile, one decoder.
-    Number(screen, 7, 1); // Acknowledge only successfully hardware-decoded reference identifiers.
-    Number(screen, 8, 1); // Full-range 8-bit 4:2:0.
-    Number(screen, 9, 1); // SDR.
-    Number(screen, 12, 0);
+    AppendNumberField(rule, 1, 1); // Wi-Fi/IP transport.
+    AppendNumberField(rule, 2, 2); // Receive/decode only.
+    AppendNumberField(rule, 3, 50115);
+    AppendNumberField(rule, 4, 0);
+    AppendNumberField(payload, 1, 100); // HEVC payload type.
+    AppendBytesField(payload, 2, rule);
+    AppendTextField(payload, 3, @"FLS;LF:-1;LTR;POS:5;EOD:1;HTS:2;RR:3;POSE:4;SW:0;AR:8/5,5/8;XR:8/5,5/8;");
+    AppendNumberField(payload, 4, 14);
+    AppendNumberField(screen, 1, _receiverSSRC);
+    AppendNumberField(screen, 2, 1);
+    AppendBytesField(screen, 3, payload);
+    AppendNumberField(screen, 4, width);
+    AppendNumberField(screen, 5, height);
+    AppendNumberField(screen, 6, 1); // One tile, one decoder.
+    AppendNumberField(screen, 7, 1); // Acknowledge only successfully hardware-decoded reference identifiers.
+    AppendNumberField(screen, 8, 1); // Full-range 8-bit 4:2:0.
+    AppendNumberField(screen, 9, 1); // SDR.
+    AppendNumberField(screen, 12, 0);
     _video = Envelope(7, 5, screen, _callID.UUIDString);
     NSMutableData *audio = [NSMutableData data];
-    Number(audio, 1, _receiverSSRC ^ 0x80000000);
-    Number(audio, 2, 0);
-    Number(audio, 3, 0);
-    Number(audio, 4, 1); // Mandatory audio negotiation, below the audio bitrate floor.
-    Number(audio, 5, 0);
-    Number(audio, 6, 0);
+    AppendNumberField(audio, 1, _receiverSSRC ^ 0x80000000);
+    AppendNumberField(audio, 2, 0);
+    AppendNumberField(audio, 3, 0);
+    AppendNumberField(audio, 4, 1); // Mandatory audio negotiation, below the audio bitrate floor.
+    AppendNumberField(audio, 5, 0);
+    AppendNumberField(audio, 6, 0);
     _audio = Envelope(8, 3, audio, _callID.UUIDString);
     return _video && _audio ? self : nil;
 }
@@ -160,41 +162,43 @@ static id Single(NSDictionary *fields, unsigned field, Class type) {
     if (sendKey.length != 46 || receiveKey.length != 46 || _audio.length > 16000 || _video.length > 16000)
         return nil;
     NSMutableData *packet = [NSMutableData dataWithLength:FCVNCMediaFixedSize + _audio.length + _video.length];
-    uint8_t *p = packet.mutableBytes;
-    p[0] = 0x1c;
-    FCVNCWrite16(p + 2, packet.length - 4);
-    FCVNCWrite16(p + 4, 3);
-    p[6] = 1; // One 60 Hz stream, with the server cursor included in the video.
-    FCVNCWrite16(p + 10, _audio.length);
-    FCVNCWrite16(p + 12, _video.length);
+    uint8_t *bytes = packet.mutableBytes;
+    bytes[0] = 0x1c;
+    FCVNCWrite16(bytes + 2, packet.length - 4);
+    FCVNCWrite16(bytes + 4, 3);
+    bytes[6] = 1; // One 60 Hz stream, with the server cursor included in the video.
+    FCVNCWrite16(bytes + 10, _audio.length);
+    FCVNCWrite16(bytes + 12, _video.length);
     uuid_t uuid;
     [_callID getUUIDBytes:uuid];
-    memcpy(p + 20, uuid, 16);
+    memcpy(bytes + 20, uuid, 16);
     // Audio is disabled, but its mandatory key slots must still be unpredictable.
-    if (SecRandomCopyBytes(kSecRandomDefault, 2 * FCVNCMediaKeySize, p + FCVNCMediaHeaderSize) != errSecSuccess)
+    if (SecRandomCopyBytes(kSecRandomDefault, 2 * FCVNCMediaKeySize, bytes + FCVNCMediaHeaderSize) != errSecSuccess)
         return nil;
-    memcpy(p + FCVNCMediaAudioOffset, _audio.bytes, _audio.length);
+    memcpy(bytes + FCVNCMediaAudioOffset, _audio.bytes, _audio.length);
     NSUInteger offset = FCVNCMediaAudioOffset + _audio.length;
-    memcpy(p + offset, sendKey.bytes, FCVNCMediaKeySize);
-    memcpy(p + offset + FCVNCMediaKeySize, receiveKey.bytes, FCVNCMediaKeySize);
-    memcpy(p + offset + 2 * FCVNCMediaKeySize, _video.bytes, _video.length);
+    memcpy(bytes + offset, sendKey.bytes, FCVNCMediaKeySize);
+    memcpy(bytes + offset + FCVNCMediaKeySize, receiveKey.bytes, FCVNCMediaKeySize);
+    memcpy(bytes + offset + 2 * FCVNCMediaKeySize, _video.bytes, _video.length);
     return packet;
 }
-+ (BOOL)acceptVideoAnswer:(NSData *)answer senderSSRC:(uint32_t *)ssrc {
-    BOOL enabled;
-    return [self acceptVideoAnswer:answer senderSSRC:ssrc decodingOrderNumbers:&enabled];
++ (BOOL)acceptVideoAnswer:(NSData *)answer senderSSRC:(uint32_t *)senderSSRC {
+    BOOL decodingOrderNumbers;
+    return [self acceptVideoAnswer:answer senderSSRC:senderSSRC decodingOrderNumbers:&decodingOrderNumbers];
 }
-+ (BOOL)acceptVideoAnswer:(NSData *)answer senderSSRC:(uint32_t *)ssrc decodingOrderNumbers:(BOOL *)enabled {
++ (BOOL)acceptVideoAnswer:(NSData *)answer
+               senderSSRC:(uint32_t *)senderSSRC
+     decodingOrderNumbers:(BOOL *)decodingOrderNumbers {
     BOOL longTermReference, allowFeedback;
     return [self acceptVideoAnswer:answer
-                        senderSSRC:ssrc
-              decodingOrderNumbers:enabled
+                        senderSSRC:senderSSRC
+              decodingOrderNumbers:decodingOrderNumbers
                  longTermReference:&longTermReference
                      allowFeedback:&allowFeedback];
 }
 + (BOOL)acceptVideoAnswer:(NSData *)answer
-               senderSSRC:(uint32_t *)ssrc
-     decodingOrderNumbers:(BOOL *)enabled
+               senderSSRC:(uint32_t *)senderSSRC
+     decodingOrderNumbers:(BOOL *)decodingOrderNumbers
         longTermReference:(BOOL *)longTermReference
             allowFeedback:(BOOL *)allowFeedback {
     if (answer.length < 8 || answer.length > 32768 || memcmp(answer.bytes, "bplist00", 8))
@@ -208,43 +212,44 @@ static id Single(NSDictionary *fields, unsigned field, Class type) {
     NSData *compressed = wrapper[@"avcMediaStreamNegotiatorMediaBlob"];
     if (![compressed isKindOfClass:NSData.class] || compressed.length > 32768)
         return NO;
-    NSMutableData *plain = [NSMutableData dataWithLength:65536];
-    uLongf length = plain.length;
-    if (uncompress(plain.mutableBytes, &length, compressed.bytes, compressed.length) != Z_OK)
+    NSMutableData *decompressedSettings = [NSMutableData dataWithLength:65536];
+    uLongf length = decompressedSettings.length;
+    if (uncompress(decompressedSettings.mutableBytes, &length, compressed.bytes, compressed.length) != Z_OK)
         return NO;
-    plain.length = length;
-    NSDictionary *root = Fields(plain);
-    NSData *settings = Single(root, 5, NSData.class);
+    decompressedSettings.length = length;
+    NSDictionary *root = ParseFields(decompressedSettings);
+    NSData *settings = SingleField(root, 5, NSData.class);
     if (!settings)
         return NO;
-    NSDictionary *screen = Fields(settings);
-    NSNumber *sender = Single(screen, 1, NSNumber.class), *pixel = Single(screen, 8, NSNumber.class);
-    if (!sender || !sender.unsignedIntValue || sender.unsignedLongLongValue > UINT32_MAX || pixel.unsignedIntValue != 1)
+    NSDictionary *screen = ParseFields(settings);
+    NSNumber *sender = SingleField(screen, 1, NSNumber.class), *pixelFormat = SingleField(screen, 8, NSNumber.class);
+    if (!sender || !sender.unsignedIntValue || sender.unsignedLongLongValue > UINT32_MAX ||
+        pixelFormat.unsignedIntValue != 1)
         return NO;
     // Omitted fields have protobuf defaults: one tile and no LTR.
-    if (screen[@6] && [Single(screen, 6, NSNumber.class) unsignedIntValue] != 1)
+    if (screen[@6] && [SingleField(screen, 6, NSNumber.class) unsignedIntValue] != 1)
         return NO;
-    NSNumber *feedback = Single(screen, 2, NSNumber.class);
+    NSNumber *feedback = SingleField(screen, 2, NSNumber.class);
     if (screen[@2] && (!feedback || feedback.unsignedLongLongValue > 1))
         return NO;
-    NSNumber *ltr = Single(screen, 7, NSNumber.class);
-    if (screen[@7] && (!ltr || ltr.unsignedLongLongValue > 1))
+    NSNumber *referenceAcknowledgements = SingleField(screen, 7, NSNumber.class);
+    if (screen[@7] && (!referenceAcknowledgements || referenceAcknowledgements.unsignedLongLongValue > 1))
         return NO;
-    if ([Single(screen, 9, NSNumber.class) unsignedLongLongValue] != 1)
+    if ([SingleField(screen, 9, NSNumber.class) unsignedLongLongValue] != 1)
         return NO;
     NSArray *payloads = screen[@3];
     if (payloads.count != 1 || ![payloads[0] isKindOfClass:NSData.class])
         return NO;
-    NSDictionary *payload = Fields(payloads[0]);
-    if ([Single(payload, 1, NSNumber.class) unsignedIntValue] != 100)
+    NSDictionary *payload = ParseFields(payloads[0]);
+    if ([SingleField(payload, 1, NSNumber.class) unsignedIntValue] != 100)
         return NO;
-    NSNumber *interleaving = Single(screen, 14, NSNumber.class);
+    NSNumber *interleaving = SingleField(screen, 14, NSNumber.class);
     if (screen[@14] && (!interleaving || interleaving.unsignedLongLongValue > 1))
         return NO;
-    *enabled = interleaving.boolValue;
-    *longTermReference = ltr.boolValue;
+    *decodingOrderNumbers = interleaving.boolValue;
+    *longTermReference = referenceAcknowledgements.boolValue;
     *allowFeedback = feedback.boolValue;
-    *ssrc = sender.unsignedIntValue;
+    *senderSSRC = sender.unsignedIntValue;
     return YES;
 }
 @end
