@@ -40,6 +40,7 @@ private final class FileWorkCancellation: @unchecked Sendable {
 }
 
 private struct FileJob: Sendable {
+    let id = UUID().uuidString
     let operation: String
     let source: String
     let destination: String
@@ -141,6 +142,11 @@ private struct RemoteFolderCache {
     private var buffer: FileBuffer?
     private var jobs: [FileJob] = []
     private var activeJob: FileJob?
+    private var preparingTransfers = false
+    private var batchFileCounts: [String: Int] = [:]
+    private var completedFiles = 0
+    private var currentFile: Int?
+    private var fileCount = 0
     private var batchCount = 0
     private var completed = 0
     private var localWork = FileWorkCancellation()
@@ -231,6 +237,13 @@ private struct RemoteFolderCache {
                 }
             }
         }
+        client.onFileTransferItem = { [weak self, weak client] id, current, total in
+            DispatchQueue.main.async {
+                guard let self, let client, self.client === client else { return }
+                self.receiveTransferItem(id: id, current: Int(clamping: current), total: Int(clamping: total))
+            }
+        }
+        preparingTransfers = false
         requested = false
         requestID = nil
         busy = false
@@ -309,8 +322,7 @@ private struct RemoteFolderCache {
         guard !query.isEmpty else { return files }
         return files.filter { $0.name.localizedStandardContains(query) }
     }
-    private func begin(_ text: String) -> String {
-        let id = UUID().uuidString
+    private func begin(_ text: String, id: String = UUID().uuidString) -> String {
         requestID = id
         busy = true
         progress = nil
@@ -325,6 +337,7 @@ private struct RemoteFolderCache {
         progress = nil
         resetTransferSpeed()
         if cancelling {
+            preparingTransfers = false
             requestedHistoryIndex = nil
             cancelling = false
             busy = false
@@ -337,6 +350,7 @@ private struct RemoteFolderCache {
             return
         }
         if let error {
+            preparingTransfers = false
             requestedHistoryIndex = nil
             busy = false
             self.error = error
@@ -347,7 +361,12 @@ private struct RemoteFolderCache {
             refreshLocal()
             return
         }
-        if requestIsListing {
+        if preparingTransfers {
+            preparingTransfers = false
+            batchFileCounts = (result["fileCounts"] as? [String: NSNumber] ?? [:]).mapValues { $0.intValue }
+            fileCount = batchFileCounts.values.reduce(0, +)
+            runNext()
+        } else if requestIsListing {
             busy = false
             remotePath = result["path"] as? String ?? requestPath
             remoteFiles = sorted(
@@ -374,10 +393,22 @@ private struct RemoteFolderCache {
                 bufferedCount = buffer?.sources.count ?? 0
                 if bufferedCount == 0 { clearBuffer() }
             }
+            completedFiles += activeJob.map { batchFileCounts[$0.id] ?? 0 } ?? 0
             completed += 1
             activeJob = nil
             runNext()
         }
+    }
+    private var transferItemLabel: String {
+        guard let currentFile else { return "Item \(completed + 1) of \(batchCount)" }
+        return "File \(completedFiles + currentFile) of \(fileCount)"
+    }
+    func receiveTransferItem(id: String, current: Int, total: Int) {
+        guard requestID == id, !cancelling else { return }
+        currentFile = current
+        if batchFileCounts.isEmpty { fileCount = total }
+        message =
+            current == 0 ? (fileCount == 0 ? "Creating folders…" : "Preparing \(fileCount) files…") : transferItemLabel
     }
     func receiveProgress(id: String, bytes: UInt64, total: UInt64) {
         guard requestID == id, !cancelling else { return }
@@ -385,10 +416,11 @@ private struct RemoteFolderCache {
         transferredBytes = bytes
         progress = total > 0 ? min(1, Double(bytes) / Double(total)) : nil
         message =
-            "Item \(completed + 1) of \(batchCount): \(ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .file)) transferred"
+            "\(transferItemLabel): \(ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .file)) transferred"
     }
     func disconnected() {
         localWork.cancel()
+        preparingTransfers = false
         conflict = nil
         overwriteAll = false
         dropAttempt = UUID()
@@ -607,7 +639,18 @@ private struct RemoteFolderCache {
         batchCount = work.count
         completed = 0
         requestIsListing = false
-        runNext()
+        completedFiles = 0
+        batchFileCounts = [:]
+        preparingTransfers = work.allSatisfy {
+            !$0.local && ["uploadTree", "downloadTree", "copyRemote"].contains($0.operation)
+        }
+        if preparingTransfers {
+            let id = begin("Counting files…")
+            client?.prepareFileTransfers(
+                work.map { ["id": $0.id, "kind": $0.operation, "path": $0.source] }, requestID: id)
+        } else {
+            runNext()
+        }
     }
     private func runNext() {
         guard !jobs.isEmpty else {
@@ -620,7 +663,11 @@ private struct RemoteFolderCache {
         }
         let job = jobs.removeFirst()
         activeJob = job
-        let id = begin("Item \(completed + 1) of \(batchCount): \((job.source as NSString).lastPathComponent)")
+        currentFile = nil
+        if batchFileCounts.isEmpty { fileCount = 0 }
+        let id = begin(
+            "Preparing item \(completed + 1) of \(batchCount): \((job.source as NSString).lastPathComponent)",
+            id: job.id)
         if job.local {
             let cancellation = localWork
             DispatchQueue.global(qos: .userInitiated).async { [self] in

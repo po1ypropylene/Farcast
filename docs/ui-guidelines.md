@@ -59,7 +59,7 @@ future design task; do not apply a 44-point touch baseline to the Mac interface.
   uptime; keep only the protocol icon and omit marketing taglines.
 - Disclosure headers elsewhere activate across their full row and announce state.
 - Use normal list rows and 24-point local/server headings/navigation controls, with
-  matching file-panel heights. The Local Mac heading opens the folder picker.
+  matching file-panel heights. The local path opens the folder picker; Local Mac is a plain heading.
   File-only SSH disables unavailable terminal modes and tools.
 - Keep transfer cancellation separate from destructive confirmations. Inspect text
   wrapping, disabled state, tooltips and keyboard navigation with synthetic data.

@@ -34,6 +34,9 @@ NS_ASSUME_NONNULL_BEGIN
     (NSString *requestID, NSDictionary *result, NSString *_Nullable error);
 @property(nonatomic, copy, nullable) void (^onFileProgress)
     (NSString *requestID, unsigned long long bytes, unsigned long long total);
+// Tree preflight count and one-based current file; current is zero before copying.
+@property(nonatomic, copy, nullable) void (^onFileTransferItem)
+    (NSString *requestID, NSUInteger current, NSUInteger total);
 // Conflict callbacks run on the worker. Resolve the unique token: 0 stops, 1 overwrites.
 @property(nonatomic, copy, nullable) void (^onFileConflict)(NSString *token, NSString *name);
 - (void)resolveFileConflict:(NSString *)token overwrite:(BOOL)overwrite;
@@ -42,6 +45,8 @@ NS_ASSUME_NONNULL_BEGIN
                remotePath:(NSString *)remotePath
                    upload:(BOOL)upload
                 requestID:(NSString *)requestID;
+// Count a batch recursively before transfer; worker retains bounded preflight manifests.
+- (void)prepareFileTransfers:(NSArray<NSDictionary *> *)transfers requestID:(NSString *)requestID;
 // kind: uploadTree, downloadTree, copyRemote, mkdir, rename, removeTree.
 - (void)fileOperation:(NSString *)kind
                source:(NSString *)source

@@ -76,7 +76,7 @@ struct SFTPView: View {
                     "Enable Farcast in System Settings → Privacy & Security → Full Disk Access to transfer files in protected folders. macOS may ask you to restart Farcast after enabling it."
                 )
                 Text(
-                    "After returning, click Local Mac to choose your Home folder or another local folder to allow file transfers. Farcast remembers Home access. You can also enable Full Disk Access later from the Local Mac panel."
+                    "After returning, click the local folder path to choose your Home folder or another local folder to allow file transfers. Farcast remembers Home access. You can also enable Full Disk Access later from the Local Mac panel."
                 )
                 .foregroundStyle(.secondary)
                 HStack {
@@ -171,25 +171,27 @@ struct SFTPView: View {
 
     private var localPane: some View {
         VStack(spacing: 0) {
-            Button {
-                controller.chooseLocalFolder()
-            } label: {
-                Label("Local Mac", systemImage: "laptopcomputer").font(.headline)
-                    .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
-                    .contentShape(Rectangle())
-            }.buttonStyle(.plain).disabled(controller.busy)
-                .help("Choose a local folder")
-                .accessibilityHint("Opens the local folder picker")
+            Label("Local Mac", systemImage: "laptopcomputer").font(.headline)
+                .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
                 .padding(10)
             HStack {
                 IconActionButton(title: "Parent local folder", symbol: "arrow.up") {
                     controller.localParent()
                 }
                 .disabled(controller.busy || !controller.canGoLocalUp).help("Parent local folder")
-                Text(controller.localURL?.path ?? "Choose a folder to grant access").lineLimit(1).truncationMode(
-                    .middle
-                )
-                .textSelection(.enabled)
+                Button {
+                    controller.chooseLocalFolder()
+                } label: {
+                    Text(controller.localURL?.path ?? "Choose a folder to grant access")
+                        .lineLimit(1).truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).disabled(controller.busy)
+                .help("Choose a local folder")
+                .accessibilityLabel("Choose local folder")
+                .accessibilityValue(controller.localURL?.path ?? "No folder selected")
+                .accessibilityHint("Opens the local folder picker")
                 Spacer(minLength: 0)
                 IconActionButton(title: "Refresh local files", symbol: "arrow.clockwise") {
                     controller.refreshLocal()

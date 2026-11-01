@@ -780,6 +780,12 @@ allows ten seconds for queued read-ahead replies (five for other handles) and pu
 terminal I/O while draining. Shutdown still interrupts socket waits immediately.
 See [libssh2 exclusive-open flags](https://libssh2.org/libssh2_sftp_open_ex_r.html).
 
+SFTP preflights every selected transfer tree before copying, combining regular-file
+counts into one batch-wide “File X of Y” counter. Empty files count; folders do not.
+The worker retains up to 20,000 manifest entries across the batch for reuse, with
+independent source metadata rechecks before copying. Larger selections keep the
+existing per-tree bounds and rescan uncached trees at copy time. Failure or
+cancellation discards retained manifests; they are never browsing-cache metadata.
 SFTP displays average bytes per second for the current file using a monotonic clock.
 The worker emits a zero-byte start event for each leaf, including recursive trees;
 new requests, completion, disconnect and cancellation clear or hide the rate. A periodic
@@ -792,7 +798,7 @@ necessary and Home bookmarks retain their existing scope.
 Home comes from getpwuid, since NSHomeDirectory names the sandbox container. Explicit
 NSOpenPanel read/write permission gates access; a Home security-scoped bookmark is
 remembered/refreshed, while other folder scopes stay session-owned. The Local Mac
-heading opens the same folder picker. Local operations run on
+path opens the folder picker; its heading is a plain label. Local operations run on
 workers with O_NOFOLLOW, cancellation and retained scopes. No broad filesystem
 entitlement is used. Multi-selection jobs run sequentially and stop on the first error.
 File buffers capture session-local paths/scopes; Paste never reads system clipboard.

@@ -150,6 +150,32 @@
 - (NSDictionary *)performTreeOperation:(NSDictionary *)request {
     NSString *kind = request[@"kind"], *source = request[@"path"], *destination = request[@"destination"],
              *requestID = request[@"id"];
+    if ([kind isEqual:@"prepareTrees"]) {
+        _preparedFileTrees = [NSMutableDictionary new];
+        NSMutableDictionary *counts = [NSMutableDictionary new];
+        NSUInteger retainedItems = 0;
+        for (NSDictionary *transfer in request[@"transfers"]) {
+            NSString *operation = transfer[@"kind"], *path = transfer[@"path"], *identifier = transfer[@"id"];
+            BOOL upload = [operation isEqual:@"uploadTree"];
+            if (!upload && ![operation isEqual:@"downloadTree"] && ![operation isEqual:@"copyRemote"])
+                return @{@"error" : @"Unsupported transfer preflight."};
+            NSMutableArray *tree = [NSMutableArray new];
+            if (![self scanPath:path remote:!upload relative:@"" depth:0 manifest:tree requestID:requestID])
+                return @{@"error" : @"Could not read the complete source tree. No files were transferred."};
+            NSUInteger files = 0;
+            for (NSDictionary *entry in tree)
+                if ([entry[@"attributes"][@"regular"] boolValue])
+                    files++;
+            counts[identifier] = @(files);
+            // Keep the existing per-tree limit and bound retained batch metadata.
+            // Larger selections are counted fully, then rescan uncached trees at copy time.
+            if (retainedItems + tree.count <= 20000) {
+                _preparedFileTrees[identifier] = @{@"path" : path, @"kind" : operation, @"manifest" : tree};
+                retainedItems += tree.count;
+            }
+        }
+        return @{@"fileCounts" : counts};
+    }
     if ([destination rangeOfString:@"\0"].location != NSNotFound)
         return @{@"error" : @"Invalid destination path."};
     if ([kind isEqual:@"mkdir"]) {
@@ -199,8 +225,17 @@
         if ([source isEqual:destination] || [destination hasPrefix:[source stringByAppendingString:@"/"]])
             return @{@"error" : @"A folder cannot be pasted into itself."};
     }
-    NSMutableArray *manifest = [NSMutableArray new];
-    if (![self scanPath:source remote:!upload relative:@"" depth:0 manifest:manifest requestID:requestID])
+    NSDictionary *prepared = _preparedFileTrees[requestID];
+    [_preparedFileTrees removeObjectForKey:requestID];
+    NSMutableArray *manifest = [prepared[@"path"] isEqual:source] && [prepared[@"kind"] isEqual:kind]
+                                   ? [prepared[@"manifest"] mutableCopy]
+                                   : [NSMutableArray new];
+    if (!manifest.count && ![self scanPath:source
+                                    remote:!upload
+                                  relative:@""
+                                     depth:0
+                                  manifest:manifest
+                                 requestID:requestID])
         return @{
             @"error" : @"Could not read the complete source tree. Links, special files, more than 20,000 items or more "
                        @"than 64 folder levels are not supported. No source items were removed."
@@ -209,6 +244,12 @@
         NSString *failure = [self removeManifest:manifest root:source remote:YES];
         return failure ? @{@"error" : failure} : @{};
     }
+    NSUInteger fileCount = 0, currentFile = 0;
+    for (NSDictionary *entry in manifest)
+        if ([entry[@"attributes"][@"regular"] boolValue])
+            fileCount++;
+    if (self.onFileTransferItem)
+        self.onFileTransferItem(requestID, 0, fileCount);
     NSString *temporary = nil;
     NSString *target = destination;
     if (remoteCopy) {
@@ -246,6 +287,9 @@
                     failure = @"Could not create a local destination folder. Existing items are never replaced.";
             }
         } else {
+            currentFile++;
+            if (self.onFileTransferItem)
+                self.onFileTransferItem(requestID, currentFile, fileCount);
             NSDictionary *leaf = [self performFileRequest:@{
                 @"id" : requestID,
                 @"kind" : upload ? @"upload" : @"download",

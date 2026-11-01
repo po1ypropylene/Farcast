@@ -29,6 +29,8 @@
     BOOL _passwordResponseUsed;
     NSMutableArray<NSDictionary *> *_fileRequests;
     NSString *_activeFileRequest;
+    NSMutableDictionary *_preparedFileTrees;
+    BOOL _discardPreparedFileTrees;
     LIBSSH2_SESSION *_workerSession;
     LIBSSH2_CHANNEL *_workerChannel;
     LIBSSH2_SFTP *_sftp;

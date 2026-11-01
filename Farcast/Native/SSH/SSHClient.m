@@ -431,6 +431,10 @@ static void keyboardPrompt(const char *name, int nameLen, const char *instructio
                 break;
             }
             [_lock lock];
+            if (_discardPreparedFileTrees) {
+                _preparedFileTrees = nil;
+                _discardPreparedFileTrees = NO;
+            }
             NSDictionary *request = _fileRequests.firstObject;
             if (request) {
                 [_fileRequests removeObjectAtIndex:0];
@@ -446,6 +450,9 @@ static void keyboardPrompt(const char *name, int nameLen, const char *instructio
                     reply = @{@"error" : @"File operation cancelled."};
                     atomic_store(&_filesCancelled, false);
                 }
+                if (reply[@"error"] || _discardPreparedFileTrees)
+                    _preparedFileTrees = nil;
+                _discardPreparedFileTrees = NO;
                 _activeFileRequest = nil;
                 [_lock unlock];
                 if (self.onFiles)
@@ -492,6 +499,7 @@ cleanup:
     _socket = -1;
     [_outgoing setLength:0];
     [_fileRequests removeAllObjects];
+    _preparedFileTrees = nil;
     if (_forwardWakeRead >= 0)
         close(_forwardWakeRead);
     if (_forwardWakeWrite >= 0)
@@ -533,6 +541,9 @@ cleanup:
         @"local" : localPath,
         @"kind" : upload ? @"upload" : @"download"
     }];
+}
+- (void)prepareFileTransfers:(NSArray<NSDictionary *> *)transfers requestID:(NSString *)requestID {
+    [self enqueueFileRequest:@{@"id" : requestID, @"path" : @".", @"kind" : @"prepareTrees", @"transfers" : transfers}];
 }
 - (void)fileOperation:(NSString *)kind
                source:(NSString *)source
@@ -579,6 +590,7 @@ cleanup:
 }
 - (void)cancelFiles {
     [_lock lock];
+    _discardPreparedFileTrees = YES;
     if (_activeFileRequest || _fileRequests.count)
         atomic_store(&_filesCancelled, true);
     [_lock unlock];

@@ -18,6 +18,7 @@ import Foundation
         let controller = SFTPController(homeURL: source, requiresAccess: false, clock: { progressTime })
         var leafStarts = 0
         var measuredSpeed = false
+        var fileLabels: [String] = []
         let client = FCSSHClient()
         let pin = try! String(contentsOfFile: CommandLine.arguments[3], encoding: .utf8)
         var connected = false
@@ -40,6 +41,7 @@ import Foundation
                 progressTime += 0.1
                 controller.receiveProgress(id: id, bytes: bytes, total: total)
                 if bytes == 0 {
+                    fileLabels.append(controller.message)
                     leafStarts += 1
                     precondition(controller.transferredBytes == 0 && controller.transferSpeed == 0)
                 } else {
@@ -92,6 +94,57 @@ import Foundation
         check(leafStarts == 3 && measuredSpeed && controller.transferSpeed == nil, "recursive-upload-speed-resets")
         controller.receiveProgress(id: "obsolete-request", bytes: 1000, total: 1000)
         check(controller.transferSpeed == nil, "stale-progress-ignored")
+        let counted = source.appendingPathComponent("counted")
+        try! files.createDirectory(
+            at: counted.appendingPathComponent("nested/empty"), withIntermediateDirectories: true)
+        for name in ["one.bin", "nested/two.bin", "nested/three.bin"] {
+            try! new.write(to: counted.appendingPathComponent(name))
+        }
+        try! Data().write(to: counted.appendingPathComponent("zero.bin"))
+        let folder = TransferFile(name: "counted", directory: true, regular: false, size: 0)
+        fileLabels = []
+        controller.transfer([folder], upload: true)
+        await wait { !controller.busy }
+        check(
+            controller.error == nil
+                && (1...4).allSatisfy { number in
+                    fileLabels.contains { $0.hasPrefix("File \(number) of 4:") }
+                }, "preflight-upload-file-count-excludes-folders")
+        controller.localURL = destination
+        fileLabels = []
+        controller.transfer([folder], upload: false)
+        await wait { !controller.busy }
+        check(
+            controller.error == nil
+                && (1...4).allSatisfy { number in
+                    fileLabels.contains { $0.hasPrefix("File \(number) of 4:") }
+                }, "preflight-download-file-count-includes-empty-file")
+        check(
+            (try? Data(contentsOf: destination.appendingPathComponent("counted/nested/two.bin"))) == new,
+            "counted-download-byte-equality")
+        let previousMessage = controller.message
+        controller.receiveTransferItem(id: "obsolete-request", current: 9, total: 10)
+        check(controller.message == previousMessage, "stale-file-count-ignored")
+        controller.localURL = source
+        fileLabels = []
+        controller.transfer([selection[2], folder], upload: true)
+        _ = await finish(overwrite: true, all: true)
+        check(
+            controller.error == nil
+                && (1...5).allSatisfy { number in
+                    fileLabels.contains { $0.hasPrefix("File \(number) of 5:") }
+                }, "combined-recursive-upload-count-across-selected-folders")
+        controller.localURL = destination
+        fileLabels = []
+        controller.transfer([selection[2], folder], upload: false)
+        _ = await finish(overwrite: true, all: true)
+        check(
+            controller.error == nil
+                && (1...5).allSatisfy { number in
+                    fileLabels.contains { $0.hasPrefix("File \(number) of 5:") }
+                }, "combined-recursive-download-count-across-selected-folders")
+        try! files.removeItem(at: destination.appendingPathComponent("tree"))
+        controller.localURL = source
         for name in names { try! new.write(to: source.appendingPathComponent(name)) }
         controller.transfer(selection, upload: true)
         await wait { controller.conflict != nil || !controller.busy }

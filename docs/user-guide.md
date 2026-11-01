@@ -243,7 +243,7 @@ for that connection. Reconnecting checks the server's capabilities again.
 
 - The left panel starts at your actual Home folder. macOS asks for folder access
   the first time; approve Home to remember that permission for future sessions.
-  Browse its subfolders or click the **Local Mac** heading to choose another local
+  Browse its subfolders or click the local folder path to choose another local
   folder with the standard macOS folder picker. No credentials are added.
 - The right panel starts in the server's SFTP home folder. Double-click folders,
   use the parent arrow, type a server path, or use **Back/Forward** to revisit
@@ -460,11 +460,13 @@ the focused connection window. Window placement is not restored at next launch.
 
 On first opening Files or Split, Farcast offers Full Disk Access setup. Open System
 Settings → Privacy & Security → Full Disk Access, add Farcast with **+** if necessary,
-and enable it. macOS may request a restart. Return to Farcast and click **Local Mac**
-to choose Home or another folder; Home access is remembered. The shield button in
+and enable it. macOS may request a restart. Return to Farcast and click the local
+folder path to choose Home or another folder; Home access is remembered. The shield button in
 Local Mac reopens these settings. Choosing a folder alone lets you continue with
 files macOS permits. Full Disk Access still requires a sandbox folder grant.
 
+SFTP counts all files recursively across the selected items before copying and
+shows one combined “File X of Y” counter. Empty files count; folder entries do not.
 SFTP shows the average transfer speed of the current file in bytes per second.
 The rate resets for each file in a folder transfer and disappears after the request
 finishes or is cancelled. RDP file-clipboard messages share the bottom connection

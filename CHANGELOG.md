@@ -5,6 +5,10 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+## 2.3.0 — 2026-11-01
+
+- Count files recursively across all selected SFTP transfer folders using reusable preflight scans, and open the local folder picker from the path instead of the Local Mac heading.
+
 - Disconnect RDP sessions for Mac sleep, stop their connected timers and hide outdated desktops. Add an off-by-default Settings option to reconnect after wake, waiting for old transport cleanup.
 
 - Fix duplicate cursors in Apple VNC by using the server-drawn pointer in the desktop image, including full screen and TCP fallback; keep the local pointer over window controls and letterboxing.
