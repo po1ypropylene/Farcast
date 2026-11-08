@@ -665,8 +665,9 @@ private struct RemoteFolderCache {
         activeJob = job
         currentFile = nil
         if batchFileCounts.isEmpty { fileCount = 0 }
+        let action = job.operation == "removeTree" ? "Deleting" : "Preparing"
         let id = begin(
-            "Preparing item \(completed + 1) of \(batchCount): \((job.source as NSString).lastPathComponent)",
+            "\(action) item \(completed + 1) of \(batchCount): \((job.source as NSString).lastPathComponent)",
             id: job.id)
         if job.local {
             let cancellation = localWork

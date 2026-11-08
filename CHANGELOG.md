@@ -5,6 +5,10 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+## 2.5.0 — 2026-11-08
+
+- Show “Deleting” instead of “Preparing” in remote file deletion progress.
+
 - Bound temporary SSH/SFTP memory during long transfers and recursive operations; avoid redundant parent-directory listings and reject invalid paths or uncertain rename checks.
 - Prevent RDP file selections and redirected-folder handles from exhausting descriptors; grow filename replies safely, synchronize clipboard cleanup and release failed cursor/video setup resources.
 
