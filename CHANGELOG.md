@@ -5,6 +5,8 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+## 2.4.0 — 2026-11-08
+
 - Fix single-monitor RDP “Resize with window” to request full-screen dimensions from the top-right action and restore window dimensions on exit, including rapid transitions and Retina scaling.
 
 - Fix experimental RDP frame buffers accumulating until disconnect by releasing temporary snapshot and Swift bridging storage after every paint callback.
