@@ -8,7 +8,7 @@ import CoreGraphics
         let screen: RDPDisplayScreen
         let monitor: RDPDisplayMonitor
     }
-    let layout: RDPDisplayLayout
+    private(set) var layout: RDPDisplayLayout
     private let desktop: RDPDesktopView
     private let targets: [Target]
     private(set) var windows: [NSWindow] = []
@@ -155,6 +155,21 @@ import CoreGraphics
                 })
         }
     }
+    /// Display Control can deliver intermediate sizes while entering or leaving full screen.
+    /// Keep the single surface and its input transform aligned with received pixels.
+    func adoptDesktopSize(_ size: CGSize) {
+        guard targets.count == 1, let target = targets.first,
+            let updated = try? RDPDisplayLayout(
+                screen: target.screen, desktopSize: size, desktopScale: target.monitor.desktopScale)
+        else { return }
+        layout = updated
+        for surface in surfaces {
+            surface.sourceRect = updated.bounds
+            surface.expectedDesktopSize = size
+            surface.adoptDesktopSize(size)
+        }
+    }
+
     private func remotePoint(event: NSEvent, originatingWindow: NSWindow) -> CGPoint? {
         let global = originatingWindow.convertPoint(toScreen: event.locationInWindow)
         for (index, window) in windows.enumerated() where window.frame.contains(global) {

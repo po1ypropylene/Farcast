@@ -50,7 +50,11 @@ RDP startup resize coverage uses owned native windows and a Display Control peer
 stored Fit, Actual Size and Match window modes with resizing enabled negotiate the
 viewport initially, apply Retina once and send no redundant startup layout. Checks
 also cover layout settling, even-width normalization and cancellation before connection.
-Production Windows startup smoothness still requires live validation.
+The same peer checks repeated top-right full-screen entry and return at display/window
+dimensions with Retina on/off, hidden-window request suppression and exit with a resize
+in flight. Native surface checks verify that intermediate server dimensions retain the
+full-screen surface, upload the complete frame and update the inverse input transform.
+Production Windows startup and transition smoothness still require live validation.
 
 - **Keychain:** synchronous operations can block UI callers during authorization
   or unlocking. The local-file fallback cannot help while a call is waiting.
