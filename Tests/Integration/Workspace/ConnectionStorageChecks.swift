@@ -103,8 +103,7 @@ import SwiftUI
             // Capture the complete storage form separately so every control can be inspected.
             let form = NSHostingView(
                 rootView: ConnectionStorageSettings(controller: controller)
-                    .frame(width: 480, alignment: .leading).padding(20)
-                    .fixedSize(horizontal: false, vertical: true).preferredColorScheme(scheme))
+                    .frame(width: 580, height: 720).preferredColorScheme(scheme))
             window.contentView = form
             RunLoop.main.run(until: Date().addingTimeInterval(0.2))
             window.setContentSize(form.fittingSize)
@@ -118,11 +117,42 @@ import SwiftUI
                         URL(fileURLWithPath: CommandLine.arguments[1]).appendingPathComponent("storage-\(scheme).png"))
             }
         }
-        // Inspect the actual migration prompt and cancellation through native accessibility.
-        let legacyPreview = ConnectionStorageController(defaults: defaults, container: container)
+        // Draft changes and revert must never alter the active library or its credential protection.
+        let pending = ConnectionStorageDraft(controller: controller)
+        precondition(!pending.dirty)
+        pending.keySelectionChanged = true
+        precondition(pending.dirty, "Explicit key selection must permit re-encryption even when the path is unchanged")
+        pending.revert()
+        precondition(!pending.dirty)
+        pending.protection = .password
+        pending.password = "synthetic-new-password"
+        pending.confirmation = "different"
+        precondition(pending.dirty && pending.configurationIssue != nil)
+        pending.revert()
+        precondition(!pending.dirty && pending.password.isEmpty && pending.confirmation.isEmpty)
+        pending.folderMode = true
+        pending.root = source.root
+        pending.scope = root
+        pending.inspectDestination()
+        precondition(pending.existingDestination && !pending.canMigrate)
+        pending.revert()
+        precondition(controller.storage?.root == empty)
+        // Inspect the actual migration review and cancellation with a pending destination.
+        let legacyRoot = root.appendingPathComponent("legacy-credentials")
+        try LocalCredentialStore(root: legacyRoot).save(ConnectionCredential(password: "synthetic"), for: UUID())
+        let legacyPreview = ConnectionStorageController(
+            defaults: defaults, container: container, legacyCredentialRoot: legacyRoot)
+        precondition(legacyPreview.hasLocalFallbackCredentials)
+        let reviewDraft = ConnectionStorageDraft(controller: legacyPreview)
+        reviewDraft.folderMode = true
+        reviewDraft.root = root.appendingPathComponent("review-destination")
+        reviewDraft.scope = root
+        reviewDraft.protection = .unencrypted
+        reviewDraft.inspectDestination()
+        precondition(reviewDraft.dirty && reviewDraft.canMigrate)
         let promptView = NSHostingView(
-            rootView: ConnectionStorageSettings(controller: legacyPreview)
-                .frame(width: 480, alignment: .leading).padding(20).fixedSize(horizontal: false, vertical: true))
+            rootView: ConnectionStorageSettings(controller: legacyPreview, draft: reviewDraft)
+                .frame(width: 580, height: 720))
         window.contentView = promptView
         window.setContentSize(promptView.fittingSize)
         let accessibilityApp = AXUIElementCreateApplication(getpid())
@@ -160,13 +190,18 @@ import SwiftUI
             settle()
         }
         settle()
-        press("Apply Storage…")
+        press("Switch Storage…")
         let labels = nodes().compactMap { attribute($0, "accessibilityLabel") as? String }
         precondition(labels.contains("Migrate and Switch"))
-        precondition(labels.contains("Use Destination Without Migrating"))
+        precondition(labels.contains("Switch Without Migrating"))
         press("Cancel")
         precondition(legacyPreview.storage == nil)
-        print("PASS native storage migration prompt offers both choices and Cancel preserves selection")
+        precondition(reviewDraft.dirty)
+        reviewDraft.revert()
+        precondition(!reviewDraft.dirty)
+        print(
+            "PASS pending storage edits, Revert, existing-library preflight, fallback disclosure and migration review cancellation"
+        )
         print(
             "PASS isolated storage switching, explicit migration, source retention, conflict rollback, no-migration and active-tab refusal"
         )

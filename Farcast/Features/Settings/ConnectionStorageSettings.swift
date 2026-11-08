@@ -93,12 +93,23 @@ enum ConnectionStorageAccess {
     @Published var startupError = ""
     @Published var needsPassword = false
     private let defaults: UserDefaults
-    init(defaults: UserDefaults = .standard, container: ModelContainer? = nil, storage: ConnectionStorage? = nil) {
+    private let legacyCredentialRoot: URL
+    var hasLocalFallbackCredentials: Bool {
+        guard container != nil, storage == nil,
+            let names = try? FileManager.default.contentsOfDirectory(atPath: legacyCredentialRoot.path)
+        else { return false }
+        return names.contains { $0.hasSuffix(".json") && UUID(uuidString: String($0.dropLast(5))) != nil }
+    }
+    init(
+        defaults: UserDefaults = .standard, container: ModelContainer? = nil, storage: ConnectionStorage? = nil,
+        legacyCredentialRoot: URL = LegacyCredentialStore.legacyRoot
+    ) {
         self.defaults = defaults
+        self.legacyCredentialRoot = legacyCredentialRoot
         self.container = container
         self.storage = storage
     }
-    private(set) var storage: ConnectionStorage?
+    @Published private(set) var storage: ConnectionStorage?
     weak var workspace: Workspace?
     var canChangeStorage: Bool {
         guard let workspace else { return true }
@@ -282,180 +293,6 @@ struct ConnectionStorageWorkspace: View {
         }.task {
             controller.workspace = workspace
             controller.start()
-        }
-    }
-}
-
-struct ConnectionStorageSettings: View {
-    @ObservedObject var controller = ConnectionStorageController.shared
-    @State private var folderMode = false
-    @State private var root = ConnectionStorage.defaultRoot
-    @State private var scope: URL?
-    @State private var protection = CredentialProtection.keyFile
-    @State private var keyFile = ConnectionStorage.defaultKey
-    @State private var password = ""
-    @State private var confirmation = ""
-    @State private var message = ""
-    @State private var confirmMigration = false
-    @State private var confirmProtection = false
-    @State private var keyAuthorized = false
-    @State private var newKeyName = ".farcast-key"
-    var body: some View {
-        FormSection(title: "Connection Storage") {
-            Picker("Storage", selection: $folderMode) {
-                Text("App library + Keychain / local fallback").tag(false)
-                Text("Custom folder").tag(true)
-            }
-            if folderMode {
-                Text(root.path).font(.caption).textSelection(.enabled)
-                HStack {
-                    Button("Default Folder…") { choose(defaultFolder: true) }
-                    Button("Choose Folder…") { choose(defaultFolder: false) }
-                }
-                Picker("Credential protection", selection: $protection) {
-                    ForEach(CredentialProtection.allCases) { Text($0.title).tag($0) }
-                }
-                if protection == .keyFile {
-                    Text(keyFile.path).font(.caption).textSelection(.enabled)
-                    TextField("New key filename", text: $newKeyName).textFieldStyle(.roundedBorder)
-                    HStack {
-                        Button("Generate New Key…") { chooseKey(generate: true) }
-                        Button("Use Existing Key…") { chooseKey(generate: false) }
-                    }
-                }
-                if protection == .password {
-                    SecureField("Library password", text: $password)
-                    SecureField("Confirm password (new library or protection)", text: $confirmation)
-                }
-                Text(
-                    protection == .unencrypted
-                        ? "Credentials are unencrypted local files, readable by anyone with folder access."
-                        : "AES-128-GCM protects credentials. Connection metadata is unencrypted. Back up the key or password separately; neither can be recovered if lost."
-                )
-                .font(.caption).foregroundStyle(.secondary)
-            } else {
-                Text(
-                    "Connection metadata stays in the app library. Credentials use Keychain when available, with an owner-only, unencrypted local fallback."
-                )
-                .font(.caption).foregroundStyle(.secondary)
-            }
-            Text(
-                "Close all session tabs and connection/import editors before changing storage. Migration copies data and preserves the source; it requires an empty destination."
-            )
-            .font(.caption).foregroundStyle(.secondary)
-            Button("Apply Storage…") {
-                guard controller.canChangeStorage else {
-                    message = "Close all session tabs and connection/import editors before changing storage."
-                    return
-                }
-                do {
-                    if folderMode, scope == nil,
-                        controller.storage?.root.standardizedFileURL.path != root.standardizedFileURL.path
-                    {
-                        guard
-                            let (selected, selectedScope) = try ConnectionStorageAccess.chooseRoot(
-                                useDefault: root == ConnectionStorage.defaultRoot)
-                        else { return }
-                        root = selected
-                        scope = selectedScope
-                    }
-                    if folderMode, protection == .keyFile, !keyAuthorized,
-                        controller.storage?.manifest.keyFile != keyFile.path
-                    {
-                        message = "Generate a new key or select an existing key before applying storage."
-                        return
-                    }
-                } catch {
-                    message = "Authorize the library folder and key file before continuing."
-                    return
-                }
-                if folderMode, controller.storage?.root.standardizedFileURL.path == root.standardizedFileURL.path {
-                    confirmProtection = true
-                } else {
-                    confirmMigration = true
-                }
-            }
-            if !message.isEmpty { Text(message).font(.caption).textSelection(.enabled) }
-        }.onAppear { refresh() }
-            .alert("Migrate connections and credentials?", isPresented: $confirmMigration) {
-                Button("Migrate and Switch") { apply(migrate: true) }
-                Button("Use Destination Without Migrating") { apply(migrate: false) }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text(
-                    "Copy all saved connections, folders, VPN profiles and their credentials to the destination. Keychain access may ask for approval. Original data is kept. Without migration, the destination’s existing library is opened, or a new empty one is created."
-                )
-            }
-            .alert("Change credential protection?", isPresented: $confirmProtection) {
-                Button("Re-encrypt Credentials") { apply(migrate: false) }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text(
-                    "All credentials in this library will use the selected protection. Superseded credential files will be removed after the change succeeds. Backups may retain older copies."
-                )
-            }
-    }
-    private func refresh() {
-        folderMode = controller.storage != nil
-        root = controller.storage?.root ?? ConnectionStorage.defaultRoot
-        protection = controller.storage?.manifest.protection ?? .keyFile
-        keyFile = controller.storage?.manifest.keyFile.map { URL(fileURLWithPath: $0) } ?? ConnectionStorage.defaultKey
-    }
-    private func choose(defaultFolder: Bool) {
-        do {
-            if let (selected, selectedScope) = try ConnectionStorageAccess.chooseRoot(useDefault: defaultFolder) {
-                root = selected
-                scope = selectedScope
-                if FileManager.default.fileExists(atPath: root.appendingPathComponent("storage.json").path) {
-                    let manifest = try ConnectionStorage.manifest(at: root)
-                    protection = manifest.protection
-                    keyFile = manifest.keyFile.map { URL(fileURLWithPath: $0) } ?? ConnectionStorage.defaultKey
-                }
-            }
-        } catch { message = "The folder could not be authorized or its manifest is invalid." }
-    }
-    private func chooseKey(generate: Bool) {
-        do {
-            if let selected = try ConnectionStorageAccess.chooseKey(generate: generate, filename: newKeyName) {
-                keyFile = selected
-                keyAuthorized = true
-                message = ""
-            }
-        } catch {
-            message =
-                generate
-                ? "The key could not be generated. Choose a new file name; existing files are never overwritten."
-                : "Choose an accessible, regular file containing exactly 16 bytes."
-        }
-    }
-    private func apply(migrate: Bool) {
-        let existingDestination = FileManager.default.fileExists(
-            atPath: root.appendingPathComponent("storage.json").path)
-        let sameFolder = controller.storage?.root.standardizedFileURL.path == root.standardizedFileURL.path
-        guard
-            !folderMode || protection != .password || (existingDestination && !sameFolder)
-                || (!password.isEmpty && password == confirmation)
-        else {
-            message = "Enter matching, nonempty passwords."
-            return
-        }
-        do {
-            try controller.apply(
-                folderMode: folderMode, root: root, scope: scope, protection: protection,
-                keyFile: keyFile, password: password, migrate: migrate)
-            password = ""
-            confirmation = ""
-            refresh()
-            message =
-                controller.storage?.supersededFilesRemain == true
-                ? "Protection updated, but superseded credential files could not be removed. They may still contain unencrypted credentials; remove the old Credentials directory before relying on encryption."
-                : "Storage updated. Original migration sources are preserved."
-        } catch ConnectionStorageError.exists {
-            message =
-                "Migration requires an empty destination without conflicting credentials. Choose another folder or use the destination without migrating. The original library remains active."
-        } catch {
-            message =
-                "Storage could not be changed. Check folder and key access or the password. The original library remains active."
         }
     }
 }

@@ -213,6 +213,15 @@ verification value detects wrong keys/passwords even for empty libraries. Unlock
 keys remain in memory; folder mode never falls back to legacy credentials.
 Security-scoped bookmarks retain selected folder/key access. Metadata is unencrypted.
 
+Storage Settings uses an independent observable draft. Editing location, protection
+or key selection does not mutate the active controller. Revert clears pending secrets.
+A dedicated native Settings tab separates storage from immediate general preferences.
+Review preflight inspects destination files and counts source metadata without reading
+or exporting Keychain records. Existing libraries keep their recorded protection;
+only explicit confirmation performs migration or re-encryption. A fallback warning
+uses local credential filenames, not Keychain availability probes. Key backup is an
+explicit selected-directory copy of the AES file with owner-only, no-overwrite publication.
+
 Storage changes require no session tabs and an explicit migrate/use-destination/cancel
 choice. Migration reads a saved SwiftData context rather than copying live SQLite
 files, stages credential decoding, preserves all metadata IDs/raw optional values,

@@ -253,7 +253,8 @@ import SwiftUI
             window.setContentSize(settings.fittingSize)
             settle()
             for title in [
-                "General", "Terminal", "Remote Desktop", "About", "Automatically reconnect RDP after Mac wakes",
+                "General", "Storage", "Terminal", "Remote Desktop", "About",
+                "Automatically reconnect RDP after Mac wakes",
             ] { precondition(labels().contains(title)) }
             try capture("settings-\(scheme)")
         }

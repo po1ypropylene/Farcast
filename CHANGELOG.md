@@ -5,6 +5,8 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Clarify connection storage with a dedicated Settings pane, active versus pending status, Revert, migration preflight and existing-library choices, visible protection warnings, and labeled key selection, generation and backup actions.
+
 ## 2.4.0 — 2026-11-08
 
 - Fix single-monitor RDP “Resize with window” to request full-screen dimensions from the top-right action and restore window dimensions on exit, including rapid transitions and Retina scaling.
