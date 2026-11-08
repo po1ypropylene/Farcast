@@ -1083,6 +1083,12 @@ Connect initializes the GDI pipeline before installing measurement wrappers; clo
 retires its codecs and clears active state and saved callback pointers. Channel
 name dispatch is covered by a negative-control initialization/cleanup regression.
 
+Each native paint callback owns an autorelease pool around snapshot creation and
+Swift mailbox publication. GFX paints run on FreeRDP's long-lived drdynvc channel
+thread, outside the transport worker's iteration pool; callback-local drainage
+releases temporary native/bridged buffers while retained mailbox snapshots remain
+valid. This prevents frame storage accumulating until channel teardown.
+
 Experimental RDP features are controlled by the off-by-default switch in Settings.
 Each RDP connection snapshots it: disabled uses compatible bitmap graphics, full
 frame snapshots/uploads and polling input; enabled uses GFX/H.264 negotiation with

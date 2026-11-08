@@ -167,49 +167,55 @@ static BOOL beginPaint(rdpContext *context) {
     return TRUE;
 }
 static BOOL endPaint(rdpContext *context) {
-    rdpGdi *gdi = context->gdi;
-    if (!gdi || !gdi->primary_buffer || gdi->width <= 0 || gdi->height <= 0)
-        return TRUE;
-    // Snapshot bytes while FreeRDP owns the buffer; the renderer never reads
-    // native mutable memory.
-    FCRDPClient *client = owner(context);
-    FCContext *ctx = (FCContext *)context;
-    ctx->lastFrame = NSProcessInfo.processInfo.systemUptime;
-    [client recordPaint];
-    if (!ctx->graphicsConnected && !ctx->bitmapReported) {
-        ctx->bitmapReported = YES;
-        if (client.onGraphicsPath)
-            client.onGraphicsPath(@"Compatible bitmap graphics");
-    }
-    os_signpost_id_t signpost = os_signpost_id_generate(performanceLog());
-    os_signpost_interval_begin(performanceLog(), signpost, "Snapshot");
-    BOOL full = [client forceFullSnapshots] || ctx->snapshotWidth != gdi->width || ctx->snapshotHeight != gdi->height;
-    HGDI_RGN invalid = gdi->primary->hdc->hwnd->invalid;
-    if (client.onFrameRegion) {
-        if (!full && invalid->null) {
-            os_signpost_interval_end(performanceLog(), signpost, "Snapshot");
+    // GFX paints arrive on FreeRDP's long-lived drdynvc thread, outside the
+    // transport worker's pool. Drain snapshots and Swift bridging temporaries
+    // after each publication, including no-damage/invalid-frame early returns.
+    @autoreleasepool {
+        rdpGdi *gdi = context->gdi;
+        if (!gdi || !gdi->primary_buffer || gdi->width <= 0 || gdi->height <= 0)
             return TRUE;
+        // Snapshot bytes while FreeRDP owns the buffer; the renderer never reads
+        // native mutable memory.
+        FCRDPClient *client = owner(context);
+        FCContext *ctx = (FCContext *)context;
+        ctx->lastFrame = NSProcessInfo.processInfo.systemUptime;
+        [client recordPaint];
+        if (!ctx->graphicsConnected && !ctx->bitmapReported) {
+            ctx->bitmapReported = YES;
+            if (client.onGraphicsPath)
+                client.onGraphicsPath(@"Compatible bitmap graphics");
         }
-        int x = full ? 0 : MAX(0, invalid->x);
-        int y = full ? 0 : MAX(0, invalid->y);
-        int right = full ? gdi->width : MIN((int64_t)gdi->width, (int64_t)invalid->x + invalid->w);
-        int bottom = full ? gdi->height : MIN((int64_t)gdi->height, (int64_t)invalid->y + invalid->h);
-        if (right > x && bottom > y) {
-            int width = right - x, height = bottom - y;
-            NSMutableData *patch = [NSMutableData dataWithLength:(NSUInteger)width * height * 4];
-            for (int row = 0; row < height; row++)
-                memcpy((BYTE *)patch.mutableBytes + (NSUInteger)row * width * 4,
-                       gdi->primary_buffer + (NSUInteger)(y + row) * gdi->stride + x * 4, (size_t)width * 4);
-            client.onFrameRegion(patch, gdi->width, gdi->height, x, y, width, height);
-            ctx->snapshotWidth = gdi->width;
-            ctx->snapshotHeight = gdi->height;
+        os_signpost_id_t signpost = os_signpost_id_generate(performanceLog());
+        os_signpost_interval_begin(performanceLog(), signpost, "Snapshot");
+        BOOL full =
+            [client forceFullSnapshots] || ctx->snapshotWidth != gdi->width || ctx->snapshotHeight != gdi->height;
+        HGDI_RGN invalid = gdi->primary->hdc->hwnd->invalid;
+        if (client.onFrameRegion) {
+            if (!full && invalid->null) {
+                os_signpost_interval_end(performanceLog(), signpost, "Snapshot");
+                return TRUE;
+            }
+            int x = full ? 0 : MAX(0, invalid->x);
+            int y = full ? 0 : MAX(0, invalid->y);
+            int right = full ? gdi->width : MIN((int64_t)gdi->width, (int64_t)invalid->x + invalid->w);
+            int bottom = full ? gdi->height : MIN((int64_t)gdi->height, (int64_t)invalid->y + invalid->h);
+            if (right > x && bottom > y) {
+                int width = right - x, height = bottom - y;
+                NSMutableData *patch = [NSMutableData dataWithLength:(NSUInteger)width * height * 4];
+                for (int row = 0; row < height; row++)
+                    memcpy((BYTE *)patch.mutableBytes + (NSUInteger)row * width * 4,
+                           gdi->primary_buffer + (NSUInteger)(y + row) * gdi->stride + x * 4, (size_t)width * 4);
+                client.onFrameRegion(patch, gdi->width, gdi->height, x, y, width, height);
+                ctx->snapshotWidth = gdi->width;
+                ctx->snapshotHeight = gdi->height;
+            }
+        } else if (client.onFrame) {
+            client.onFrame([NSData dataWithBytes:gdi->primary_buffer length:(NSUInteger)gdi->stride * gdi->height],
+                           gdi->width, gdi->height, gdi->stride);
         }
-    } else if (client.onFrame) {
-        client.onFrame([NSData dataWithBytes:gdi->primary_buffer length:(NSUInteger)gdi->stride * gdi->height],
-                       gdi->width, gdi->height, gdi->stride);
+        os_signpost_interval_end(performanceLog(), signpost, "Snapshot");
+        return TRUE;
     }
-    os_signpost_interval_end(performanceLog(), signpost, "Snapshot");
-    return TRUE;
 }
 static BOOL desktopResize(rdpContext *context) {
     UINT32 width = freerdp_settings_get_uint32(context->settings, FreeRDP_DesktopWidth);

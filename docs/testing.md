@@ -222,6 +222,10 @@ Core tests also cover nested folder metadata and retained legacy favorite metada
 - `scripts/test-rdp-dirty-regions.sh`: exact immutable snapshots, missed generations,
   independent crops, upload byte bounds, resize and resume, repeated with
   `FARCAST_FULL_UPLOAD=1` to force full copies/uploads.
+- `scripts/test-rdp-frame-memory.sh`: repeated native patch/full snapshots through
+  the real Swift mailbox bridge on a background thread with a connection-lifetime
+  outer pool and stalled main queue. Weak references verify temporary frame bytes
+  release after each paint, and retained canonical pixels verify final convergence.
 - `scripts/test-rdp-input-latency.sh [adapter-source|--polling-baseline]`: 160 owned TLS enqueue-to-drain
   samples with p50/p95/p99. A comparison source must include the same timing callback;
   this does not measure network RTT or input-to-visual latency.

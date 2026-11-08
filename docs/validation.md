@@ -35,6 +35,12 @@ CPU time/run-loop gaps under excess frame publication. Refresh pacing and GPU
 ownership are local renderer changes shared by RDP and VNC; they do not establish
 production frame rate or end-to-end input latency.
 
+The RDP frame-memory regression checks release of temporary native snapshot bytes
+after every paint through the actual Swift mailbox bridge, before a background
+channel-like thread drains its outer pool. It covers patch and full publications
+with a stalled main queue and retained final pixels. Sustained memory behavior on
+production GFX/H.264 desktops still requires live confirmation.
+
 Deterministic regressions cover SSH submitted-versus-desired PTY resize through
 EAGAIN, partial-write ordering, explicit input overflow, omitted Command key-up,
 and failure of each RDP input send API. These do not reproduce a production
