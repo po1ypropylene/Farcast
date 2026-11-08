@@ -27,8 +27,13 @@ enum PreviousLibraryIdentity {
     /// SwiftData may migrate it or create journal files even for a read-only context.
     static func importLibrary(
         from library: URL, into container: ModelContainer, includeLocalCredentials: Bool,
-        credentials: LocalCredentialStore = LocalCredentialStore(), defaults: UserDefaults = .standard
+        credentials: LocalCredentialStore? = nil, defaults: UserDefaults = .standard
     ) throws -> Int {
+        let credentials =
+            try credentials
+            ?? ConnectionStorageSession.withOptionalStorage {
+                $0?.credentials ?? LocalCredentialStore(root: LegacyCredentialStore.legacyRoot)
+            }
         let destination = ModelContext(container)
         destination.autosaveEnabled = false
         guard try destination.fetchCount(FetchDescriptor<SavedConnection>()) == 0,

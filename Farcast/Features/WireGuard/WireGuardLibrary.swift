@@ -80,7 +80,7 @@ struct WireGuardLibrary: View {
                                 importStrip
                                 if draft.configuration.isOpenVPN { openVPNSections } else { wireGuardSections }
                                 Label(
-                                    "Secrets use Keychain when available, otherwise owner-only local files that are not encrypted.",
+                                    CredentialStore.savingDescription,
                                     systemImage: "lock"
                                 )
                                 .font(.caption).foregroundStyle(.secondary)

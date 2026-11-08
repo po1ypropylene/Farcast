@@ -16,6 +16,47 @@ struct KeychainError: LocalizedError {
     var errorDescription: String? { "Keychain: \(SecCopyErrorMessageString(status, nil) as String? ?? String(status))" }
 }
 struct CredentialStore {
+    static func load(_ id: UUID) throws -> ConnectionCredential? {
+        try ConnectionStorageSession.withOptionalStorage { storage in
+            if let storage { return try storage.credentials.load(id) }
+            return try LegacyCredentialStore.load(id)
+        }
+    }
+    static func loadForMigration(_ id: UUID) throws -> ConnectionCredential? {
+        try ConnectionStorageSession.withOptionalStorage { storage in
+            if let storage { return try storage.credentials.load(id) }
+            return try LegacyCredentialStore.loadForMigration(id)
+        }
+    }
+    static var savingDescription: String {
+        (try? ConnectionStorageSession.withOptionalStorage { storage in
+            guard let storage else { return "Keychain when available; otherwise unencrypted, owner-only local files." }
+            return "Connection folder: " + storage.manifest.protection.title
+                + ". Unencrypted mode stores readable local files."
+        }) ?? "Review credential protection in Settings."
+    }
+    static func save(_ credential: ConnectionCredential, for id: UUID) throws {
+        try ConnectionStorageSession.withOptionalStorage { storage in
+            if let storage {
+                try storage.credentials.save(credential, for: id)
+            } else {
+                try LegacyCredentialStore.save(credential, for: id)
+            }
+        }
+    }
+    static func delete(_ id: UUID) throws {
+        try ConnectionStorageSession.withOptionalStorage { storage in
+            if let storage { try storage.credentials.delete(id) } else { try LegacyCredentialStore.delete(id) }
+        }
+    }
+}
+
+/// Retained for the original storage mode and explicit, user-confirmed migration.
+struct LegacyCredentialStore {
+    static var legacyRoot: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(
+            "Library/Application Support/Farcast/Credentials")
+    }
     private static let service = "com.peterpo.farcast.credentials"
     private static func query(_ id: UUID) -> [String: Any] {
         [
@@ -23,7 +64,7 @@ struct CredentialStore {
             kSecAttrAccount as String: id.uuidString,
         ]
     }
-    private static var local: LocalCredentialStore { LocalCredentialStore() }
+    private static var local: LocalCredentialStore { LocalCredentialStore(root: legacyRoot) }
     private static func unavailable(_ status: OSStatus) -> Bool {
         [errSecMissingEntitlement, errSecAuthFailed, errSecInteractionNotAllowed, errSecNotAvailable].contains(status)
     }
@@ -35,6 +76,18 @@ struct CredentialStore {
         var result: CFTypeRef?
         let status = SecItemCopyMatching(request as CFDictionary, &result)
         if status == errSecItemNotFound || unavailable(status) { return nil }
+        guard status == errSecSuccess, let data = result as? Data else { throw KeychainError(status: status) }
+        return try JSONDecoder().decode(ConnectionCredential.self, from: data)
+    }
+    /// Unlike ordinary lookup, migration must not interpret inaccessible Keychain records as missing.
+    static func loadForMigration(_ id: UUID) throws -> ConnectionCredential? {
+        if let credential = try local.load(id) { return credential }
+        var request = query(id)
+        request[kSecReturnData as String] = true
+        request[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(request as CFDictionary, &result)
+        if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = result as? Data else { throw KeychainError(status: status) }
         return try JSONDecoder().decode(ConnectionCredential.self, from: data)
     }

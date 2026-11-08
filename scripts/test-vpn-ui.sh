@@ -19,7 +19,7 @@ compile_native_clients
 sources=()
 while IFS= read -r source; do sources+=("$source"); done < <(rg --files Farcast -g '*.swift' | rg -v '^Farcast/App/' | sort)
 xcrun swiftc -parse-as-library -module-name Farcast -target arm64-apple-macos27.0 -I "$products" -import-objc-header Farcast/Native-Bridge.h \
-  "${sources[@]}" Tests/Integration/Workspace/VPNUIReviewChecks.swift \
+  "${sources[@]}" Tests/Integration/Workspace/VPNUIReviewChecks.swift Tests/Integration/Workspace/ConnectionStorageChecks.swift \
   "$fixture_root/SSH.o" "$fixture_root/RDP.o" "$fixture_root/RDPClipboard.o" "$fixture_root/RDPDrive.o" "$products/SwiftTerm.o" \
   -L Vendor/Native/lib -lssh2 -lfreerdp3 -lfreerdp-client3 -lwinpr3 -lcrypto -lssl -lz -lsrtp2 -framework VideoToolbox -framework CoreMedia -framework CoreVideo -Xlinker -rpath -Xlinker "$PWD/Vendor/Native/lib" -o "$fixture_app/Contents/MacOS/client"
 "$fixture_app/Contents/MacOS/client" "$@"

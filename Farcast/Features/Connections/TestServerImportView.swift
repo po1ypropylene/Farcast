@@ -30,7 +30,7 @@ struct TestServerImportView: View {
             }.frame(height: 200)
             Toggle("Save supplied passwords on this Mac", isOn: $rememberPasswords)
             Text(
-                "Saved passwords use Keychain when available; otherwise owner-only local files, which are not encrypted. Passwords are never saved in the connection database. Server trust is checked when you connect. Private keys can be added later in Edit Connection."
+                "Saved passwords use the selected storage mode’s protection setting; unencrypted mode saves readable local files. Passwords are never saved in the connection database. Server trust is checked when you connect. Private keys can be added later in Edit Connection."
             )
             .font(.callout).foregroundStyle(.secondary)
             HStack {

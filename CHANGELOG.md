@@ -5,6 +5,8 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Add optional connection-folder storage (default `~/.farcast-connections`) with AES-128 key-file or password protection and an unencrypted option. Retain original app-library/Keychain storage; offer in-app migration when switching, preserving source data.
+
 - Improve readability of VNC authentication, media negotiation and recovery, RDP drive registration and color conversion, and VPN ZIP validation with descriptive names and clearer authentication stages; preserve existing protocol behavior.
 
 ## 2.3.0 — 2026-11-01

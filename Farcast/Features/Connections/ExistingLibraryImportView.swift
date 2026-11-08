@@ -21,7 +21,7 @@ struct ExistingLibraryImportView: View {
             .foregroundStyle(.secondary)
             Toggle("Copy saved local credentials", isOn: $includeLocalCredentials)
             Text(
-                "Local credentials include passwords, imported private keys and WireGuard keys. Their copies are owner-only files and are not encrypted. Keychain items are not copied; enter those credentials again. Choose local folders and SSH key files again if macOS requests access."
+                "Local credentials include passwords, imported private keys and WireGuard keys. Their copies use the selected storage mode’s credential protection setting. Unencrypted mode saves readable files. Keychain items are not copied; enter those credentials again. Choose local folders and SSH key files again if macOS requests access."
             )
             .font(.callout).foregroundStyle(.secondary)
             if let message { Text(message).foregroundStyle(.red).accessibilityLabel(message) }

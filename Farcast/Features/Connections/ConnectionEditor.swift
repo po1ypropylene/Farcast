@@ -249,11 +249,11 @@ struct ConnectionEditor: View {
             row("") {
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Save credentials on this Mac", isOn: $remember)
-                    Text("Keychain when available; otherwise unencrypted, owner-only local files.")
+                    Text(CredentialStore.savingDescription)
                         .font(.callout).foregroundStyle(.secondary).lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                         .help(
-                            "Turn off to enter credentials each time. Local files are in your Library/Application Support folder."
+                            "Turn off to enter credentials each time. Change the folder and protection in Settings."
                         )
                 }
             }

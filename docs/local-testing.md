@@ -4,7 +4,7 @@
 
 `.local-testing/servers.json (relative to the repository root)`
 
-Run `scripts/setup-local-testing.sh` to create the blank file without overwriting existing values. The directory must be owner-only (700); the file must be owner read/write (600). The entire directory is excluded by `.gitignore`. Keep keys and certificates there too. The file is **plain text on your Mac**, not encrypted; do not put it in a shared/synced directory or paste it into chat. App credentials use encrypted macOS Keychain when available; the development fallback uses owner-only, unencrypted files under ~/Library/Application Support/Farcast/Credentials.
+Run `scripts/setup-local-testing.sh` to create the blank file without overwriting existing values. The directory must be owner-only (700); the file must be owner read/write (600). The entire directory is excluded by `.gitignore`. Keep keys and certificates there too. The file is **plain text on your Mac**, not encrypted; do not put it in a shared/synced directory or paste it into chat. The default app storage uses macOS Keychain when available with an owner-only, unencrypted fallback under ~/Library/Application Support/Farcast/Credentials. Optional folder storage supports key-file/password AES-128 encryption or unencrypted files; see the user guide.
 
 Open the file in your own editor. Fill in host, port, username and password, and set `enabled` to `true` for each server you want tested. For RDP, fill `domain` if required. Keep UUID `id` values stable and unique; when adding another server, generate a fresh UUID. Protocol values are exactly `SSH` or `RDP`. Disabled entries are ignored and can remain blank. The tracked `Tests/Fixtures/servers.example.json` has no real information; do not put secrets in that example.
 

@@ -202,6 +202,28 @@ files 600, atomic writes). Existing local records remain authoritative. Quick Co
 never saves secrets/profiles; duplication does not copy credentials; profile deletion
 removes its credential item. No automatic Keychain export is used.
 
+Settings also supports an opt-in folder library (default `~/.farcast-connections`).
+Its `default.store` keeps the same SwiftData model identities. A versioned
+`storage.json` selects credential protection and the active credential directory.
+Key-file mode is the folder default, using an owner-only 16-byte random key at
+`~/.farcast-key` unless selected otherwise. CryptoKit AES-128-GCM authenticates
+each credential against its UUID; password mode derives the AES key with
+PBKDF2-HMAC-SHA256, 600,000 iterations and a random 16-byte salt. A sealed manifest
+verification value detects wrong keys/passwords even for empty libraries. Unlocked
+keys remain in memory; folder mode never falls back to legacy credentials.
+Security-scoped bookmarks retain selected folder/key access. Metadata is unencrypted.
+
+Storage changes require no session tabs and an explicit migrate/use-destination/cancel
+choice. Migration reads a saved SwiftData context rather than copying live SQLite
+files, stages credential decoding, preserves all metadata IDs/raw optional values,
+and rolls back destination inserts/credentials on failure. Only this explicitly
+confirmed same-app migration reads the matching legacy Keychain items for copying;
+normal lookup and historical-library import never bulk-export Keychain. Sources
+are retained. Destination conflicts fail closed. Protection changes stage a new
+credential directory and atomically replace the manifest before removing superseded
+files. Storage selection/bookmarks are committed only on success. Switching
+recreates the workspace view on the destination context with no restored sessions.
+
 Trust preferences are separate and scoped to protocol/host/port. SSH verifies a host
 key before authentication; RDP evaluates certificate chain and original hostname with
 Security.framework. Unknown/changed identities require explicit approval. TLS/NLA stay
@@ -228,7 +250,7 @@ closed, and errors omit input paths/values.
 Local secrets are copied only with explicit opt-in into Farcast's 700/600 atomic
 file store. Credential input is decoded before destination writes; credential writes
 are rolled back if metadata saving fails. An orphaned destination credential prevents
-replacement. Keychain contents are never copied or exported. Appearance, restoration
+replacement. Historical-library import never copies or exports Keychain contents. Appearance, restoration
 and explicitly imported trust decisions are retained; unrelated preferences and old
 security-scoped grants are excluded. RDP export metadata remains but grants must be
 reselected when macOS refuses them. No sessions automatically connect. Historical

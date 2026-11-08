@@ -9,6 +9,7 @@ import SwiftUI
         NSApplication.shared.setActivationPolicy(.regular)
         DispatchQueue.main.async {
             do {
+                try ConnectionStorageChecks.run()
                 try runChecks()
                 exit(0)
             } catch {

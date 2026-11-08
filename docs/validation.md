@@ -9,6 +9,7 @@ stated scope; disabled live entries report SKIP.
 
 | Area | Checks | Evidence boundary |
 | --- | --- | --- |
+| Connection storage | AES-128-GCM key/password round trips, wrong-password and missing-key refusal, tamper/UUID binding, plaintext permissions, protection replacement and failure rollback; metadata/credential migration and conflicts | Disposable libraries and synthetic credentials, plus native storage Settings previews and controller switching; actual folder grants and Keychain authorization require signed-app verification |
 | Core and persistence | Sidebar rename/reopen identity, collapse state and retained legacy favorite metadata; draft validation, credential encoding/permissions, endpoint trust, imports, prompt cancellation, display geometry and resize coordination | Isolated stores and synthetic input |
 | Migration | Old-module and pre-feature SwiftData stores, ID/metadata preservation, credential opt-in, reopening and unchanged source bytes | Disposable libraries; user-container grants need live testing |
 | SSH/SFTP | Authentication/trust, fresh sign-in retry, file-only fallback, byte equality, overwrite/move safety, cancellation, combined recursive file counts across selected folders (including empty files and excluding folders), terminal scheduling and throughput; navigation history, cache hits/expiry/eviction/invalidation, stale replies and filename filtering | Loopback peers, controlled proxies and explicit synthetic listing replies |
@@ -148,7 +149,7 @@ Production Windows startup smoothness still requires live validation.
   hardened runtime disabled. Developer ID distribution, notarization, clean-Mac
   installation and vulnerability/legal review remain pending. Farcast's original
   source is MIT-licensed; bundled dependencies retain separate licenses.
-  The development credential fallback is unencrypted.
+  The legacy credential fallback and optional unencrypted folder mode are unencrypted.
 
 See [architecture](architecture.md) for ownership, protocol bounds and unsupported
 features, and [packaging](packaging.md) for signing requirements.

@@ -9,7 +9,8 @@ original data and credentials in place; do not run a data-reset script to migrat
    library. Import refuses to overwrite existing profiles, folders or tunnels.
 2. Choose **File → Import Existing Library…** (also available from **Add**).
 3. Enable **Copy saved local credentials** only if you want to copy passwords,
-   imported keys and WireGuard keys stored in local files. These copies remain
+   imported keys and WireGuard keys stored in local files. Copies use the selected
+   storage mode’s credential protection. The original mode’s local copies are
    unencrypted, owner-only files. Keychain credentials are not copied.
 4. Choose **Choose Library Folder…**. In the macOS folder picker, press
    **Command–Shift–G** and enter the previous container location:
@@ -434,13 +435,16 @@ a session prevents its automatic wake recovery. Display sleep alone does not dis
 
 ## Privacy and storage
 
-- SwiftData stores folders and connection metadata in the application's local
-  container. Passwords and private-key bytes are excluded from its schema.
-- Keychain stores credentials by connection UUID, with device-only accessibility.
-  If unavailable, credentials use owner-only, unencrypted files in
+- SwiftData stores folders and connection metadata in the app container by default,
+  or in your selected connection folder. Passwords and private-key bytes are excluded
+  from its schema.
+- In the original storage mode, Keychain stores credentials by connection UUID,
+  with device-only accessibility. If unavailable, credentials use owner-only,
+  unencrypted files in
   `~/Library/Application Support/Farcast/Credentials` (directory 700, files 600).
-  Deleting a profile also deletes its credential item; duplicating a profile does
-  not silently duplicate credentials.
+  Folder mode supports AES-128 key-file/password protection or unencrypted files.
+  Deleting a profile also deletes its credential item in the active storage;
+  duplicating a profile does not silently duplicate credentials.
 - UserDefaults stores appearance, restored tab IDs, and explicitly trusted server
   fingerprints. Profiles and trust preferences are local and do not sync.
 - Diagnostics record connection states, not credentials or terminal contents.
@@ -557,8 +561,8 @@ SSH, RDP or VNC connection, choose that VPN under **Connect via**.
 Sessions using one VPN profile share its tunnel. Only Farcast traffic uses it;
 macOS networking stays unchanged. Disconnect its sessions before changing the
 configuration or credentials. A missing/deleted profile or failed VPN never causes
-a direct connection. Credentials and the imported profile use Keychain when available;
-the disclosed local-file fallback is unencrypted and owner-only.
+a direct connection. Credentials and imported profile secrets use the selected
+storage mode: original Keychain/local fallback, or the configured folder protection.
 
 Supported profiles use TUN over UDP or TCP, certificates/keys, and certificate or
 username/password authentication. For NETGEAR Orbi, download **For Smart Phone**
@@ -605,3 +609,47 @@ for GFX/H.264, immediate input wakeups and dirty-region updates. Reconnect to ap
 a change. Disabling also hides experimental metrics in Connection Details
 immediately. GPU texture writes count cumulative local memory transfers, not
 network uploads or SSD writes. H.264 requires server support and selection.
+
+## Choose connection storage
+
+In **Settings → Connection Storage**, keep **App library + Keychain / local fallback**
+for the original behavior, or choose **Custom folder**. Existing installations keep
+the original storage until you change it. Folder mode defaults to
+`~/.farcast-connections`, containing the SwiftData connection database, folders,
+VPN metadata and saved credential records. Authorize the home directory with
+**Default Folder…**, or select a different directory with **Choose Folder…**.
+The app remembers the sandbox grants; a revoked grant requires reselection.
+
+Folder credentials support **Key file (AES-128)** (the default), **Password
+(AES-128)** and **Unencrypted**. Key-file mode defaults to `~/.farcast-key`;
+use **Generate New Key…** to create it, or **Use Existing Key…** to select a saved
+key. Generation asks for a destination directory and uses the displayed new key
+filename (`.farcast-key` by default); it never overwrites an existing file. New key
+files contain 16 random
+bytes and are owner-only. Existing files must contain exactly 16 bytes. Password
+mode uses PBKDF2-HMAC-SHA256 with a random salt and asks you to unlock the library
+at launch; the password is kept only in memory. Both encrypted modes use
+authenticated AES-128-GCM. Connection metadata remains unencrypted in all modes.
+Unencrypted credentials are readable local files. Keep a separate backup of your
+key or password: loss cannot be recovered. The key file’s absolute location is
+recorded in the library; keep it available at that location when reopening.
+
+Close all session tabs and connection/import editors, then choose **Apply Storage…**. Farcast asks whether to
+**Migrate and Switch**, **Use Destination Without Migrating**, or cancel. Migration
+copies saved connections, folders, VPN profiles and their saved credentials,
+preserving IDs and leaving the source intact. Keychain may request authorization;
+inaccessible credentials stop migration rather than silently being omitted.
+Migration requires an empty destination library and refuses conflicting credential
+records. Without migration, an existing destination library opens as it is, or a
+new empty one is created. Switching back to the original app library is supported;
+that library’s existing records are retained. Preferences and endpoint trust stay
+in the app’s preferences rather than moving into the folder. No sessions connect
+automatically after switching.
+
+For the currently open folder, **Apply Storage…** instead asks to change credential
+protection. It stages all credentials before replacing the manifest and removes
+superseded credential files after success. Older backups and migration source
+libraries can still contain their previous credential copies. An existing destination
+folder uses its recorded protection; open it before changing that protection.
+Only one Farcast instance should use a library at a time. Copy or back up the
+complete folder while Farcast is quit, together with a separate backup of its key.

@@ -6,8 +6,6 @@ import SwiftUI
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var workspace = Workspace()
     @AppStorage("appearance") private var appearance = "System"
-    private let container: ModelContainer?
-    private let startupError: String?
     init() {
         if ProcessInfo.processInfo.arguments.contains("--verify-bundle-launch") {
             print("Farcast loader check passed")
@@ -22,29 +20,11 @@ import SwiftUI
                 success ? "Farcast sandboxed SSH listener check passed" : "Farcast sandboxed SSH listener check failed")
             exit(success ? EXIT_SUCCESS : EXIT_FAILURE)
         }
-        do {
-            container = try ModelContainer(for: SavedConnection.self, ConnectionFolder.self, SavedWireGuard.self)
-            startupError = nil
-        } catch {
-            container = nil
-            startupError = error.localizedDescription
-        }
     }
     var body: some Scene {
         Window("Farcast", id: "workspace") {
-            Group {
-                if let container {
-                    WorkspaceView(workspace: workspace).modelContainer(container).onAppear {
-                        delegate.workspace = workspace
-                    }
-                } else {
-                    VStack(spacing: 16) {
-                        Image(systemName: "externaldrive.badge.exclamationmark").font(.largeTitle)
-                        Text("Connection library could not be opened").font(.title2)
-                        Text(startupError ?? "Unknown storage error").textSelection(.enabled)
-                        Button("Quit") { NSApp.terminate(nil) }
-                    }.padding(40).frame(width: 600)
-                }
+            ConnectionStorageWorkspace(workspace: workspace) {
+                delegate.workspace = workspace
             }.preferredColorScheme(appearance == "Dark" ? .dark : appearance == "Light" ? .light : nil)
         }.defaultSize(width: 1280, height: 820)
             .commands {

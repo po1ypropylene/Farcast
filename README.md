@@ -11,8 +11,8 @@ use, modify and redistribute. Retain the copyright and license notice.
 
 Requires **macOS 27+ and Apple silicon**. Protocol libraries are bundled.
 Local builds are Apple Development signed and unnotarized.
-Credentials use Keychain when available; the development fallback uses
-owner-only, **unencrypted local files**.
+Credentials use Keychain with an **unencrypted local fallback**, or an optional
+connection folder with key-file/password AES-128 encryption or unencrypted files.
 
 ## Screenshots
 

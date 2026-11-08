@@ -39,6 +39,7 @@ scripts/prepare-rdp-fixture.sh
 | `scripts/test-rdp-resize.sh` | Actual Display Control PDUs, graphics reactivation, pixels, post-resize pointer input and repeated detached-window returns with Retina on/off |
 | `scripts/test-rdp-display-session.sh` | Production full-screen startup, exit/re-entry, missing confirmation and worker cleanup |
 | `scripts/test-display-migration.sh`, `scripts/test-wireguard-migration.sh`, `scripts/test-library-migration.sh` | Pre-feature/old-module store migration, IDs/defaults/bookmarks, opt-in credentials and reopening |
+| `scripts/test-vpn-ui.sh` | Native Settings in both appearances; isolated folder migration, preserved sources, destination conflicts, no-migration switching and active-tab refusal; VPN draft and import controls |
 | `scripts/test-connection-ui.sh` | In-memory native connection/tunnel hosts, deferred validation, explicit URL ports, long-list field navigation, light/dark and wide-window layout; optional FARCAST_UI_REVIEW=1 and a directory pause synthetic scenes for native inspection |
 | `scripts/test-workspace.sh`, `scripts/test-rdp-window-return.sh` | Tabs/reconnect, prompts, sign-in retry, AppKit shutdown, detached surfaces, exact desktop pop-out sizing, repeated macOS full-screen close with changing frames and input, cropped Metal frames, retained video surface import/resume/TCP fallback and actual GPU BT.601/709/2020 full/video-range conversion, terminal menus and controlled RDP retry/stall/cancellation callbacks |
 | `scripts/test-wireguard.sh`, `scripts/test-wireguard-rdp.sh`, `scripts/test-wireguard-sessions.sh`, `scripts/test-wireguard-lifecycle.sh` | Go race checks, encrypted RDP, concurrent production SSH/SFTP/forwarding/RDP/VNC sessions sharing one helper, forwarded byte equality, endpoint identity, fail-closed routing and shared-lease lifecycle |
@@ -49,6 +50,10 @@ scripts/prepare-rdp-fixture.sh
 
 Use `.dependencies/test-venv/bin/python -m unittest discover -s Tests/Maintenance -v`
 if system Python lacks `Path.hardlink_to`.
+
+For interactive key-generation review, run `FARCAST_STORAGE_KEY_PICKER_REVIEW=1 scripts/test-vpn-ui.sh`.
+Select the printed disposable destination twice: the first selection creates the
+key and the second must refuse replacement. No real library or credential is read.
 
 TLS and NLA share a fixed loopback port and must run sequentially. WireGuard RDP
 and protected-probe suites have distinct fixed ports; never run two instances of
