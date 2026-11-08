@@ -280,10 +280,17 @@ static BOOL pointerNew(rdpContext *context, rdpPointer *pointer) {
         return FALSE;
     }
     p->pixels = calloc(pointer->width * pointer->height, 4);
-    return p->pixels && freerdp_image_copy_from_pointer_data(
-                            p->pixels, PIXEL_FORMAT_BGRA32, pointer->width * 4, 0, 0, pointer->width, pointer->height,
-                            pointer->xorMaskData, pointer->lengthXorMask, pointer->andMaskData, pointer->lengthAndMask,
-                            pointer->xorBpp, &context->gdi->palette);
+    if (!p->pixels)
+        return FALSE;
+    if (!freerdp_image_copy_from_pointer_data(p->pixels, PIXEL_FORMAT_BGRA32, pointer->width * 4, 0, 0, pointer->width,
+                                              pointer->height, pointer->xorMaskData, pointer->lengthXorMask,
+                                              pointer->andMaskData, pointer->lengthAndMask, pointer->xorBpp,
+                                              &context->gdi->palette)) {
+        free(p->pixels);
+        p->pixels = NULL;
+        return FALSE;
+    }
+    return TRUE;
 }
 static void pointerFree(rdpContext *context, rdpPointer *pointer) { free(((FCPointer *)pointer)->pixels); }
 static BOOL pointerSet(rdpContext *context, rdpPointer *pointer) {

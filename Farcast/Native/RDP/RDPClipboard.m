@@ -73,6 +73,7 @@ static BOOL makeDirectory(int root, NSString *path) {
 @interface FCClipboardRoot : NSObject
 @property(nonatomic) int fd;
 @property(nonatomic) BOOL scoped;
+@property(nonatomic) struct stat metadata;
 @property(nonatomic, strong) NSURL *url;
 @end
 @implementation FCClipboardRoot
@@ -124,18 +125,18 @@ static NSUInteger storageEntries;
     }
 }
 - (void)remove {
-    if (!_root)
-        return;
-    NSError *error = nil;
-    if (![NSFileManager.defaultManager removeItemAtURL:_root error:&error] && error.code != NSFileNoSuchFileError)
-        return; // Failed deletion must not release a reservation for files still on disk.
     @synchronized(FCClipboardStorage.class) {
+        if (!_root)
+            return;
+        NSError *error = nil;
+        if (![NSFileManager.defaultManager removeItemAtURL:_root error:&error] && error.code != NSFileNoSuchFileError)
+            return; // Keep accounting for files that remain on disk.
         storageBytes -= _bytes;
         storageEntries -= _entries;
         _bytes = 0;
         _entries = 0;
+        _root = nil;
     }
-    _root = nil;
 }
 - (void)dealloc {
     [self remove];
@@ -458,15 +459,15 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
         root.url = url;
         root.scoped = [url startAccessingSecurityScopedResource];
         root.fd = open(url.fileSystemRepresentation, O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
-        if (root.fd < 0 || ![self addEntry:root.fd
-                                      root:root
-                                  relative:@""
-                                      name:url.lastPathComponent
-                                   entries:entries
-                                      keys:keys]) {
+        struct stat rootInfo;
+        if (root.fd < 0 || fstat(root.fd, &rootInfo) ||
+            ![self addEntry:root.fd root:root relative:@"" name:url.lastPathComponent entries:entries keys:keys]) {
             valid = NO;
             break;
         }
+        root.metadata = rootInfo;
+        close(root.fd);
+        root.fd = -1;
     }
     if (valid) {
         FILEDESCRIPTORW *descriptors = calloc(entries.count, sizeof(FILEDESCRIPTORW));
@@ -969,8 +970,16 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
         (!request->nPositionHigh || (_serverFlags & CB_HUGE_FILE_SUPPORT_ENABLED)) &&
         (request->dwFlags != FILECONTENTS_SIZE || (!request->nPositionHigh && !request->nPositionLow))) {
         FCClipboardEntry *entry = entries[request->listIndex];
-        int fd = entry.relative.length ? openRelative(entry.root.fd, entry.relative, O_RDONLY | O_NONBLOCK, 0)
-                                       : dup(entry.root.fd);
+        int rootFD = open(entry.root.url.fileSystemRepresentation, O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
+        struct stat rootInfo;
+        struct stat rootOriginal = entry.root.metadata;
+        BOOL rootMatches = rootFD >= 0 && !fstat(rootFD, &rootInfo) && rootInfo.st_dev == rootOriginal.st_dev &&
+                           rootInfo.st_ino == rootOriginal.st_ino;
+        int fd = rootMatches ? (entry.relative.length ? openRelative(rootFD, entry.relative, O_RDONLY | O_NONBLOCK, 0)
+                                                      : dup(rootFD))
+                             : -1;
+        if (rootFD >= 0)
+            close(rootFD);
         struct stat info;
         struct stat original = entry.metadata;
         BOOL matches = fd >= 0 && !fstat(fd, &info) && S_ISREG(info.st_mode) && info.st_dev == original.st_dev &&

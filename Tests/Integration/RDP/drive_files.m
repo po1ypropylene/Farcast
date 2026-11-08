@@ -170,6 +170,18 @@ int main(int argc, char **argv) {
             queryInfo(rw, h, kind.unsignedIntValue);
             check(result == STATUS_SUCCESS && output.length > 8, "query name/basic/standard/all metadata");
         }
+        // Model the handle metadata produced by a long ancestor rename without
+        // depending on the host filesystem's much shorter pathname limit.
+        id handle = [rw valueForKey:@"handles"][@(h)];
+        NSString *savedPath = [handle valueForKey:@"path"];
+        NSString *longPath = [@"x" stringByPaddingToLength:16000 withString:@"x" startingAtIndex:0];
+        [handle setValue:longPath forKey:@"path"];
+        for (NSNumber *kind in @[ @(FileNameInformation), @(FileAllInformation) ]) {
+            queryInfo(rw, h, kind.unsignedIntValue);
+            check(result == STATUS_SUCCESS && output.length > 32000,
+                  "expanded handle names grow the reply before writing");
+        }
+        [handle setValue:savedPath forKey:@"path"];
         setInfo(rw, h, FileRenameInformation, renameData(@"\\renamed.bin", NO));
         check(result == STATUS_SUCCESS, "rename");
         check([fm fileExistsAtPath:[export URLByAppendingPathComponent:@"renamed.bin"].path], "rename destination");
@@ -505,6 +517,28 @@ int main(int argc, char **argv) {
         check([[NSData dataWithContentsOfURL:original] isEqual:payload], "cancelled queue preserves original bytes");
         check(![fm fileExistsAtPath:[export URLByAppendingPathComponent:@"cancelled-create.bin"].path],
               "cancelled queue creates no file");
+        FCRDPDrive *budgetDrive = [[FCRDPDrive alloc] initWithURL:export readOnly:YES];
+        NSMutableArray *opened = [NSMutableArray new];
+        for (NSUInteger i = 0; i < 128; i++) {
+            UINT32 identifier =
+                create(budgetDrive, @"original.bin", GENERIC_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE, shares);
+            if (!identifier)
+                break;
+            [opened addObject:@(identifier)];
+        }
+        check(opened.count > 0 && opened.count < 64 && result == STATUS_TOO_MANY_OPENED_FILES,
+              "descriptor budget rejects opens with the resource status");
+        check(!create(rw, @"original.bin", GENERIC_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE, shares) &&
+                  result == STATUS_TOO_MANY_OPENED_FILES,
+              "budget is shared between devices");
+        int spare = open(original.fileSystemRepresentation, O_RDONLY);
+        check(spare >= 0, "unrelated file opens retain descriptor headroom");
+        close(spare);
+        closeFile(budgetDrive, [opened.lastObject unsignedIntValue]);
+        UINT32 reclaimed = create(rw, @"original.bin", GENERIC_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE, shares);
+        check(reclaimed != 0, "closing a handle returns its reservation");
+        closeFile(rw, reclaimed);
+        [budgetDrive shutdown];
         [rw shutdown];
         check([fm fileExistsAtPath:[export URLByAppendingPathComponent:@"cancel.bin"].path],
               "disconnect does not execute pending deletion");

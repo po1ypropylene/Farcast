@@ -135,6 +135,21 @@ int main(int argc, char **argv) {
         caps.cCapabilitiesSets = 1;
         caps.capabilitySets = (void *)&general;
         channel.ServerCapabilities(&channel, &caps);
+        NSMutableArray *selection = [NSMutableArray new];
+        for (NSUInteger i = 0; i < 320; i++) {
+            NSURL *url =
+                [root URLByAppendingPathComponent:[NSString stringWithFormat:@"selection-%lu", (unsigned long)i]];
+            [payload writeToURL:url atomically:YES];
+            [selection addObject:url];
+        }
+        NSUInteger beforeFDs = 0, afterFDs = 0;
+        for (int fd = 0; fd < 4096; fd++)
+            beforeFDs += fcntl(fd, F_GETFD) >= 0;
+        [bridge setFiles:selection];
+        for (int fd = 0; fd < 4096; fd++)
+            afterFDs += fcntl(fd, F_GETFD) >= 0;
+        check([[bridge valueForKey:@"local"] count] == 320, "large top-level selection is accepted");
+        check(afterFDs <= beforeFDs + 2, "selection retains no descriptor per root before the outer pool drains");
         [bridge setFiles:@[ tree ]];
         channel.MonitorReady(&channel, NULL);
         check(advertised == 2, "files queued before ready, copy effect advertised");

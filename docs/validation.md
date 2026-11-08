@@ -28,6 +28,17 @@ stated scope; disabled live entries report SKIP.
 | Packaging/signing | Platform, library closure, signatures, loader, sandboxed helper, certificate continuity, mounted bundle and SHA256 | Local development artifact; distribution is separate |
 | Maintenance | Cleanup boundaries, dependency rollback, signing policy, harness teardown, VPN helper source migration and repository hygiene | Disposable files and mocked destructive operations |
 
+RDP filesystem regressions cover replies for expanded handle paths beyond the
+initial response allocation, process-wide drive descriptor exhaustion/reclamation,
+and unrelated file-open headroom. Clipboard checks include 320 top-level roots
+without persistent descriptors before the enclosing pool drains, plus locked
+snapshot reads after clipboard replacement. VNC already drains a pool per worker
+message; sustained-session Instruments Allocations/Leaks profiling remains pending.
+Clipboard cleanup deliberately retains reservations when deletion fails, legacy
+headless consumers retain completed storage until disconnect, and server locks
+remain valid until unlock/deactivation. Crash-left temporary trees rely on OS
+temporary-directory cleanup; no prefix-based sweep deletes potentially live data.
+
 ## Known implementation limits
 
 The 4K desktop presentation load fixture checks final-frame convergence and reports

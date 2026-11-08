@@ -293,80 +293,84 @@ openRemote:
         size_t bufferSize = window.length;
         double lastProgress = 0;
         while (!atomic_load(&_stopped) && !atomic_load(&_filesCancelled)) {
-            size_t budget = ((_workerChannel && atomic_load(&_terminalVisible)) || [self forwardingActive])
-                                ? MIN(bufferSize, upload ? 128 * 1024 : 32 * 1024)
-                                : bufferSize;
-            ssize_t count;
-            do {
-                count = upload ? read(fd, buffer, budget) : libssh2_sftp_read(handle, buffer, budget);
-            } while (!upload && count == LIBSSH2_ERROR_EAGAIN && [self waitForFileUntil:deadline]);
-            if (atomic_load(&_filesCancelled))
-                break;
-            if (count == 0) {
-                complete = bytes == total;
-                break;
-            }
-            if (count < 0)
-                break;
-            ssize_t offset = 0;
-            size_t offered = 0;
-            while (offset < count && !atomic_load(&_stopped)) {
-                if (!offered) {
-                    budget = ((_workerChannel && atomic_load(&_terminalVisible)) || [self forwardingActive])
-                                 ? MIN(bufferSize, 128 * 1024)
-                                 : bufferSize;
-                    offered = MIN(count - offset, budget);
-                }
-                ssize_t written = upload ? libssh2_sftp_write(handle, buffer + offset, offered)
-                                         : write(fd, buffer + offset, count - offset);
-                if (upload && (written == LIBSSH2_ERROR_EAGAIN || written == 0)) {
-                    if ([self waitForFileUntil:deadline])
-                        continue;
+            @autoreleasepool {
+                size_t budget = ((_workerChannel && atomic_load(&_terminalVisible)) || [self forwardingActive])
+                                    ? MIN(bufferSize, upload ? 128 * 1024 : 32 * 1024)
+                                    : bufferSize;
+                ssize_t count;
+                do {
+                    count = upload ? read(fd, buffer, budget) : libssh2_sftp_read(handle, buffer, budget);
+                } while (!upload && count == LIBSSH2_ERROR_EAGAIN && [self waitForFileUntil:deadline]);
+                if (atomic_load(&_filesCancelled))
+                    break;
+                if (count == 0) {
+                    complete = bytes == total;
                     break;
                 }
-                if (written <= 0)
+                if (count < 0)
                     break;
-                offset += written;
-                bytes += written;
-                offered = 0;
-                deadline = monotonicTime() + 30;
-                // Refill only after a positive acknowledgement, never on EAGAIN:
-                // libssh2 requires identical unacknowledged bytes on retries.
-                // Keeping the bounded window full avoids draining it between reads.
-                if (upload && offset >= MAX(32 * 1024, budget / 4) && !atomic_load(&_filesCancelled)) {
-                    size_t remaining = count - offset;
-                    memmove(buffer, buffer + offset, remaining);
-                    // After switching to Split, drain previously queued bulk
-                    // bytes before adding more; a TCP stream cannot reorder them.
-                    ssize_t added = remaining < budget ? read(fd, buffer + remaining, budget - remaining) : 0;
-                    if (added < 0) {
-                        error = @"Could not read the upload source.";
-                        break;
-                    }
-                    count = remaining + added;
-                    offset = 0;
-                    if (self.onFileProgress && monotonicTime() - lastProgress >= 0.1) {
-                        self.onFileProgress(requestID, bytes, total);
-                        lastProgress = monotonicTime();
+                ssize_t offset = 0;
+                size_t offered = 0;
+                while (offset < count && !atomic_load(&_stopped)) {
+                    @autoreleasepool {
+                        if (!offered) {
+                            budget = ((_workerChannel && atomic_load(&_terminalVisible)) || [self forwardingActive])
+                                         ? MIN(bufferSize, 128 * 1024)
+                                         : bufferSize;
+                            offered = MIN(count - offset, budget);
+                        }
+                        ssize_t written = upload ? libssh2_sftp_write(handle, buffer + offset, offered)
+                                                 : write(fd, buffer + offset, count - offset);
+                        if (upload && (written == LIBSSH2_ERROR_EAGAIN || written == 0)) {
+                            if ([self waitForFileUntil:deadline])
+                                continue;
+                            break;
+                        }
+                        if (written <= 0)
+                            break;
+                        offset += written;
+                        bytes += written;
+                        offered = 0;
+                        deadline = monotonicTime() + 30;
+                        // Refill only after a positive acknowledgement, never on EAGAIN:
+                        // libssh2 requires identical unacknowledged bytes on retries.
+                        // Keeping the bounded window full avoids draining it between reads.
+                        if (upload && offset >= MAX(32 * 1024, budget / 4) && !atomic_load(&_filesCancelled)) {
+                            size_t remaining = count - offset;
+                            memmove(buffer, buffer + offset, remaining);
+                            // After switching to Split, drain previously queued bulk
+                            // bytes before adding more; a TCP stream cannot reorder them.
+                            ssize_t added = remaining < budget ? read(fd, buffer + remaining, budget - remaining) : 0;
+                            if (added < 0) {
+                                error = @"Could not read the upload source.";
+                                break;
+                            }
+                            count = remaining + added;
+                            offset = 0;
+                            if (self.onFileProgress && monotonicTime() - lastProgress >= 0.1) {
+                                self.onFileProgress(requestID, bytes, total);
+                                lastProgress = monotonicTime();
+                            }
+                        }
+                        if (upload && monotonicTime() - _lastTerminalPump >= 0.01) {
+                            _lastTerminalPump = monotonicTime();
+                            if (![self serviceInteractive]) {
+                                [self disconnect];
+                                break;
+                            }
+                        }
                     }
                 }
-                if (upload && monotonicTime() - _lastTerminalPump >= 0.01) {
-                    _lastTerminalPump = monotonicTime();
-                    if (![self serviceInteractive]) {
-                        [self disconnect];
-                        break;
-                    }
+                if (offset != count)
+                    break;
+                if (![self serviceInteractive]) {
+                    [self disconnect];
+                    break;
                 }
-            }
-            if (offset != count)
-                break;
-            if (![self serviceInteractive]) {
-                [self disconnect];
-                break;
-            }
-            if (self.onFileProgress && monotonicTime() - lastProgress >= 0.1) {
-                self.onFileProgress(requestID, bytes, total);
-                lastProgress = monotonicTime();
+                if (self.onFileProgress && monotonicTime() - lastProgress >= 0.1) {
+                    self.onFileProgress(requestID, bytes, total);
+                    lastProgress = monotonicTime();
+                }
             }
         }
         if (!complete)

@@ -77,6 +77,10 @@ int main(int argc, char **argv) {
                                                atomically:YES];
         NSData *metadataBytes = [NSData dataWithBytes:bytes length:sizeof(bytes)];
         [metadataBytes writeToFile:[source stringByAppendingPathComponent:@"metadata-lite.bin"] atomically:NO];
+        check(operation(@"rename", @"/tree", @"", NO)[@"error"] != nil, @"missing-destination-refused");
+        NSString *nulSource = [@"/tree" stringByAppendingString:[NSString stringWithCharacters:(unichar[]){0}
+                                                                                        length:1]];
+        check(operation(@"mkdir", nulSource, @"", NO)[@"error"] != nil, @"nul-source-refused");
         check(!operation(@"uploadTree", source, @"/tree", NO)[@"error"], @"recursive-upload");
         NSString *download = [root stringByAppendingPathComponent:@"tree-download"];
         [files removeItemAtPath:download error:nil];
@@ -150,6 +154,12 @@ int main(int argc, char **argv) {
               @"depth-bound-retains-source");
         check(approvals == 1, @"shared-trust");
         [client disconnect];
+        dispatch_semaphore_t drained = dispatch_semaphore_create(0);
+        [FCSSHClient whenAllDisconnected:^{
+          dispatch_semaphore_signal(drained);
+        }];
+        check(dispatch_semaphore_wait(drained, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC)) == 0,
+              @"worker-drained-before-process-exit");
         return failures ? 1 : 0;
     }
 }

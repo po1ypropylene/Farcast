@@ -820,7 +820,10 @@ static void consume(NSMutableData *data, NSUInteger count) {
         }
     }
     _servicingForwarding = YES;
-    BOOL result = [self pumpTerminal:_workerChannel] && [self pumpForwarding];
+    BOOL result;
+    @autoreleasepool {
+        result = [self pumpTerminal:_workerChannel] && [self pumpForwarding];
+    }
     _servicingForwarding = NO;
     return result;
 }

@@ -14,6 +14,7 @@
 #import <stdatomic.h>
 #import <sys/attr.h>
 #import <sys/mount.h>
+#import <sys/resource.h>
 #import <sys/stat.h>
 #import <unistd.h>
 
@@ -146,7 +147,37 @@ static const uint32_t readMask = GENERIC_READ | GENERIC_ALL | FILE_READ_DATA;
 static const uint32_t writeMask = GENERIC_WRITE | GENERIC_ALL | FILE_WRITE_DATA | FILE_APPEND_DATA;
 static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE_WRITE_DATA | FILE_APPEND_DATA |
                                      FILE_WRITE_ATTRIBUTES | FILE_WRITE_EA | WRITE_DAC | WRITE_OWNER;
+// Shared across devices and sessions. Reserve a second descriptor for every
+// handle's possible directory cursor, leaving headroom for transports and opens.
+@interface FCDriveReservation : NSObject
+@property NSUInteger count;
+- (instancetype)initWithCount:(NSUInteger)count;
+@end
+@implementation FCDriveReservation
+static NSUInteger reservedDescriptors;
+- (instancetype)initWithCount:(NSUInteger)count {
+    if ((self = [super init])) {
+        @synchronized(FCDriveReservation.class) {
+            struct rlimit limit;
+            NSUInteger budget = 64;
+            if (getrlimit(RLIMIT_NOFILE, &limit) == 0)
+                budget = MIN(budget, limit.rlim_cur / 4);
+            if (reservedDescriptors > budget || count > budget - reservedDescriptors)
+                return nil;
+            reservedDescriptors += count;
+            _count = count;
+        }
+    }
+    return self;
+}
+- (void)dealloc {
+    @synchronized(FCDriveReservation.class) {
+        reservedDescriptors -= _count;
+    }
+}
+@end
 @interface FCDriveHandle : NSObject
+@property(strong) FCDriveReservation *reservation;
 @property int fd;
 @property uint32_t access, sharing;
 @property BOOL directory, deleting, append;
@@ -172,6 +203,7 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
     NSURL *_url;
     BOOL _scoped, _readOnly, _closed;
     int _root;
+    FCDriveReservation *_rootReservation;
     atomic_bool _cancelled;
     NSMutableDictionary<NSNumber *, FCDriveHandle *> *_handles;
 }
@@ -182,6 +214,9 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
         _root = -1;
         atomic_init(&_cancelled, false);
         _scoped = [url startAccessingSecurityScopedResource];
+        _rootReservation = [[FCDriveReservation alloc] initWithCount:1];
+        if (!_rootReservation)
+            return nil;
         _root = open(url.fileSystemRepresentation, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
         _handles = [NSMutableDictionary new];
         if (_root < 0)
@@ -227,6 +262,7 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
         close(_root);
         _root = -1;
     }
+    _rootReservation = nil;
     if (_scoped) {
         [_url stopAccessingSecurityScopedResource];
         _scoped = NO;
@@ -241,8 +277,11 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
     NSString *wire = string(r, length);
     BOOL requestedDirectory = (options & FILE_DIRECTORY_FILE) || directorySuffix(wire);
     NSString *path = relativePath(wire, requestedDirectory);
-    if (!r->valid || !path || disposition > FILE_OVERWRITE_IF || _handles.count >= 1024)
+    if (!r->valid || !path || disposition > FILE_OVERWRITE_IF)
         return STATUS_INVALID_PARAMETER;
+    FCDriveReservation *reservation = [[FCDriveReservation alloc] initWithCount:2];
+    if (!reservation)
+        return STATUS_TOO_MANY_OPENED_FILES;
     if (access & MAXIMUM_ALLOWED)
         access |= _readOnly ? GENERIC_READ : GENERIC_READ | GENERIC_WRITE | DELETE;
     BOOL mutation = (access & mutationMask) || disposition != FILE_OPEN || (options & FILE_DELETE_ON_CLOSE);
@@ -323,6 +362,7 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
         return STATUS_ACCESS_DENIED;
     }
     FCDriveHandle *h = [FCDriveHandle new];
+    h.reservation = reservation;
     h.fd = fd;
     h.path = path;
     h.access = access;
@@ -368,6 +408,8 @@ static const uint32_t mutationMask = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE
         NSData *name = [[@"\\" stringByAppendingString:[h.path stringByReplacingOccurrencesOfString:@"/"
                                                                                          withString:@"\\"]]
             dataUsingEncoding:NSUTF16LittleEndianStringEncoding];
+        if (!name || !Stream_EnsureRemainingCapacity(out, name.length + 128))
+            return STATUS_INSUFFICIENT_RESOURCES;
         if (kind == FileAllInformation) {
             [self basic:out info:s];
             Stream_Write_UINT32(out, 0);

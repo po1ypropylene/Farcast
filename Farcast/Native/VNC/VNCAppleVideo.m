@@ -419,8 +419,11 @@ static void ReleaseAccessUnit(void *owner, void *bytes, size_t size) { CFRelease
         return NO;
     policy.ssrc.value = _receiverSSRC;
     policy.key = _sendKey.mutableBytes;
-    if (srtp_create(&_send, &policy) != srtp_err_status_ok)
+    if (srtp_create(&_send, &policy) != srtp_err_status_ok) {
+        srtp_dealloc(_receive);
+        _receive = NULL;
         return NO;
+    }
     _offer = nil;
     _feedback = [[FCVNCAppleFeedback alloc] initWithReceiver:_receiverSSRC sender:_senderSSRC];
     _lastNACK = 0;

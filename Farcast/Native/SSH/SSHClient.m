@@ -101,8 +101,8 @@ static void keyboardPrompt(const char *name, int nameLen, const char *instructio
         else if ([method isEqualToString:@"keyboard-interactive"])
             rc = libssh2_userauth_keyboard_interactive_ex(session, user, length, keyboardPrompt);
         else
-            rc = libssh2_userauth_password_ex(session, user, length, password.UTF8String,
-                                              (unsigned int)strlen(password.UTF8String), NULL);
+            rc = libssh2_userauth_password_ex(session, user, length, (password ?: @"").UTF8String,
+                                              (unsigned int)strlen((password ?: @"").UTF8String), NULL);
     } while (rc == LIBSSH2_ERROR_EAGAIN && [self waitSocket:session deadline:deadline]);
     return rc;
 }

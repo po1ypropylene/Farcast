@@ -451,8 +451,10 @@ skip them; clipboard ownership and control events continue draining. Queue overl
 explicit reconnect error rather than dropping input or clipboard deactivation.
 Draining stops after cancellation; no pending resize is submitted after that check.
 The native clipboard adapter negotiates [MS-RDPECLIP](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpeclip/cbc851d3-4e68-45f4-9292-26872a9209f2) file streaming, relative file
-lists, locks and large-file ranges. Finder file URLs retain their security scopes;
-regular files and folders are traversed/read on the RDP worker with no-follow
+lists, locks and large-file ranges. Finder file URLs retain their security scopes and root identities; root descriptors
+are closed after enumeration and reopened with no-follow and identity checks per
+request. A moved/replaced root fails closed until copied again.
+Regular files and folders are traversed/read on the RDP worker with no-follow
 component opens, bounded entries/ranges and source identity/metadata checks.
 Locked local snapshots survive clipboard replacement until unlock (at most eight).
 Clipboard transfer is separate from folder redirection; source data must remain
@@ -725,7 +727,11 @@ the shared empty-response encoder also handles errors and cancellation.
 Directory notifications, byte-range
 locking, security-descriptor updates and arbitrary device controls return unsupported;
 this is folder access, not a complete Windows filesystem emulation. Up to 16 named
-exports, 1,024 handles/device and 1 MiB I/O requests bound resource use.
+exports and 1 MiB I/O requests bound resource use. A process-wide drive budget
+reserves at most 64 descriptors (or one quarter of the soft descriptor limit,
+whichever is smaller), including roots and a possible cursor per open handle.
+Exhaustion returns STATUS_TOO_MANY_OPENED_FILES; closing handles returns capacity.
+Filename metadata replies grow to the actual encoded handle path before writing.
 Each directory search retains an independent native cursor, streams one packed
 record per request (as the FreeRDP drive implementation does), and obtains metadata
 once for each returned entry. No full-folder snapshot, sorting or listing-count cap
@@ -738,6 +744,11 @@ large-folder throughput; streaming is not a claim of comparative server speed.
 Windows policy may disable device redirection independently of clipboard sharing. Writable exports directly modify the selected Mac files.
 
 ## Shared SSH and SFTP
+
+SSH interactive pumps, transfer chunks and recursive items drain nested autorelease
+pools while preserving backpressure and worker ownership. Tree scans retain only
+child names/snapshots across recursion, and remote-copy parent canonicalization
+uses REALPATH without enumerating the parent directory.
 
 The persistent SSH surface subclasses SwiftTerm's native view for local right-click
 actions. A live UserDefaults preference selects a native context menu (default) or

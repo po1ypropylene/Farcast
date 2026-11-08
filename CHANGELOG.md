@@ -5,6 +5,9 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Bound temporary SSH/SFTP memory during long transfers and recursive operations; avoid redundant parent-directory listings and reject invalid paths or uncertain rename checks.
+- Prevent RDP file selections and redirected-folder handles from exhausting descriptors; grow filename replies safely, synchronize clipboard cleanup and release failed cursor/video setup resources.
+
 - Clarify connection storage with a dedicated Settings pane, active versus pending status, Revert, migration preflight and existing-library choices, visible protection warnings, and labeled key selection, generation and backup actions.
 
 ## 2.4.0 — 2026-11-08
