@@ -190,9 +190,28 @@ import SwiftUI
             }
             let wider = resize(1040, 720)
             wait(8) { desktop.desktopSize == wider.size && session.displayMessage.isEmpty }
+            let fullScreenSize = draft.retinaDisplay ? CGSize(width: 800, height: 600) : CGSize(width: 400, height: 300)
+            for _ in 0..<2 {
+                session.enterFullScreen()
+                precondition(session.fullScreenPresented)
+                wait(8) {
+                    desktop.desktopSize == fullScreenSize && session.displayMessage.isEmpty
+                        && desktop.mailbox.snapshot()?.1.width == Int(fullScreenSize.width)
+                        && desktop.mailbox.snapshot()?.1.height == Int(fullScreenSize.height)
+                }
+                precondition(session.fullScreenPresented, "Server resize must retain the full-screen presentation")
+                // A hidden window must not compete with the full-screen resize target.
+                desktop.resizeRemote?(wider.width, wider.height, wider.scale)
+                let deadline = Date().addingTimeInterval(0.4)
+                while Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+                precondition(desktop.desktopSize == fullScreenSize)
+                session.exitFullScreen()
+                wait(8) { desktop.desktopSize == wider.size && session.displayMessage.isEmpty }
+            }
+            // Exit while the full-screen request is still in flight.
             session.enterFullScreen()
-            precondition(session.fullScreenPresented)
             session.exitFullScreen()
+            wait(8) { desktop.desktopSize == wider.size && session.displayMessage.isEmpty }
             let final = resize(920, 680)
             wait(8) { desktop.desktopSize == final.size && session.displayMessage.isEmpty }
             precondition(session.state == .connected && !session.fullScreenPresented)

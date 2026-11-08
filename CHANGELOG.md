@@ -5,6 +5,8 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Fix single-monitor RDP “Resize with window” to request full-screen dimensions from the top-right action and restore window dimensions on exit, including rapid transitions and Retina scaling.
+
 - Fix experimental RDP frame buffers accumulating until disconnect by releasing temporary snapshot and Swift bridging storage after every paint callback.
 
 - Add optional connection-folder storage (default `~/.farcast-connections`) with AES-128 key-file or password protection and an unencrypted option. Retain original app-library/Keychain storage; offer in-app migration when switching, preserving source data.

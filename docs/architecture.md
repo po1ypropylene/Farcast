@@ -378,8 +378,12 @@ Window activation retains one workspace clipboard owner.
 The top-right RDP full-screen action observes the session's presentation/connection state
 and reopens the existing authenticated desktop in attached or detached windows. Confirmed
 multi-monitor sessions reuse their negotiated layout after checking that local displays
-still match the connection snapshot. A single display fits the current server dimensions,
-including after windowed resizing or windowed startup, without renegotiation. SSH keeps
+still match the connection snapshot. A single display initially fits the current server dimensions. With Resize with window enabled,
+it requests the display dimensions through Display Control, applying Retina once, and updates
+the existing surface and input transform as server geometry arrives. Exit requests the
+window viewport again, including when a full-screen resize is still in flight. Hidden
+window geometry cannot replace the full-screen target. With resizing disabled, full screen
+continues to fit the existing desktop. SSH keeps
 the Mac-window full-screen action; RDP window full screen remains available through macOS
 window controls. Re-entry is refused with a notice for unconfirmed or changed multi-monitor
 geometry, and creates no new transport or authentication request.

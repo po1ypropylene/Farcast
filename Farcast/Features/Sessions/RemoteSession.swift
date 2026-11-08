@@ -399,7 +399,9 @@ import SwiftTerm
                     let size = CGSize(width: width, height: height)
                     self.observeDesktop(size)
                     self.desktop?.adoptDesktopSize(size)
-                    if self.fullScreenPresented, size != self.fullScreen?.layout.bounds.size {
+                    if self.fullScreenPresented, self.resizeEnabled {
+                        self.fullScreen?.adoptDesktopSize(size)
+                    } else if self.fullScreenPresented, size != self.fullScreen?.layout.bounds.size {
                         self.exitFullScreen(
                             reason: "The server changed the desktop size. The session continues in the workspace.")
                     }
@@ -540,7 +542,7 @@ import SwiftTerm
                 }
             }
             desktop.resizeRemote = { [weak self] width, height, scale in
-                guard let self, self.generation == attempt, self.resizeEnabled,
+                guard let self, self.generation == attempt, self.resizeEnabled, !self.fullScreenPresented,
                     let request = RDPResizeRequest(width: width, height: height, scale: scale)
                 else { return }
                 let changed = self.resizeCoordinator.desired != request
@@ -605,9 +607,9 @@ import SwiftTerm
         }
     }
     private var resizeEnabled: Bool {
-        state == .connected && profile.dynamicResolution
+        state == .connected && profile.kind == .rdp && profile.dynamicResolution
             && (displayLayout?.monitors.count ?? 1) == 1
-            && !fullScreenPresented && !startupPresentationPending
+            && !startupPresentationPending
     }
     private func startVNC(
         credential: ConnectionCredential, desktop: RDPDesktopView, attempt: UUID,
@@ -868,6 +870,18 @@ import SwiftTerm
         fullScreenPresented = true
         record("Desktop entered full screen on \(screens.count) display(s).")
         presentation.show()
+        if resizeEnabled, let screen = screens.first,
+            let request = RDPResizeRequest(
+                points: screen.frame.size,
+                backing: CGSize(
+                    width: screen.frame.width * screen.backingScale,
+                    height: screen.frame.height * screen.backingScale),
+                backingScale: screen.backingScale, retina: profile.retinaDisplay)
+        {
+            record("RDP full-screen resize requested: \(Self.resolution(request.size)), scale \(request.scale)%.")
+            submitResize(resizeCoordinator.request(request))
+            scheduleResizeObservation()
+        }
     }
     func exitFullScreen(reason: String? = nil, restoreFocus: Bool = true) {
         let presentation = fullScreen

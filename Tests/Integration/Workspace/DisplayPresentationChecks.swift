@@ -147,6 +147,31 @@ import MetalKit
         precondition(windows.allSatisfy { !$0.isVisible })
         presentation.exit(notify: false)
         print("PASS obsolete frame rejection and idempotent full-screen teardown leave the session surface reusable")
+        let singleLayout = try RDPDisplayLayout(
+            screen: screens[0], desktopSize: CGSize(width: 800, height: 600), desktopScale: 100)
+        let single = RDPFullScreenPresentation(desktop: desktop, screens: [screens[0]], layout: singleLayout)
+        single.show()
+        let fullScreenSurface = single.surfaces[0]
+        for size in [CGSize(width: 1200, height: 800), CGSize(width: 1600, height: 1200)] {
+            single.adoptDesktopSize(size)
+            precondition(single.surfaces[0] === fullScreenSurface)
+            precondition(single.layout.bounds.size == size)
+            precondition(fullScreenSurface.sourceRect == CGRect(origin: .zero, size: size))
+            precondition(fullScreenSurface.expectedDesktopSize == size)
+            desktop.submit(
+                Data(repeating: 128, count: Int(size.width * size.height * 4)),
+                width: Int(size.width), height: Int(size.height), stride: Int(size.width * 4))
+            fullScreenSurface.draw(in: fullScreenSurface)
+            precondition(fullScreenSurface.texture?.width == Int(size.width))
+            precondition(fullScreenSurface.texture?.height == Int(size.height))
+            let mapped = RDPDisplayTransform(
+                source: fullScreenSurface.sourceRect!,
+                destination: fullScreenSurface.displayRect(in: fullScreenSurface.bounds.size)
+            ).remotePoint(local: center, viewHeight: fullScreenSurface.bounds.height)
+            precondition(mapped == CGPoint(x: size.width / 2, y: size.height / 2))
+        }
+        single.exit(notify: false)
+        print("PASS single-display resize preserves the full-screen surface, full-frame upload and input transform")
         // Exercise the actual IOSurface import and its transition back to TCP
         // snapshots, including same-size frames (which must allocate a writable texture).
         let surface = RDPDesktopView(frame: .zero)
