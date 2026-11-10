@@ -39,6 +39,14 @@ headless consumers retain completed storage until disconnect, and server locks
 remain valid until unlock/deactivation. Crash-left temporary trees rely on OS
 temporary-directory cleanup; no prefix-based sweep deletes potentially live data.
 
+SFTP controller regressions check file-count progress across selected jobs and recursive
+upload/download trees, including empty files, and byte progress for single-file transfers.
+Native drop-area checks route row and blank-space hits in empty/populated lists to
+one ancestor, exercise session-token/file-URL providers and refuse disabled drops.
+Physical Finder and cross-pane drags still need manual confirmation; the automated
+pointer check did not complete a cross-pane drag. The workspace presentation harness
+also currently fails an unrelated RDP pop-out return/geometry assertion on this desktop.
+
 ## Known implementation limits
 
 The 4K desktop presentation load fixture checks final-frame convergence and reports

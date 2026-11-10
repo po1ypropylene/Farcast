@@ -836,6 +836,8 @@ The worker retains up to 20,000 manifest entries across the batch for reuse, wit
 independent source metadata rechecks before copying. Larger selections keep the
 existing per-tree bounds and rescan uncached trees at copy time. Failure or
 cancellation discards retained manifests; they are never browsing-cache metadata.
+For batches containing multiple files, progress advances by completed-file count,
+including across selected trees and empty files. A single file retains byte progress.
 SFTP displays average bytes per second for the current file using a monotonic clock.
 The worker emits a zero-byte start event for each leaf, including recursive trees;
 new requests, completion, disconnect and cancellation clear or hide the rate. A periodic
@@ -887,8 +889,11 @@ Remote Delete is confirmed/permanent; local deletion uses Trash. Remote Open dow
 a temporary snapshot for a local application with no automatic upload; the OS owns its
 later cleanup. Local publication needs filesystem hard-link support.
 
-List itemProvider/onInsert plus folder/background drop handlers support internal
-session tokens and Finder file URLs with retained scopes/provider lifetime. Text is
+Explicit row drag sources and one enclosing drop target per file area support internal
+session tokens and Finder file URLs with retained scopes/provider lifetime. The full
+area, including empty lists and rows, targets the open folder with a perimeter highlight.
+An AppKit host owns drag registration and clears descendant list destinations;
+there are no insertion positions or separate folder-row destinations. Text is
 never treated as paths. Drops copy and reuse recursive/conflict rules. Finder download
 promises and actual production drag/sandbox interoperability remain deferred/unverified.
 

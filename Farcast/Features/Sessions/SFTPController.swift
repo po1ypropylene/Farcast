@@ -325,7 +325,7 @@ private struct RemoteFolderCache {
     private func begin(_ text: String, id: String = UUID().uuidString) -> String {
         requestID = id
         busy = true
-        progress = nil
+        progress = fileCount > 1 && !batchFileCounts.isEmpty ? Double(completedFiles) / Double(fileCount) : nil
         resetTransferSpeed()
         error = nil
         message = text
@@ -334,9 +334,9 @@ private struct RemoteFolderCache {
     func receive(id: String, result: [AnyHashable: Any], error: String?) {
         guard requestID == id else { return }
         requestID = nil
-        progress = nil
         resetTransferSpeed()
         if cancelling {
+            progress = nil
             preparingTransfers = false
             requestedHistoryIndex = nil
             cancelling = false
@@ -350,6 +350,7 @@ private struct RemoteFolderCache {
             return
         }
         if let error {
+            progress = nil
             preparingTransfers = false
             requestedHistoryIndex = nil
             busy = false
@@ -367,6 +368,7 @@ private struct RemoteFolderCache {
             fileCount = batchFileCounts.values.reduce(0, +)
             runNext()
         } else if requestIsListing {
+            progress = nil
             busy = false
             remotePath = result["path"] as? String ?? requestPath
             remoteFiles = sorted(
@@ -407,6 +409,12 @@ private struct RemoteFolderCache {
         guard requestID == id, !cancelling else { return }
         currentFile = current
         if batchFileCounts.isEmpty { fileCount = total }
+        if fileCount > 1 {
+            // A new leaf starts only after the previous file has completed successfully.
+            // Use counts rather than bytes so differently sized files have equal weight.
+            let finished = completedFiles + max(0, current - 1)
+            progress = max(progress ?? 0, min(1, Double(finished) / Double(fileCount)))
+        }
         message =
             current == 0 ? (fileCount == 0 ? "Creating folders…" : "Preparing \(fileCount) files…") : transferItemLabel
     }
@@ -414,7 +422,9 @@ private struct RemoteFolderCache {
         guard requestID == id, !cancelling else { return }
         if bytes == 0 || transferStarted == nil { transferStarted = clock() }
         transferredBytes = bytes
-        progress = total > 0 ? min(1, Double(bytes) / Double(total)) : nil
+        if fileCount <= 1 {
+            progress = total > 0 ? min(1, Double(bytes) / Double(total)) : nil
+        }
         message =
             "\(transferItemLabel): \(ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .file)) transferred"
     }
@@ -641,6 +651,7 @@ private struct RemoteFolderCache {
         requestIsListing = false
         completedFiles = 0
         batchFileCounts = [:]
+        fileCount = 0
         preparingTransfers = work.allSatisfy {
             !$0.local && ["uploadTree", "downloadTree", "copyRemote"].contains($0.operation)
         }
@@ -654,6 +665,7 @@ private struct RemoteFolderCache {
     }
     private func runNext() {
         guard !jobs.isEmpty else {
+            progress = fileCount > 0 ? 1 : nil
             busy = false
             releaseDropAccess()
             message = "Completed \(completed) items"

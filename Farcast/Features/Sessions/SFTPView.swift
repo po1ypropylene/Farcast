@@ -10,6 +10,8 @@ struct SFTPView: View {
     @State private var path = ""
     @State private var localFilter = ""
     @State private var remoteFilter = ""
+    @State private var localDropTargeted = false
+    @State private var remoteDropTargeted = false
     private var visibleLocalFiles: [TransferFile] {
         SFTPController.filteredFiles(controller.localFiles, matching: localFilter)
     }
@@ -310,73 +312,82 @@ struct SFTPView: View {
         if controller.pasteMovesItems { moveDestination = local } else { controller.paste(local: local) }
     }
     private func fileList(_ files: [TransferFile], selection: Binding<Set<String>>, local: Bool) -> some View {
-        List(selection: selection) {
-            ForEach(files) { file in
-                HStack {
-                    Label(file.name, systemImage: file.directory ? "folder.fill" : file.regular ? "doc" : "link")
-                        .lineLimit(1)
-                    Spacer()
-                    Text(file.sizeLabel).font(.callout).foregroundStyle(.secondary)
-                }.frame(minHeight: 24).tag(file.id).contentShape(Rectangle())
-                    .itemProvider {
-                        guard !controller.busy, file.transferable else { return nil }
-                        let items =
-                            selection.wrappedValue.contains(file.id)
-                            ? selected(files, ids: selection.wrappedValue) : [file]
-                        return controller.dragProvider(items, local: local)
-                    }
-                    .onDrop(of: [SFTPController.dragType, UTType.fileURL.identifier], isTargeted: nil) { providers in
-                        guard file.directory else { return false }
-                        return controller.acceptDrop(providers, local: local, folder: file.name)
-                    }
-            }
-            .onInsert(of: [SFTPController.dragType, UTType.fileURL.identifier]) { _, providers in
-                _ = controller.acceptDrop(providers, local: local)
-            }
-        }.listStyle(.inset)
-            .onDrop(of: [SFTPController.dragType, UTType.fileURL.identifier], isTargeted: nil) { providers in
-                controller.acceptDrop(providers, local: local)
-            }
-            .contextMenu(forSelectionType: String.self) { ids in
-                let items = selected(files, ids: ids)
-                let available = !controller.busy && (local ? !controller.needsLocalAccess : connected)
-                if !items.isEmpty {
-                    Button(local ? "Open" : items.first?.directory == true ? "Open folder" : "Open local copy…") {
-                        if let file = items.first { controller.open(file, local: local) }
-                    }.disabled(!available || items.count != 1 || items.first?.transferable != true)
-                    if local {
-                        Button("Reveal in Finder") { controller.reveal(items) }.disabled(controller.busy)
-                    }
-                    Button(local ? "Upload to server" : "Download to local folder") {
-                        controller.transfer(items, upload: local)
-                    }.disabled(!canTransfer(files, selection: ids))
-                    Divider()
-                    Button("Rename…") {
-                        if let file = items.first { nameRequest = FileNameRequest(local: local, file: file) }
-                    }.disabled(!available || items.count != 1)
-                    Button("Cut") { controller.copy(items, local: local, cut: true) }
-                        .disabled(!available || !items.allSatisfy(\.transferable))
-                    Button("Copy") { controller.copy(items, local: local, cut: false) }
-                        .disabled(!available || !items.allSatisfy(\.transferable))
-                    Button(items.count == 1 ? "Copy Path" : "Copy Paths") { controller.copyPaths(items, local: local) }
-                    Divider()
+        SFTPDropArea(
+            enabled: connected && !controller.busy && (!local || !controller.needsLocalAccess),
+            isTargeted: local ? $localDropTargeted : $remoteDropTargeted,
+            accept: { controller.acceptDrop($0, local: local) }
+        ) {
+            List(selection: selection) {
+                ForEach(files) { file in
+                    HStack {
+                        Label(file.name, systemImage: file.directory ? "folder.fill" : file.regular ? "doc" : "link")
+                            .lineLimit(1)
+                        Spacer()
+                        Text(file.sizeLabel).font(.callout).foregroundStyle(.secondary)
+                    }.frame(minHeight: 24).tag(file.id).contentShape(Rectangle())
+                        .onDrag {
+                            let items =
+                                selection.wrappedValue.contains(file.id)
+                                ? selected(files, ids: selection.wrappedValue) : [file]
+                            return controller.dragProvider(items, local: local)
+                        }
                 }
-                Button("Paste into this folder") { paste(local: local) }.disabled(!controller.canPaste(local: local))
-                Button("New Folder…") { nameRequest = FileNameRequest(local: local, file: nil) }
-                    .disabled(!available || (local && controller.localURL == nil))
-                Button("Select All") { selection.wrappedValue = Set(files.map(\.id)) }.disabled(files.isEmpty)
-                Button("Refresh") { if local { controller.refreshLocal() } else { controller.refreshRemote() } }
-                    .disabled(!available)
-                if !items.isEmpty {
-                    Divider()
-                    Button(local ? "Move to Trash…" : "Delete…", role: .destructive) {
-                        deleteRequest = FileDeleteRequest(local: local, files: items)
-                    }.disabled(!available || !items.allSatisfy(\.transferable))
+            }.listStyle(.inset)
+                .contextMenu(forSelectionType: String.self) { ids in
+                    let items = selected(files, ids: ids)
+                    let available = !controller.busy && (local ? !controller.needsLocalAccess : connected)
+                    if !items.isEmpty {
+                        Button(local ? "Open" : items.first?.directory == true ? "Open folder" : "Open local copy…") {
+                            if let file = items.first { controller.open(file, local: local) }
+                        }.disabled(!available || items.count != 1 || items.first?.transferable != true)
+                        if local {
+                            Button("Reveal in Finder") { controller.reveal(items) }.disabled(controller.busy)
+                        }
+                        Button(local ? "Upload to server" : "Download to local folder") {
+                            controller.transfer(items, upload: local)
+                        }.disabled(!canTransfer(files, selection: ids))
+                        Divider()
+                        Button("Rename…") {
+                            if let file = items.first { nameRequest = FileNameRequest(local: local, file: file) }
+                        }.disabled(!available || items.count != 1)
+                        Button("Cut") { controller.copy(items, local: local, cut: true) }
+                            .disabled(!available || !items.allSatisfy(\.transferable))
+                        Button("Copy") { controller.copy(items, local: local, cut: false) }
+                            .disabled(!available || !items.allSatisfy(\.transferable))
+                        Button(items.count == 1 ? "Copy Path" : "Copy Paths") {
+                            controller.copyPaths(items, local: local)
+                        }
+                        Divider()
+                    }
+                    Button("Paste into this folder") { paste(local: local) }.disabled(
+                        !controller.canPaste(local: local))
+                    Button("New Folder…") { nameRequest = FileNameRequest(local: local, file: nil) }
+                        .disabled(!available || (local && controller.localURL == nil))
+                    Button("Select All") { selection.wrappedValue = Set(files.map(\.id)) }.disabled(files.isEmpty)
+                    Button("Refresh") { if local { controller.refreshLocal() } else { controller.refreshRemote() } }
+                        .disabled(!available)
+                    if !items.isEmpty {
+                        Divider()
+                        Button(local ? "Move to Trash…" : "Delete…", role: .destructive) {
+                            deleteRequest = FileDeleteRequest(local: local, files: items)
+                        }.disabled(!available || !items.allSatisfy(\.transferable))
+                    }
+                } primaryAction: { ids in
+                    let items = selected(files, ids: ids)
+                    if items.count == 1, let file = items.first { controller.open(file, local: local) }
                 }
-            } primaryAction: { ids in
-                let items = selected(files, ids: ids)
-                if items.count == 1, let file = items.first { controller.open(file, local: local) }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay {
+            if (local ? localDropTargeted : remoteDropTargeted) && !controller.busy
+                && connected && (!local || !controller.needsLocalAccess)
+            {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
+                    .padding(3)
+                    .allowsHitTesting(false)
             }
+        }
     }
 }
 

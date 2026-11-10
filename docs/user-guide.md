@@ -258,6 +258,9 @@ for that connection. Reconnecting checks the server's capabilities again.
 - Select files and folders with Command-click or Shift-click, then choose
   **Upload →** or **← Download**. Folders include their nested contents and empty
   folders. Selected items run sequentially; the batch stops at the first error.
+  You can also drag selections or Finder files anywhere in the destination file
+  area, even when empty. Drops copy into the open folder; open a subfolder first
+  to use it as the destination.
 - Right-click a selection for **Open**, **Rename**, **Cut**, **Copy**, **Copy Path(s)**,
   upload/download, **Paste into this folder**, **New Folder**, **Select All** and
   **Refresh**. Local items also offer **Reveal in Finder** and **Move to Trash**;
@@ -471,6 +474,8 @@ files macOS permits. Full Disk Access still requires a sandbox folder grant.
 
 SFTP counts all files recursively across the selected items before copying and
 shows one combined “File X of Y” counter. Empty files count; folder entries do not.
+For multiple files the progress bar shows the fraction of files completed across
+all selected folders. For a single file it shows the fraction of bytes transferred.
 SFTP shows the average transfer speed of the current file in bytes per second.
 The rate resets for each file in a folder transfer and disappears after the request
 finishes or is cancelled. RDP file-clipboard messages share the bottom connection

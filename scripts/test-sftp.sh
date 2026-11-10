@@ -17,6 +17,9 @@ done
 xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Farcast/Native/SSH -I Vendor/Native/include -L Vendor/Native/lib -Wl,-rpath,"$PWD/Vendor/Native/lib" -framework Foundation -lssh2 "${ssh_sources[@]}" Tests/Integration/SSH/sftp_operations.m -o "$fixture_root"/operations
 "$fixture_root"/operations "$fixture_port" "$fixture_root" "$fixture_root/fingerprint"
 
+xcrun swiftc -parse-as-library -target arm64-apple-macos27.0 Farcast/Features/Sessions/SFTPDropArea.swift Tests/Integration/SSH/sftp_drop_area.swift -o "$fixture_root/drop-area-client"
+"$fixture_root/drop-area-client"
+
 compile_native_adapter "$fixture_root/native.o" "${ssh_sources[@]}"
 xcrun swiftc -parse-as-library -target arm64-apple-macos27.0 -import-objc-header Farcast/Native/SSH/SSHClient.h Farcast/Features/Sessions/SFTPController.swift Tests/Integration/SSH/sftp_browsing.swift "$fixture_root"/native.o -L Vendor/Native/lib -lssh2 -Xlinker -rpath -Xlinker "$PWD/Vendor/Native/lib" -o "$fixture_root"/browsing-client
 "$fixture_root"/browsing-client

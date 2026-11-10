@@ -19,6 +19,9 @@ import Foundation
         var leafStarts = 0
         var measuredSpeed = false
         var fileLabels: [String] = []
+        var progressAtFileStart: [Double?] = []
+        var checkSingleFileBytes = false
+        var singleFileByteProgress = false
         let client = FCSSHClient()
         let pin = try! String(contentsOfFile: CommandLine.arguments[3], encoding: .utf8)
         var connected = false
@@ -42,6 +45,14 @@ import Foundation
                 controller.receiveProgress(id: id, bytes: bytes, total: total)
                 if bytes == 0 {
                     fileLabels.append(controller.message)
+                    if progressAtFileStart.last != controller.progress {
+                        progressAtFileStart.append(controller.progress)
+                    }
+                    if checkSingleFileBytes && total > 0 {
+                        controller.receiveProgress(id: id, bytes: 2, total: 5)
+                        singleFileByteProgress = controller.progress == 0.4
+                        controller.receiveProgress(id: id, bytes: bytes, total: total)
+                    }
                     leafStarts += 1
                     precondition(controller.transferredBytes == 0 && controller.transferSpeed == 0)
                 } else {
@@ -91,9 +102,15 @@ import Foundation
         controller.transfer(selection, upload: true)
         await wait { !controller.busy }
         check(controller.error == nil, "seed-upload")
+        check(progressAtFileStart == [0, 1.0 / 3, 2.0 / 3], "batch-progress-counts-files-across-jobs")
         check(leafStarts == 3 && measuredSpeed && controller.transferSpeed == nil, "recursive-upload-speed-resets")
         controller.receiveProgress(id: "obsolete-request", bytes: 1000, total: 1000)
         check(controller.transferSpeed == nil, "stale-progress-ignored")
+        checkSingleFileBytes = true
+        controller.transfer([selection[0]], upload: true)
+        _ = await finish(overwrite: true)
+        check(singleFileByteProgress && controller.error == nil, "single-upload-progress-remains-byte-based")
+        checkSingleFileBytes = false
         let counted = source.appendingPathComponent("counted")
         try! files.createDirectory(
             at: counted.appendingPathComponent("nested/empty"), withIntermediateDirectories: true)
@@ -103,6 +120,7 @@ import Foundation
         try! Data().write(to: counted.appendingPathComponent("zero.bin"))
         let folder = TransferFile(name: "counted", directory: true, regular: false, size: 0)
         fileLabels = []
+        progressAtFileStart = []
         controller.transfer([folder], upload: true)
         await wait { !controller.busy }
         check(
@@ -110,8 +128,10 @@ import Foundation
                 && (1...4).allSatisfy { number in
                     fileLabels.contains { $0.hasPrefix("File \(number) of 4:") }
                 }, "preflight-upload-file-count-excludes-folders")
+        check(progressAtFileStart == [0, 0.25, 0.5, 0.75], "recursive-upload-progress-includes-empty-file")
         controller.localURL = destination
         fileLabels = []
+        progressAtFileStart = []
         controller.transfer([folder], upload: false)
         await wait { !controller.busy }
         check(
@@ -122,6 +142,14 @@ import Foundation
         check(
             (try? Data(contentsOf: destination.appendingPathComponent("counted/nested/two.bin"))) == new,
             "counted-download-byte-equality")
+        check(progressAtFileStart == [0, 0.25, 0.5, 0.75], "recursive-download-progress-counts-files")
+        checkSingleFileBytes = true
+        singleFileByteProgress = false
+        controller.transfer([selection[0]], upload: false)
+        await wait { !controller.busy }
+        check(singleFileByteProgress && controller.error == nil, "single-download-progress-remains-byte-based")
+        checkSingleFileBytes = false
+        try! files.removeItem(at: destination.appendingPathComponent("a.bin"))
         let previousMessage = controller.message
         controller.receiveTransferItem(id: "obsolete-request", current: 9, total: 10)
         check(controller.message == previousMessage, "stale-file-count-ignored")

@@ -5,6 +5,9 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Accept SFTP drops across the whole local or server file area, including empty folders, without insertion-position feedback.
+- Show completed-file progress across multi-file SFTP transfers, including recursive folders; retain byte progress for a single file.
+
 ## 2.5.0 — 2026-11-08
 
 - Show “Deleting” instead of “Preparing” in remote file deletion progress.
