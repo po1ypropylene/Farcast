@@ -5,6 +5,10 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+## 2.6.0 — 2026-11-10
+
+- Choose in Settings whether opening an already connected profile creates another session or switches to its connected tab or popped-out window.
+
 - Accept SFTP drops across the whole local or server file area, including empty folders, without insertion-position feedback.
 - Show completed-file progress across multi-file SFTP transfers, including recursive folders; retain byte progress for a single file.
 

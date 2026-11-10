@@ -5,6 +5,7 @@ struct AppSettings: View {
     var storageController = ConnectionStorageController.shared
     @AppStorage("appearance") private var appearance = "System"
     @AppStorage("restoreWorkspace") private var restoreWorkspace = true
+    @AppStorage("reuseConnectedSession") private var reuseConnectedSession = false
     @AppStorage(SSHInteractionView.rightClickPreference) private var sshRightClickAction = "menu"
     @AppStorage("reconnectRDPAfterWake") private var reconnectRDPAfterWake = false
     @AppStorage("experimentalRDP") private var experimentalRDP = false
@@ -20,6 +21,14 @@ struct AppSettings: View {
                                 Text("Dark").tag("Dark")
                             }.labelsHidden()
                         }
+                        Picker("When already connected", selection: $reuseConnectedSession) {
+                            Text("Open a new session").tag(false)
+                            Text("Switch to connected session").tag(true)
+                        }
+                        Text(
+                            "Applies when opening the same saved SSH, RDP or VNC connection. Popped-out sessions come to the front."
+                        )
+                        .font(.caption).foregroundStyle(.secondary)
                         Toggle("Restore session tabs at launch", isOn: $restoreWorkspace)
                         Text("Restored tabs stay disconnected until you reconnect.")
                             .font(.caption).foregroundStyle(.secondary)

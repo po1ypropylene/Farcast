@@ -96,6 +96,39 @@ enum WireGuardTransport {
             draft.username = "fixture"
             return draft
         }
+        // Use isolated preferences and a credential lookup that refuses unexpected reads.
+        for kind in RemoteProtocol.allCases {
+            var profile = draft("Repeated launch")
+            profile.kind = kind
+            profile.port = kind.defaultPort
+            workspace.connect(profile)
+            let original = workspace.sessions.last!
+            workspace.connect(profile)
+            precondition(workspace.sessions.last !== original)
+            workspace.close(workspace.sessions.last!)
+            defaults.set(true, forKey: "reuseConnectedSession")
+            refuseCredentials = true
+            workspace.select(nil)
+            workspace.connect(profile)
+            precondition(workspace.sessions.count == 1 && workspace.selectedSession === original)
+            precondition(workspace.error == nil && original.state == .connected)
+            refuseCredentials = false
+            var separateProfile = profile
+            separateProfile.id = UUID()
+            workspace.connect(separateProfile)
+            precondition(workspace.sessions.count == 2)
+            workspace.close(workspace.sessions.last!)
+            for state in [SessionState.disconnected, .failed, .connecting, .reconnecting] {
+                original.state = state
+                workspace.connect(profile)
+                precondition(workspace.sessions.count == 2 && workspace.sessions.last !== original)
+                workspace.close(workspace.sessions.last!)
+            }
+            workspace.close(original)
+            defaults.set(false, forKey: "reuseConnectedSession")
+        }
+        print("PASS repeat launch preference for SSH/RDP/VNC, credential bypass, profile identity and inactive tabs")
+
         for name in ["First", "Second", "Third"] { workspace.connect(draft(name)) }
         let first = workspace.sessions[0]
         let second = workspace.sessions[1]
@@ -185,6 +218,13 @@ enum WireGuardTransport {
         precondition(workspace.attachedSessions.count == originalCount - 1 && workspace.activeSession === detached)
         workspace.popOut(detached) { _ in preconditionFailure("Existing window must be reused") }
         precondition(workspace.detachedSessions.count == 1 && workspace.sessions.count == originalCount)
+        defaults.set(true, forKey: "reuseConnectedSession")
+        refuseCredentials = true
+        workspace.connect(detached.profile)
+        precondition(workspace.sessions.count == originalCount && workspace.activeSession === detached)
+        precondition(workspace.detachedSessions.count == 1)
+        defaults.set(false, forKey: "reuseConnectedSession")
+        print("PASS repeated launch focuses detached session without credentials or another transport")
         let auxiliaryWindow = NSWindow()
         workspace.activate(auxiliaryWindow)
         precondition(workspace.activeSession === detached)

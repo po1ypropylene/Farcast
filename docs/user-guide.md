@@ -105,6 +105,14 @@ Closing the last app window quits Farcast. Closing the window or choosing
 Quit disconnects SSH/SFTP and RDP sessions and stops all embedded VPN tunnels
 before the app exits.
 
+In **Farcast → Settings → General → When already connected**, choose **Open a new
+session** (the default) or **Switch to connected session**. Switching selects an
+already connected tab for the same saved SSH, RDP or VNC profile, or brings its
+popped-out window forward, without signing in again. If several sessions match,
+the first in tab order is selected. Disconnected, failed and connecting tabs do
+not prevent a new session. Separate saved profiles remain independent even when
+they point to the same server.
+
 ### Connection details
 
 Connection Details opens as an overlay, keeping the session work area unchanged.

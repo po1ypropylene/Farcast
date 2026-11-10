@@ -95,6 +95,11 @@ Integration harnesses reuse one native source list and object-compilation helper
 Workspace is main-actor observable state and owns RemoteSession objects. A session
 snapshots its ConnectionDraft and owns persistent native clients/surfaces. SwiftUI
 pane recreation never reconnects. Generation IDs reject callbacks from earlier attempts.
+The repeat-launch preference defaults to creating another session. Opting into reuse
+selects the first connected session with the same profile UUID and protocol before
+validation or credential lookup; detached matches use the existing window-focus path.
+Inactive/connecting tabs and other profile IDs do not match. Explicit reconnect
+still replaces its target session.
 Closing disconnects; selection releases pressed desktop input and limits clipboard
 sharing to the selected RDP session. Reconnect reloads saved metadata, resolves
 credential/validation failures before replacing the old session, and replaces the tab

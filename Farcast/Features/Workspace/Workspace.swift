@@ -155,6 +155,14 @@ import UniformTypeIdentifiers
     }
     func connect(_ draft: ConnectionDraft, credential: ConnectionCredential? = nil, persistent: Bool = true) {
         guard !isShuttingDown else { return }
+        if defaults.bool(forKey: "reuseConnectedSession"),
+            let existing = sessions.first(where: {
+                $0.profile.id == draft.id && $0.profile.kind == draft.kind && $0.state == .connected
+            })
+        {
+            select(existing.id)
+            return
+        }
         guard draft.validationMessage == nil else {
             error = draft.validationMessage
             return
