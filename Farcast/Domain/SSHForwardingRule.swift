@@ -96,6 +96,7 @@ struct SSHForwardingRule: Codable, Identifiable, Equatable {
         ]
     }
     private static func isNumericAddress(_ host: String) -> Bool {
+        guard !host.contains("\0") else { return false }
         var v4 = in_addr()
         var v6 = in6_addr()
         return host.withCString { inet_pton(AF_INET, $0, &v4) == 1 || inet_pton(AF_INET6, $0, &v6) == 1 }

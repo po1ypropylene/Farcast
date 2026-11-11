@@ -75,15 +75,10 @@ struct ConnectionDraft: Identifiable {
         }
     }
     var validationMessage: String? {
-        let cleanHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        if cleanHost.isEmpty { return "Enter a host name or IP address." }
-        if cleanHost.contains("://") || cleanHost.contains(where: { $0.isWhitespace }) || cleanHost.contains("/") {
-            return "Enter only the host name or IP address, without a URL or port."
-        }
-        if cleanHost.filter({ $0 == ":" }).count == 1 || cleanHost.contains("]:") {
-            return "Enter the server address and port in their separate fields."
-        }
+        if let message = Self.hostValidationMessage(host) { return message }
         if !(1...65535).contains(port) { return "Port must be between 1 and 65535." }
+        if username.contains("\0") { return "Username must not contain null characters." }
+        if kind == .rdp && domain.contains("\0") { return "Domain must not contain null characters." }
         if (kind != .vnc || vncRemoteIsMac) && username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "Enter a username."
         }
@@ -120,6 +115,20 @@ struct ConnectionDraft: Identifiable {
             for rule in forwardingRules {
                 if let message = rule.validationMessage { return message }
             }
+        }
+        return nil
+    }
+    static func hostValidationMessage(_ host: String) -> String? {
+        let cleanHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleanHost.isEmpty { return "Enter a host name or IP address." }
+        if cleanHost.contains(where: { $0.isWhitespace })
+            || cleanHost.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
+            || cleanHost.contains(where: { "/\\@?#".contains($0) })
+        {
+            return "Enter only the host name or IP address, without a URL or port."
+        }
+        if cleanHost.filter({ $0 == ":" }).count == 1 || cleanHost.contains("]:") {
+            return "Enter the server address and port in their separate fields."
         }
         return nil
     }

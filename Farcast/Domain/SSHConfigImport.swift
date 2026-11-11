@@ -36,6 +36,10 @@ struct SSHConfigImport {
             }
         }
         blocks.append((hosts, options))
+        // Bound candidates before evaluating matching defaults, including aliases
+        // later excluded by unsupported proxy settings.
+        guard blocks.reduce(0, { $0 + $1.hosts.filter { !$0.contains(where: { "*?!%".contains($0) }) }.count }) <= 2_000
+        else { throw ImportError.invalid }
         var result: [Entry] = []
         var seen = Set<String>()
         for block in blocks {
@@ -66,16 +70,40 @@ struct SSHConfigImport {
         for pattern in patterns {
             let negated = pattern.hasPrefix("!")
             let raw = negated ? String(pattern.dropFirst()) : pattern
-            let regex =
-                "^"
-                + NSRegularExpression.escapedPattern(for: raw)
-                .replacingOccurrences(of: "\\*", with: ".*").replacingOccurrences(of: "\\?", with: ".") + "$"
-            if alias.range(of: regex, options: [.regularExpression, .caseInsensitive]) != nil {
+            if matchesPattern(alias, raw) {
                 if negated { return false }
                 positive = true
             }
         }
         return positive
+    }
+
+    /// OpenSSH Host patterns use * and ?. Avoid regex backtracking on imported input.
+    private static func matchesPattern(_ alias: String, _ pattern: String) -> Bool {
+        let text = Array(alias.lowercased())
+        let pattern = Array(pattern.lowercased())
+        var index = 0
+        var position = 0
+        var star: Int?
+        var retry = 0
+        while index < text.count {
+            if position < pattern.count && (pattern[position] == "?" || pattern[position] == text[index]) {
+                index += 1
+                position += 1
+            } else if position < pattern.count && pattern[position] == "*" {
+                star = position
+                position += 1
+                retry = index
+            } else if let star {
+                retry += 1
+                index = retry
+                position = star + 1
+            } else {
+                return false
+            }
+        }
+        while position < pattern.count && pattern[position] == "*" { position += 1 }
+        return position == pattern.count
     }
 
     private static func words(_ line: String) throws -> [String] {

@@ -91,6 +91,9 @@ static void prepareSocket(int fd) {
 }
 static BOOL numericAddress(NSString *host, NSInteger port, struct sockaddr_storage *storage, socklen_t *length) {
     memset(storage, 0, sizeof(*storage));
+    *length = 0;
+    if (!host.length || [host rangeOfString:@"\0"].location != NSNotFound)
+        return NO;
     struct sockaddr_in *v4 = (void *)storage;
     struct sockaddr_in6 *v6 = (void *)storage;
     if (inet_pton(AF_INET, host.UTF8String, &v4->sin_addr) == 1) {
@@ -142,7 +145,8 @@ static void consume(NSMutableData *data, NSUInteger count) {
         }
         struct sockaddr_storage storage;
         socklen_t length;
-        numericAddress(address, rule.port, &storage, &length);
+        if (!numericAddress(address, rule.port, &storage, &length))
+            return NO;
         int peer = socket(storage.ss_family, SOCK_STREAM, 0);
         BOOL success = NO;
         if (peer >= 0) {
@@ -317,7 +321,10 @@ static void consume(NSMutableData *data, NSUInteger count) {
 - (BOOL)startLocalRule:(FCForwardRule *)rule {
     struct sockaddr_storage address;
     socklen_t length;
-    numericAddress(rule.configuration[@"bind"], [rule.configuration[@"port"] integerValue], &address, &length);
+    if (!numericAddress(rule.configuration[@"bind"], [rule.configuration[@"port"] integerValue], &address, &length)) {
+        errno = EINVAL;
+        return NO;
+    }
     int fd = socket(address.ss_family, SOCK_STREAM, 0);
     if (fd < 0)
         return NO;
@@ -328,7 +335,9 @@ static void consume(NSMutableData *data, NSUInteger count) {
     }
     // Do not reuse a port owned by another listener, or silently pick a different port.
     if (bind(fd, (void *)&address, length) || listen(fd, 16) || getsockname(fd, (void *)&address, &length)) {
+        int failure = errno;
         close(fd);
+        errno = failure;
         return NO;
     }
     rule.socket = fd;

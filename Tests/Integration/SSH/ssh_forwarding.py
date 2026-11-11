@@ -311,6 +311,12 @@ try:
             client.wait(lambda e: e.get('event') == 'file' and e.get('id') == 'conflict-job', after=after)
             exchange(lp, b'after-file-cancellation'); check(True, 'file-cancellation-retains-forwarding')
         # Runtime edits drain the old rule while retaining other channels and the login.
+        invalid_rule = rule('remote', target.port)
+        invalid_rule['bind'] = '127.0.0.1\0other'
+        after = len(client.events)
+        client.send(dict(op='update', rule=invalid_rule, start=True))
+        rejected = client.wait(lambda e: e.get('event') == 'accepted', after=after)
+        check(not rejected['value'], 'embedded-null-listener-refused')
         runtime_rule = rule('local', target.port)
         after = len(client.events)
         client.send(dict(op='update', rule=runtime_rule, start=True))

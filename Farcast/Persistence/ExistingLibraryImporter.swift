@@ -95,6 +95,7 @@ enum PreviousLibraryIdentity {
                 copy.protocolName = profile.protocolName
                 copy.authentication = profile.authentication
                 copy.rdpDisplayMode = profile.rdpDisplayMode
+                copy.vncRemoteIsMac = profile.vncRemoteIsMac
                 copy.rdpLaunchFullScreen = profile.rdpLaunchFullScreen
                 copy.rdpUseAllMonitors = profile.rdpUseAllMonitors
                 copy.rdpRetinaDisplay = profile.rdpRetinaDisplay

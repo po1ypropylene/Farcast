@@ -61,6 +61,28 @@ final class CoreTests: XCTestCase {
         draft.redirectedFolders = [RDPFolderExport(name: "Files", bookmark: Data())]
         XCTAssertNotNil(draft.validationMessage)
     }
+    func testConnectionFieldsRejectCStringTruncationAndURLSyntax() {
+        var draft = ConnectionDraft()
+        draft.username = "fixture"
+        for host in ["server\0other", "server\u{7f}", "user@server", "server?query", "server#fragment", "server\\path"]
+        {
+            draft.host = host
+            XCTAssertNotNil(draft.validationMessage)
+        }
+        draft.host = "fixture.invalid"
+        draft.username = "fixture\0other"
+        XCTAssertNotNil(draft.validationMessage)
+        draft.username = "fixture"
+        draft.kind = .rdp
+        draft.domain = "domain\0other"
+        XCTAssertNotNil(draft.validationMessage)
+        XCTAssertFalse(WireGuardConfiguration.validList("192.0.2.1\0other/24", prefix: true))
+        var rule = SSHForwardingRule()
+        rule.kind = .remote
+        rule.bindAddress = "127.0.0.1\0other"
+        rule.destinationPort = 22
+        XCTAssertNotNil(rule.validationMessage)
+    }
     func testEndpointTrustIsSeparatedByProtocolAndPort() {
         var ssh = ConnectionDraft()
         ssh.host = "SERVER.EXAMPLE"
@@ -109,6 +131,21 @@ final class CoreTests: XCTestCase {
                 "Host *.example !excluded\nHost invalid\n Port 65536\nHost unsupported\n HostName %n.example\nInclude /not/read"
         )
         XCTAssertTrue(imported.entries.isEmpty)
+    }
+    func testSSHConfigPatternsHaveBoundedBacktrackingAndLiteralBrackets() throws {
+        let alias = String(repeating: "a", count: 60)
+        let pattern = String(repeating: "*a", count: 30) + "b"
+        let imported = try SSHConfigImport(
+            text:
+                "Host \(pattern)\n Port 2200\nHost a?* !excluded\n User fixture\nHost \(alias)\nHost [literal]\n Port 2222"
+        )
+        XCTAssertEqual(imported.entries.first?.port, 22)
+        XCTAssertEqual(imported.entries.first?.username, "fixture")
+        XCTAssertEqual(imported.entries.last?.host, "[literal]")
+        XCTAssertEqual(imported.entries.last?.port, 2222)
+        XCTAssertThrowsError(
+            try SSHConfigImport(
+                text: (0...2_000).map { "Host machine\($0)\n ProxyJump skipped" }.joined(separator: "\n")))
     }
     @MainActor func testSidebarMetadataSurvivesRenameAndReopen() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

@@ -18,6 +18,11 @@ struct QuickConnectAddress {
         let port = url.port ?? kind.defaultPort
         guard (1...65535).contains(port) else { throw QuickConnectAddressError.invalid }
         let cleanHost = host.hasPrefix("[") && host.hasSuffix("]") ? String(host.dropFirst().dropLast()) : host
+        guard let decodedHost = url.percentEncodedHost?.removingPercentEncoding,
+            ConnectionDraft.hostValidationMessage(decodedHost) == nil,
+            ConnectionDraft.hostValidationMessage(cleanHost) == nil,
+            url.user?.contains("\0") != true
+        else { throw QuickConnectAddressError.invalid }
         return QuickConnectAddress(kind: kind, host: cleanHost, port: port, username: url.user)
     }
 }

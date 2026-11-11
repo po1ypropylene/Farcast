@@ -167,7 +167,9 @@ struct ConnectionEditor: View {
                     row("Domain") {
                         TextField("Domain", text: $draft.domain, prompt: Text("Optional")).accessibilityLabel("Domain")
                             .focused($focusedField, equals: .domain)
+                            .invalidBorder(domainMessage != nil)
                     }
+                    if let message = domainMessage { inlineMessage(message) }
                 } else if draft.kind == .ssh {
                     row("Authentication") {
                         Picker("Authentication", selection: $draft.authentication) {
@@ -223,8 +225,7 @@ struct ConnectionEditor: View {
         return rawHostMessage
     }
     private var rawHostMessage: String? {
-        guard let message = draft.validationMessage else { return nil }
-        return message.contains("host name") || message.contains("server address") ? message : nil
+        ConnectionDraft.hostValidationMessage(draft.host)
     }
     @ViewBuilder private var credentialFields: some View {
         if draft.kind != .ssh || draft.authentication == .password {
@@ -298,12 +299,19 @@ struct ConnectionEditor: View {
     }
     private var usernameMessage: String? {
         guard attemptedSave || visitedFields.contains(.username) else { return nil }
+        if draft.username.contains("\0") { return "Username must not contain null characters." }
         return (draft.kind != .vnc || draft.vncRemoteIsMac)
             && draft.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? "Enter a username." : nil
     }
+    private var domainMessage: String? {
+        guard draft.kind == .rdp, attemptedSave || visitedFields.contains(.domain) else { return nil }
+        return draft.domain.contains("\0") ? "Domain must not contain null characters." : nil
+    }
     private var validationTab: EditorTab? {
-        if hostMessage != nil || portMessage != nil || usernameMessage != nil { return .general }
+        if hostMessage != nil || portMessage != nil || usernameMessage != nil || domainMessage != nil {
+            return .general
+        }
         if draft.kind == .ssh && (!tunnelIssues.isEmpty || (attemptedSave && draft.forwardingRulesUnavailable)) {
             return .tunnels
         }
@@ -337,7 +345,7 @@ struct ConnectionEditor: View {
                         }.count
                 })
         } else if tab == .general {
-            count = max(1, [hostMessage, portMessage, usernameMessage].compactMap { $0 }.count)
+            count = max(1, [hostMessage, portMessage, usernameMessage, domainMessage].compactMap { $0 }.count)
         } else {
             count = 1
         }
@@ -354,6 +362,8 @@ struct ConnectionEditor: View {
                 field = .address
             } else if !(1...65535).contains(draft.port) {
                 field = .port
+            } else if domainMessage != nil && usernameMessage == nil {
+                field = .domain
             } else {
                 field = .username
             }

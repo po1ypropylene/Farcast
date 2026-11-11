@@ -18,6 +18,7 @@ struct WireGuardConfiguration: Codable, Equatable {
         Data(base64Encoded: value)?.count == 32
     }
     private static func validIP(_ value: String) -> Bool {
+        guard !value.contains("\0") else { return false }
         var v4 = in_addr()
         var v6 = in6_addr()
         return value.withCString { inet_pton(AF_INET, $0, &v4) == 1 || inet_pton(AF_INET6, $0, &v6) == 1 }

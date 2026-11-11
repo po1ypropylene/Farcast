@@ -98,4 +98,20 @@ import XCTest
                 from: root, into: container(), includeLocalCredentials: false))
         XCTAssertEqual(try Data(contentsOf: target), original)
     }
+
+    func testImportPreservesAbsentOptionalMacMode() throws {
+        try withLibrary { root, _ in
+            let source = try container(at: root.appendingPathComponent("Application Support/default.store"))
+            let profile = try XCTUnwrap(source.mainContext.fetch(FetchDescriptor<SavedConnection>()).first)
+            profile.protocolName = RemoteProtocol.vnc.rawValue
+            profile.vncRemoteIsMac = nil
+            try source.mainContext.save()
+            let destination = try container()
+            _ = try ExistingLibraryImporter.importLibrary(
+                from: root, into: destination, includeLocalCredentials: false)
+            let copy = try XCTUnwrap(ModelContext(destination).fetch(FetchDescriptor<SavedConnection>()).first)
+            XCTAssertNil(copy.vncRemoteIsMac)
+            XCTAssertEqual(copy.protocolName, RemoteProtocol.vnc.rawValue)
+        }
+    }
 }

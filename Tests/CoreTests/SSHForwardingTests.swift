@@ -65,8 +65,9 @@ final class SSHForwardingTests: XCTestCase {
         for invalid in [
             "ssh://user:password@fixture.invalid", "http://fixture.invalid", "ssh://fixture.invalid:0",
             "ssh://fixture.invalid/path", "ssh://fixture.invalid?secret=value", "bad host", "fixture.invalid:invalid",
+            "ssh://fixture%00.invalid", "ssh://fixture%20.invalid", "ssh://user%00other@fixture.invalid",
         ] {
-            XCTAssertThrowsError(try QuickConnectAddress.parse(invalid, defaultKind: .ssh))
+            XCTAssertThrowsError(try QuickConnectAddress.parse(invalid, defaultKind: .ssh), invalid)
         }
     }
     @MainActor func testDuplicatePreservesEverySettingWithoutCredentialIdentity() throws {
