@@ -74,7 +74,11 @@ require approval; report recurring prompts rather than deleting your saved crede
    identities trigger a separate warning. In the **Security** tab, **Forget trusted identity**
    removes the remembered exception.
 
-Double-click a saved connection to connect. Context menus provide editing,
+Double-click a saved connection to connect. For connections with a VPN selected,
+right-click and choose **Connect Direct** below **Connect** to bypass that VPN for
+this session, including reconnects. The saved VPN setting stays unchanged; ordinary
+**Connect** and double-click still use it. Direct connections follow the Mac’s normal
+network routing. Context menus provide editing,
 duplication, and deletion. After SSH rejects credentials, **Retry sign-in**
 asks for fresh credentials instead of silently reusing the saved value. Check the
 username/authentication option in Edit Connection if needed. Saving replacement
@@ -107,11 +111,12 @@ before the app exits.
 
 In **Farcast → Settings → General → When already connected**, choose **Open a new
 session** (the default) or **Switch to connected session**. Switching selects an
-already connected tab for the same saved SSH, RDP or VNC profile, or brings its
+already connected tab for the same saved SSH, RDP or VNC profile and route, or brings its
 popped-out window forward, without signing in again. If several sessions match,
 the first in tab order is selected. Disconnected, failed and connecting tabs do
 not prevent a new session. Separate saved profiles remain independent even when
-they point to the same server.
+they point to the same server. **Connect** and **Connect Direct** reuse matching
+sessions independently.
 
 ### Connection details
 

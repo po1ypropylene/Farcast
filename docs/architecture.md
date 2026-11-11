@@ -96,10 +96,15 @@ Workspace is main-actor observable state and owns RemoteSession objects. A sessi
 snapshots its ConnectionDraft and owns persistent native clients/surfaces. SwiftUI
 pane recreation never reconnects. Generation IDs reject callbacks from earlier attempts.
 The repeat-launch preference defaults to creating another session. Opting into reuse
-selects the first connected session with the same profile UUID and protocol before
-validation or credential lookup; detached matches use the existing window-focus path.
+selects the first connected session with the same profile UUID, protocol, effective
+VPN profile and explicit bypass choice before validation or credential lookup;
+detached matches use the existing window-focus path.
 Inactive/connecting tabs and other profile IDs do not match. Explicit reconnect
 still replaces its target session.
+Connect Direct clears the VPN reference only in the session snapshot and retains
+an in-memory bypass flag across manual reconnects, including saved metadata reloads.
+It never edits the saved route. Normal Connect still resolves the configured VPN
+and fails closed if unavailable; restored disconnected tabs use saved settings.
 Closing disconnects; selection releases pressed desktop input and limits clipboard
 sharing to the selected RDP session. Reconnect reloads saved metadata, resolves
 credential/validation failures before replacing the old session, and replaces the tab

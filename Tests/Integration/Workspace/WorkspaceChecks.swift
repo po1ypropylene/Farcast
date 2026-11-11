@@ -7,14 +7,16 @@ import SwiftData
     let id = UUID()
     let profile: ConnectionDraft
     let persistent: Bool
+    let bypassVPN: Bool
     var state: SessionState = .disconnected
     var message = ""
     var isSelected = false
     var credentialsRejected = false
     var desktop: DesktopDouble? { nil }
-    init(profile: ConnectionDraft, workspace: Workspace, persistent: Bool = true) {
+    init(profile: ConnectionDraft, workspace: Workspace, persistent: Bool = true, bypassVPN: Bool = false) {
         self.profile = profile
         self.persistent = persistent
+        self.bypassVPN = bypassVPN
     }
     func start(credential: ConnectionCredential) { state = .connected }
     func askForCredentials() { state = .authenticating }
@@ -128,6 +130,56 @@ enum WireGuardTransport {
             defaults.set(false, forKey: "reuseConnectedSession")
         }
         print("PASS repeat launch preference for SSH/RDP/VNC, credential bypass, profile identity and inactive tabs")
+
+        for kind in RemoteProtocol.allCases {
+            var profile = draft("VPN route override")
+            profile.kind = kind
+            profile.port = kind.defaultPort
+            profile.wireGuardID = UUID()
+            let saved = SavedConnection(draft: profile)
+            container.mainContext.insert(saved)
+            try container.mainContext.save()
+            defaults.set(true, forKey: "reuseConnectedSession")
+            workspace.connect(profile)
+            let routed = workspace.sessions.last!
+            workspace.connect(profile, bypassVPN: true)
+            let direct = workspace.sessions.last!
+            precondition(workspace.sessions.count == 2 && direct !== routed)
+            precondition(direct.bypassVPN && direct.profile.wireGuardID == nil)
+            precondition(direct.profile.id == saved.id && saved.wireGuardID == profile.wireGuardID)
+            refuseCredentials = true
+            workspace.connect(profile)
+            precondition(workspace.sessions.count == 2 && workspace.selectedSession === routed)
+            workspace.connect(profile, bypassVPN: true)
+            precondition(workspace.sessions.count == 2 && workspace.selectedSession === direct)
+            refuseCredentials = false
+            var previouslyDirect = profile
+            previouslyDirect.wireGuardID = nil
+            workspace.connect(previouslyDirect)
+            let normalDirect = workspace.sessions.last!
+            precondition(workspace.sessions.count == 3 && !normalDirect.bypassVPN)
+            workspace.connect(profile, bypassVPN: true)
+            precondition(workspace.selectedSession === direct)
+            workspace.close(normalDirect)
+            saved.name = "Edited VPN profile"
+            saved.wireGuardID = UUID()
+            try container.mainContext.save()
+            workspace.reconnect(direct)
+            let reconnected = workspace.sessions.last!
+            precondition(reconnected !== direct && reconnected.bypassVPN && reconnected.profile.wireGuardID == nil)
+            precondition(reconnected.profile.name == saved.name && saved.wireGuardID != nil)
+            workspace.reconnect(reconnected)
+            precondition(workspace.sessions.last!.bypassVPN && workspace.sessions.last!.profile.wireGuardID == nil)
+            workspace.reconnect(routed)
+            precondition(workspace.sessions.first!.profile.wireGuardID == saved.wireGuardID)
+            for session in workspace.sessions { workspace.close(session) }
+            container.mainContext.delete(saved)
+            try container.mainContext.save()
+            defaults.set(false, forKey: "reuseConnectedSession")
+        }
+        print(
+            "PASS direct VPN bypass, route-specific reuse, saved-profile preservation and repeated reconnect for SSH/RDP/VNC"
+        )
 
         for name in ["First", "Second", "Third"] { workspace.connect(draft(name)) }
         let first = workspace.sessions[0]

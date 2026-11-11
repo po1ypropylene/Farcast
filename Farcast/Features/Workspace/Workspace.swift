@@ -153,11 +153,18 @@ import UniformTypeIdentifiers
             self.error = "The test-server file could not be read. Check its format and permissions locally."
         }
     }
-    func connect(_ draft: ConnectionDraft, credential: ConnectionCredential? = nil, persistent: Bool = true) {
+    func connect(
+        _ draft: ConnectionDraft, credential: ConnectionCredential? = nil, persistent: Bool = true,
+        bypassVPN: Bool = false
+    ) {
         guard !isShuttingDown else { return }
+        var draft = draft
+        if bypassVPN { draft.wireGuardID = nil }
         if defaults.bool(forKey: "reuseConnectedSession"),
             let existing = sessions.first(where: {
-                $0.profile.id == draft.id && $0.profile.kind == draft.kind && $0.state == .connected
+                $0.profile.id == draft.id && $0.profile.kind == draft.kind
+                    && $0.profile.wireGuardID == draft.wireGuardID && $0.bypassVPN == bypassVPN
+                    && $0.state == .connected
             })
         {
             select(existing.id)
@@ -169,7 +176,7 @@ import UniformTypeIdentifiers
         }
         do {
             let stored = try self.credential(for: draft, provided: credential)
-            let session = RemoteSession(profile: draft, workspace: self, persistent: persistent)
+            let session = RemoteSession(profile: draft, workspace: self, persistent: persistent, bypassVPN: bypassVPN)
             sessions.append(session)
             select(session.id)
             start(session, credential: stored)
@@ -327,6 +334,7 @@ import UniformTypeIdentifiers
                 return
             }
         }
+        if session.bypassVPN { draft.wireGuardID = nil }
         guard draft.validationMessage == nil else {
             error = draft.validationMessage
             return
@@ -339,7 +347,8 @@ import UniformTypeIdentifiers
             } else {
                 stored = try credential(for: draft)
             }
-            let replacement = RemoteSession(profile: draft, workspace: self, persistent: persistent)
+            let replacement = RemoteSession(
+                profile: draft, workspace: self, persistent: persistent, bypassVPN: session.bypassVPN)
             let wasSelected = selectedSessionID == session.id
             if !wasSelected, !detachedSessions.values.contains(session.id),
                 let desktop = session.desktop

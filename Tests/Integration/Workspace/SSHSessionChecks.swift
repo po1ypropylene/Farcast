@@ -61,6 +61,17 @@ import Foundation
         precondition(workspace.prompts.isEmpty && rejected.state == .disconnected)
         print("PASS production SSH credential rejection → fresh prompt → file-only SFTP listing")
 
+        var routed = draft
+        routed.id = UUID()
+        routed.wireGuardID = UUID()  // Deliberately unavailable: direct startup must never resolve it.
+        workspace.connect(routed, credential: fresh, bypassVPN: true)
+        let direct = workspace.sessions.last!
+        try await waitUntil { direct.state == .connected && !direct.files.busy && !direct.files.remoteFiles.isEmpty }
+        precondition(direct.profile.wireGuardID == nil && direct.bypassVPN && lookups == 1)
+        precondition(direct.vpnState == .waiting && workspace.prompts.isEmpty)
+        workspace.close(direct)
+        print("PASS production Connect Direct bypasses unavailable VPN and authenticates SSH/SFTP directly")
+
         // Closing removes the session from the workspace before its worker exits.
         workspace.close(retry)
         let pending = RemoteSession(profile: draft, workspace: workspace, persistent: false)

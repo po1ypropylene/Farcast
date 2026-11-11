@@ -395,9 +395,17 @@ struct WorkspaceView: View {
         .anchorPreference(key: SidebarContentBoundsKey.self, value: .bounds) { [$0] }
         .tag(connection.id).contentShape(Rectangle())
         .accessibilityAction(named: "Connect") { connect(connection) }
+        .accessibilityActions {
+            if connection.wireGuardID != nil {
+                Button("Connect Direct") { connect(connection, bypassVPN: true) }
+            }
+        }
         .onTapGesture(count: 2) { connect(connection) }
         .contextMenu {
             Button("Connect") { connect(connection) }
+            if connection.wireGuardID != nil {
+                Button("Connect Direct") { connect(connection, bypassVPN: true) }
+            }
             Button("Get Info") { infoConnection = connection }
             Button("Edit Connection…") { edit(connection) }
             Button("Duplicate Connection") {
@@ -521,10 +529,10 @@ struct WorkspaceView: View {
     private func edit(_ connection: SavedConnection) {
         workspace.editor = EditorRequest(draft: ConnectionDraft(connection), mode: .edit)
     }
-    private func connect(_ connection: SavedConnection) {
+    private func connect(_ connection: SavedConnection, bypassVPN: Bool = false) {
         connection.lastConnected = Date()
         save()
-        workspace.connect(ConnectionDraft(connection))
+        workspace.connect(ConnectionDraft(connection), bypassVPN: bypassVPN)
     }
     private func save() { do { try context.save() } catch { workspace.error = error.localizedDescription } }
     private func delete(_ connection: SavedConnection) {

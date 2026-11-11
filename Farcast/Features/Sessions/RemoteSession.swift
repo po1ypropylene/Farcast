@@ -7,6 +7,7 @@ import SwiftTerm
     let id = UUID()
     let profile: ConnectionDraft
     let persistent: Bool
+    let bypassVPN: Bool
     @Published private(set) var connectedAt: Date?
     @Published private(set) var terminalZoom = 100
     @Published var state = SessionState.waiting {
@@ -106,7 +107,8 @@ import SwiftTerm
     weak var workspace: Workspace?
 
     init(
-        profile: ConnectionDraft, workspace: Workspace, persistent: Bool = true, files: SFTPController? = nil,
+        profile: ConnectionDraft, workspace: Workspace, persistent: Bool = true, bypassVPN: Bool = false,
+        files: SFTPController? = nil,
         screenSnapshot: @escaping @MainActor (Bool, NSScreen?) -> [RDPDisplayScreen] = RDPFullScreenPresentation
             .screens,
         makeRDPClient: @escaping @MainActor () -> FCRDPClient = { FCRDPClient() }
@@ -116,6 +118,7 @@ import SwiftTerm
         self.screenSnapshot = screenSnapshot
         self.workspace = workspace
         self.persistent = persistent
+        self.bypassVPN = bypassVPN
         self.files = files ?? SFTPController()
         self.forwarding = SSHForwardingController(rules: profile.forwardingRules)
         if profile.kind == .ssh {

@@ -5,6 +5,8 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Add “Connect Direct” below “Connect” in VPN-routed connections’ context menus, bypassing the saved VPN for that session and its reconnects.
+
 ## 2.6.0 — 2026-11-10
 
 - Choose in Settings whether opening an already connected profile creates another session or switches to its connected tab or popped-out window.

@@ -46,6 +46,11 @@ one ancestor, exercise session-token/file-URL providers and refuse disabled drop
 Physical Finder and cross-pane drags still need manual confirmation; the automated
 pointer check did not complete a cross-pane drag.
 
+Workspace checks cover explicit VPN bypass for SSH/RDP/VNC, preservation of saved
+VPN settings, route-specific connected-session reuse and repeated manual reconnects
+after saved edits. The production SSH/SFTP fixture authenticates directly with an
+unavailable VPN reference, without resolving VPN credentials or starting a helper.
+
 ## Known implementation limits
 
 The 4K desktop presentation load fixture checks final-frame convergence and reports
