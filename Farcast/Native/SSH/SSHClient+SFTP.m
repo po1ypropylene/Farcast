@@ -4,6 +4,14 @@
 #import <sys/stat.h>
 #import <unistd.h>
 
+static BOOL sameLocalSource(struct stat before, struct stat after) {
+    return S_ISREG(after.st_mode) && before.st_dev == after.st_dev && before.st_ino == after.st_ino &&
+           before.st_size == after.st_size && before.st_mtimespec.tv_sec == after.st_mtimespec.tv_sec &&
+           before.st_mtimespec.tv_nsec == after.st_mtimespec.tv_nsec &&
+           before.st_ctimespec.tv_sec == after.st_ctimespec.tv_sec &&
+           before.st_ctimespec.tv_nsec == after.st_ctimespec.tv_nsec;
+}
+
 @implementation FCSSHClient (SFTPWorker)
 - (BOOL)openSFTPUntil:(double)deadline {
     if (_sftp)
@@ -120,6 +128,7 @@
     unsigned long long bytes = 0, total = 0;
     double deadline = monotonicTime() + 30;
     int rc = 0;
+    struct stat uploadSource = {0};
     if ([path rangeOfString:@"\0"].location != NSNotFound ||
         (request[@"local"] && [request[@"local"] rangeOfString:@"\0"].location != NSNotFound)) {
         error = @"Invalid file path.";
@@ -166,7 +175,10 @@
                 stringByAppendingPathComponent:[@".farcast-transfer-" stringByAppendingString:NSUUID.UUID.UUIDString]];
         }
         const char *local = (upload ? localPath : stagingPath).fileSystemRepresentation;
-        fd = open(local, upload ? O_RDONLY | O_NOFOLLOW : O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+        fd = open(local,
+                  upload ? O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC
+                         : O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+                  0600);
         if (fd < 0) {
             error = @"Could not open the local file. Existing files are never replaced.";
             goto finish;
@@ -177,8 +189,10 @@
             error = @"Select a regular file to transfer.";
             goto finish;
         }
-        if (upload)
+        if (upload) {
             total = st.st_size;
+            uploadSource = st;
+        }
     }
 openRemote:
     do {
@@ -395,6 +409,14 @@ finish:
         }
     }
     if (fd >= 0) {
+        if (upload && complete) {
+            struct stat current, named;
+            if (fstat(fd, &current) || lstat([request[@"local"] fileSystemRepresentation], &named) ||
+                !sameLocalSource(uploadSource, current) || !sameLocalSource(uploadSource, named)) {
+                complete = NO;
+                error = @"The upload source changed. Inspect the destination; source items were retained.";
+            }
+        }
         if (!upload && complete && fsync(fd)) {
             complete = NO;
             error = @"Could not finish writing the local file.";

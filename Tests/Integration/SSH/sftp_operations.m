@@ -1,5 +1,8 @@
 #import "SSHClient.h"
 #import <Foundation/Foundation.h>
+#import <fcntl.h>
+#import <sys/stat.h>
+#import <unistd.h>
 
 static BOOL verifyTree(NSString *path) {
     NSData *data = [NSData dataWithContentsOfFile:[path stringByAppendingPathComponent:@"nested/世界.bin"]];
@@ -152,6 +155,53 @@ int main(int argc, char **argv) {
         [files createDirectoryAtPath:deep withIntermediateDirectories:YES attributes:nil error:nil];
         check(operation(@"uploadTree", deepRoot, @"/too-deep", YES)[@"error"] != nil && [files fileExistsAtPath:deep],
               @"depth-bound-retains-source");
+        NSString *fifo = [root stringByAppendingPathComponent:@"upload-fifo"];
+        check(mkfifo(fifo.fileSystemRepresentation, 0600) == 0, @"fifo-fixture");
+        reply = nil;
+        [client transferLocalPath:fifo remotePath:@"/fifo.bin" upload:YES requestID:@"fifo"];
+        BOOL fifoReturned = dispatch_semaphore_wait(response, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC)) == 0;
+        check(fifoReturned && reply[@"error"] != nil, @"special-file-open-does-not-block-worker");
+        if (!fifoReturned) {
+            // Unblock the old implementation so a failing regression can still drain.
+            int writer = open(fifo.fileSystemRepresentation, O_WRONLY | O_NONBLOCK);
+            if (writer >= 0)
+                close(writer);
+            dispatch_semaphore_wait(response, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC));
+        }
+        NSString *changing = [root stringByAppendingPathComponent:@"changing-upload.bin"];
+        [metadataBytes writeToFile:changing atomically:NO];
+        client.onFileProgress = ^(NSString *identifier, unsigned long long bytes, unsigned long long total) {
+          if ([identifier isEqual:@"changing-upload"] && bytes == 0)
+              [files setAttributes:@{NSFileModificationDate : [NSDate dateWithTimeIntervalSinceNow:60]}
+                      ofItemAtPath:changing
+                             error:nil];
+        };
+        reply = nil;
+        [client transferLocalPath:changing remotePath:@"/changing-upload.bin" upload:YES requestID:@"changing-upload"];
+        check(dispatch_semaphore_wait(response, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC)) == 0 &&
+                  reply[@"error"] != nil && [[NSData dataWithContentsOfFile:changing] isEqual:metadataBytes],
+              @"changed-upload-source-reported-and-retained");
+        // The failed new-file attempt left its bytes for inspection. A later
+        // failed overwrite must preserve them until its staged source is stable.
+        NSData *replacement = [NSData dataWithBytes:(uint8_t[]){9, 8, 7, 6, 5} length:5];
+        [replacement writeToFile:changing atomically:NO];
+        client.onFileConflict = ^(NSString *token, NSString *name) {
+          [client resolveFileConflict:token overwrite:YES];
+        };
+        reply = nil;
+        [client transferLocalPath:changing remotePath:@"/changing-upload.bin" upload:YES requestID:@"changing-upload"];
+        check(dispatch_semaphore_wait(response, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC)) == 0 &&
+                  reply[@"error"] != nil,
+              @"changed-overwrite-source-refused");
+        client.onFileConflict = nil;
+        client.onFileProgress = nil;
+        NSString *original = [root stringByAppendingPathComponent:@"unchanged-upload-destination.bin"];
+        reply = nil;
+        [client transferLocalPath:original remotePath:@"/changing-upload.bin" upload:NO requestID:@"verify-upload"];
+        check(dispatch_semaphore_wait(response, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC)) == 0 &&
+                  reply[@"error"] == nil && [[NSData dataWithContentsOfFile:original] isEqual:metadataBytes] &&
+                  [[NSData dataWithContentsOfFile:changing] isEqual:replacement],
+              @"changed-overwrite-retains-original-destination-and-source");
         check(approvals == 1, @"shared-trust");
         [client disconnect];
         dispatch_semaphore_t drained = dispatch_semaphore_create(0);

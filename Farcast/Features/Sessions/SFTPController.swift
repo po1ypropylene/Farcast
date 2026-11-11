@@ -727,7 +727,10 @@ private struct RemoteFolderCache {
         guard lstat(path, &info) == 0 else { throw CocoaError(.fileReadUnknown) }
         let type = info.st_mode & S_IFMT
         guard type == S_IFREG || type == S_IFDIR else { throw CocoaError(.fileReadUnsupportedScheme) }
-        return "\(info.st_ino):\(info.st_size):\(info.st_mtimespec.tv_sec):\(info.st_mtimespec.tv_nsec):\(type)"
+        return fingerprint(info)
+    }
+    nonisolated private static func fingerprint(_ info: stat) -> String {
+        "\(info.st_dev):\(info.st_ino):\(info.st_size):\(info.st_mtimespec.tv_sec):\(info.st_mtimespec.tv_nsec):\(info.st_ctimespec.tv_sec):\(info.st_ctimespec.tv_nsec):\(info.st_mode & S_IFMT)"
     }
     nonisolated private static func copyLocalTree(
         _ source: URL, destination: URL, move: Bool, cancellation: FileWorkCancellation
@@ -766,7 +769,8 @@ private struct RemoteFolderCache {
             if info.st_mode & S_IFMT == S_IFDIR {
                 guard mkdir(target.path, 0o700) == 0 else { throw CocoaError(.fileWriteFileExists) }
             } else {
-                try copyLocalFile(url.path, destination: target.path, cancellation: cancellation)
+                try copyLocalFile(
+                    url.path, destination: target.path, expected: snapshots[index], cancellation: cancellation)
             }
         }
         if move {
@@ -777,7 +781,8 @@ private struct RemoteFolderCache {
                 guard lstat(url.path, &info) == 0 else { throw CocoaError(.fileReadUnknown) }
                 let current = try fingerprint(url.path)
                 if info.st_mode & S_IFMT == S_IFDIR {
-                    guard current.split(separator: ":").first == snapshots[index].split(separator: ":").first else {
+                    guard current.split(separator: ":").prefix(2) == snapshots[index].split(separator: ":").prefix(2)
+                    else {
                         throw CocoaError(.fileReadUnknown)
                     }
                 } else {
@@ -789,11 +794,11 @@ private struct RemoteFolderCache {
         }
     }
     nonisolated private static func copyLocalFile(
-        _ source: String, destination: String, cancellation: FileWorkCancellation
+        _ source: String, destination: String, expected: String, cancellation: FileWorkCancellation
     ) throws {
         let staging =
             (destination as NSString).deletingLastPathComponent + "/.farcast-transfer-" + UUID().uuidString
-        let input = Darwin.open(source, O_RDONLY | O_NOFOLLOW)
+        let input = Darwin.open(source, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard input >= 0 else { throw CocoaError(.fileReadUnknown) }
         defer { close(input) }
         let output = Darwin.open(staging, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
@@ -803,7 +808,7 @@ private struct RemoteFolderCache {
             unlink(staging)
         }
         var initial = stat()
-        guard fstat(input, &initial) == 0, initial.st_mode & S_IFMT == S_IFREG else {
+        guard fstat(input, &initial) == 0, initial.st_mode & S_IFMT == S_IFREG, fingerprint(initial) == expected else {
             throw CocoaError(.fileReadUnknown)
         }
         var bytes = 0
@@ -822,7 +827,10 @@ private struct RemoteFolderCache {
             }
             bytes += offset
         }
-        guard !cancellation.cancelled, bytes == initial.st_size, fsync(output) == 0, link(staging, destination) == 0
+        var final = stat()
+        guard !cancellation.cancelled, bytes == initial.st_size, fstat(input, &final) == 0,
+            fingerprint(final) == expected, try fingerprint(source) == expected,
+            fsync(output) == 0, link(staging, destination) == 0
         else { throw CocoaError(.fileWriteUnknown) }
     }
     func dragProvider(_ files: [TransferFile], local: Bool) -> NSItemProvider {
