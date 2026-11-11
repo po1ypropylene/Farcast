@@ -35,6 +35,9 @@ The local release build is at:
 
 Open it directly, or copy the app to Applications. Its protocol libraries are
 bundled: users do not need Homebrew, an SSH agent, FreeRDP, or OpenSSL installed.
+If macOS blocks the unnotarized app, follow the README’s
+[first-launch steps](../README.md#install-and-first-launch) to approve Farcast in
+System Settings → Privacy & Security.
 This local development build is Apple Development signed with hardened runtime disabled,
 not Developer ID signed or notarized. Enable hardened runtime explicitly when
 using a real distribution identity.

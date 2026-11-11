@@ -14,6 +14,24 @@ Local builds are Apple Development signed and unnotarized.
 Credentials use Keychain with an **unencrypted local fallback**, or an optional
 connection folder with key-file/password AES-128 encryption or unencrypted files.
 
+## Install and first launch
+
+Farcast’s local delivery is signed but **not notarized**, so macOS may block its
+first launch. Only approve a copy you trust.
+
+1. Open the DMG and drag **Farcast.app** to **Applications**. For a source build,
+   use the app path in [Build](#build) below.
+2. Open Farcast once. If macOS blocks it because the developer cannot be verified
+   or Apple cannot check it for malicious software, dismiss the alert without
+   moving the app to the Trash.
+3. Open **System Settings → Privacy & Security**, scroll to **Security**, and
+   click **Open Anyway** beside the notice about Farcast. Try opening the app
+   again if the notice is absent.
+4. Authenticate when prompted, then click **Open** to confirm.
+
+After this approval, open Farcast normally. See
+[Apple’s first-launch instructions](https://support.apple.com/en-hk/102445).
+
 ## Screenshots
 
 ![Farcast workspace and saved connections](docs/images/Farcast-Home.png)

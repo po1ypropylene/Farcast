@@ -40,6 +40,8 @@ Xcode uses a synchronized source folder. A file under Farcast is automatically i
 
 Use `scripts/build.sh` and the built app for implementation, UI/flow testing and
 regression checks. Do not use DMG packaging as an intermediate build or test step.
+Every Xcode app build must finish with no warnings. Inspect the complete build
+log and fix any warnings before wrapping up or packaging the app.
 For an ordinary app-change request, finish all edits, app builds, tests and UI
 verification before running `scripts/build-dmg.sh` once as the final delivery step.
 DMG creation packages the existing verified Release app; it must never invoke an

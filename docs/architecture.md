@@ -179,8 +179,14 @@ An uninterruptible local file operation can delay cleanup and therefore recovery
 A popped-out session retains its Workspace-owned RemoteSession, native surfaces and
 transport. A stable window slot follows replacement session IDs on reconnect. Only
 attached sessions appear in the main tab strip; closing the detached window returns
-its live session, while Close Session disconnects and removes it. New desktop windows
-use the observed remote pixel dimensions divided by the destination Retina scale when
+its live session, while Close Session disconnects and removes it. Desktop transfers
+explicitly clear the previous scroll view's document ownership before reparenting
+the shared surface, preventing retired AppKit hosts from detaching it later.
+Attachment during SwiftUI creation/updates is gated by the current workspace
+window slot; stale main/detached hosts cannot reclaim a differently routed surface.
+Teardown releases the document only while that host still owns it.
+Session status actions open Connection Details in the session's owning window.
+New desktop windows use the observed remote pixel dimensions divided by the destination Retina scale when
 enabled, plus measured toolbar/status chrome, capped to that screen's visible frame.
 Window focus chooses the single RDP clipboard/input owner and the Session menu target. Prompts are routed
 to the session's presenting window. Detached placement is temporary; restoration still
@@ -299,6 +305,9 @@ SSH config import reads only a user-selected, bounded UTF-8 file and previews me
 It never follows includes, executes directives or loads referenced key files. Proxy-based
 hosts are excluded; unsupported options are not translated. Import creates untrusted
 password-authentication profiles and does not save credentials or connect.
+Candidate aliases are capped before matching; Host wildcards use an iterative matcher
+without regex backtracking. Connection fields reject embedded NULs before native C-string
+conversion, and Quick Connect validates decoded host escapes as well as the parsed host.
 
 The VPN library uses an 820-point sheet with a 210-point sidebar and compact,
 bordered form cards. An in-memory draft and baseline include secrets without
@@ -873,6 +882,10 @@ stage exclusively then use posix-rename@openssh.com; unsupported servers preserv
 original and fail, with no truncate/delete fallback. Same-side local copy/move and
 rename retain no-overwrite behavior. Cancellation attempts staging cleanup; interruption
 can leave uploaded partial files, completed tree leaves or remote staging.
+Local source descriptors open without blocking on special files, then require a regular
+file. Copies compare the opened source with preflight and recheck its identity, size,
+modification and change times before publication. Uploads recheck the descriptor and
+named source before accepting completion or committing an overwrite.
 
 Files mode uses refilled bounded 4 MiB upload and 1 MiB download windows, capped
 by file size. Terminal/Split mode offers at most 128 KiB per upload and 32 KiB per
@@ -1056,10 +1069,10 @@ SHA256 checks are required; see [packaging](packaging.md) and [testing](testing.
 
 ## Unsupported features
 
-SCP/WebDAV; SFTP resume/Finder download promises; SSH config/agent/jump hosts/
+SCP/WebDAV; SFTP resume/Finder download promises; full SSH config execution/agent/jump hosts/
 certificates/hardware keys, SOCKS BIND/UDP, HTTP proxy and streamlocal forwarding;
 RDP Gateway/RemoteApp/microphone/other devices/
-hardware video; nested folders/cloud sync/updater. [Validation](validation.md) tracks remaining interoperability/release work.
+hardware video; cloud sync/updater. [Validation](validation.md) tracks remaining interoperability/release work.
 
 ## OpenVPN session transport
 

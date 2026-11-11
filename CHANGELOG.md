@@ -5,6 +5,17 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+## 2.7.0 — 2026-11-11
+
+- Keep the live desktop attached after repeated pop-out window returns, and open Connection Details in the window owning the session.
+- Reject embedded null characters in connection fields and numeric tunnel addresses; validate percent-encoded Quick Connect hosts.
+- Bound SSH config import candidates and replace regex wildcard matching to prevent excessive backtracking.
+- Refuse special local upload sources without blocking SSH, detect changed local copy/upload sources and retain source data on failure.
+- Preserve absent optional Mac VNC metadata when importing an existing library.
+- Restore VPN lifecycle and display migration regression harnesses after storage and import dependencies were added.
+- Document installation and first-launch approval for the unnotarized app in macOS Privacy & Security.
+- Require warning-free Xcode app builds before delivery or packaging.
+
 - Remove Xcode build warnings while preserving Apple VNC authentication and safe RDP frame bounds.
 
 - Add “Connect Direct” below “Connect” in VPN-routed connections’ context menus, bypassing the saved VPN for that session and its reconnects.

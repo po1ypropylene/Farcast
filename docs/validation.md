@@ -53,10 +53,10 @@ unavailable VPN reference, without resolving VPN credentials or starting a helpe
 
 ## Known implementation limits
 
-The workspace presentation harness can stop at its persistent-desktop ownership
-assertion after repeated normal/Retina pop-out window returns. This also occurs
-in earlier warning-producing builds; the full workspace suite is not currently
-a reliable pass. Focused renderer/window-return checks cover a narrower path.
+The workspace presentation harness checks repeated normal/Retina pop-out returns,
+retired scroll hosts releasing the shared desktop, subsequent frame uploads and
+pointer/focus continuity. Window-specific ownership prevents late SwiftUI host
+updates from reclaiming a surface routed to another window.
 
 The 4K desktop presentation load fixture checks final-frame convergence and reports
 CPU time/run-loop gaps under excess frame publication. Refresh pacing and GPU
@@ -74,6 +74,14 @@ Deterministic regressions cover SSH submitted-versus-desired PTY resize through
 EAGAIN, partial-write ordering, explicit input overflow, omitted Command key-up,
 and failure of each RDP input send API. These do not reproduce a production
 long-session incident or establish physical network/sleep behavior.
+
+Input and import regressions cover embedded NUL refusal in connection fields and
+native tunnel listeners, decoded Quick Connect hosts, SSH config wildcard
+backtracking and alias bounds, and preservation of absent Mac VNC metadata during
+library import. Synthetic SFTP probes refuse a FIFO without blocking the worker
+and report changed upload sources while retaining source data. Local-copy checks
+continue to cover recursive byte equality, collisions, symlinks and cancellation;
+metadata checks cannot establish an atomic snapshot of a concurrently edited tree.
 
 RDP startup resize coverage uses owned native windows and a Display Control peer:
 stored Fit, Actual Size and Match window modes with resizing enabled negotiate the
