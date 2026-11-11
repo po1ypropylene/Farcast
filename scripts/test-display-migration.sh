@@ -6,6 +6,6 @@ xcrun swiftc -parse-as-library -module-name Farcast -target arm64-apple-macos27.
   Tests/Integration/RDP/DisplayMigrationLegacy.swift -o "$fixture_root/legacy"
 "$fixture_root/legacy" "$fixture_root/store"
 xcrun swiftc -parse-as-library -module-name Farcast -target arm64-apple-macos27.0 \
-  Farcast/Domain/*.swift Farcast/Persistence/SavedConnection.swift \
+  Farcast/Domain/*.swift Farcast/Persistence/SavedConnection.swift Farcast/Shared/Security/BoundedZIP.swift \
   Tests/Integration/RDP/DisplayMigrationChecks.swift -o "$fixture_root/current"
 "$fixture_root/current" "$fixture_root/store"
