@@ -8,7 +8,7 @@ python3 scripts/advance-build-number.py
 # The always-running native packaging phase replaces sealed resources. Recreate
 # only the generated app so Xcode cannot skip its final signing on a cached build.
 rm -rf ".build/Xcode/Build/Products/Release/Farcast.app"
-xcodebuild -project Farcast.xcodeproj -scheme Farcast -configuration Release \
+xcodebuild -project Farcast.xcodeproj -scheme Farcast -configuration Release -destination 'generic/platform=macOS' \
   -derivedDataPath .build/Xcode -clonedSourcePackagesDirPath .dependencies/swift-packages -skipPackagePluginValidation \
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$signing_identity" ENABLE_HARDENED_RUNTIME=NO build
 python3 scripts/verify-bundle.py ".build/Xcode/Build/Products/Release/Farcast.app"

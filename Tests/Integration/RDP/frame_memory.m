@@ -1,6 +1,7 @@
 // Exercise the production paint callback on a channel-like thread whose outer
 // autorelease pool does not drain until the connection ends.
 #import "../../../Farcast/Native/RDP/RDPClient.m"
+#include <limits.h>
 
 BOOL FCCheckFrameMemory(BOOL regions, void (^consume)(NSData *, int, int)) {
     @autoreleasepool {
@@ -43,7 +44,32 @@ BOOL FCCheckFrameMemory(BOOL regions, void (^consume)(NSData *, int, int)) {
                 break;
             }
         }
+        __block BOOL boundsValid = YES;
+        if (regions) {
+            __block NSUInteger patches = 0;
+            __block NSInteger patchX = 0, patchY = 0, patchWidth = 0, patchHeight = 0;
+            client.onFrameRegion = ^(NSData *bytes, NSInteger w, NSInteger h, NSInteger x, NSInteger y, NSInteger width,
+                                     NSInteger height) {
+              patches++;
+              patchX = x;
+              patchY = y;
+              patchWidth = width;
+              patchHeight = height;
+              boundsValid = boundsValid && bytes.length == (NSUInteger)width * height * 4;
+            };
+            invalid = (GDI_RGN){.x = 510, .y = 509, .w = INT_MAX, .h = INT_MAX};
+            endPaint(context);
+            boundsValid =
+                boundsValid && patches == 1 && patchX == 510 && patchY == 509 && patchWidth == 2 && patchHeight == 3;
+            invalid = (GDI_RGN){.x = -2, .y = -3, .w = 8, .h = 10};
+            endPaint(context);
+            boundsValid =
+                boundsValid && patches == 2 && patchX == 0 && patchY == 0 && patchWidth == 6 && patchHeight == 7;
+            invalid = (GDI_RGN){.x = INT_MAX, .y = INT_MAX, .w = INT_MAX, .h = INT_MAX};
+            endPaint(context);
+            boundsValid = boundsValid && patches == 2;
+        }
         free(gdi.primary_buffer);
-        return released && delivered == 256;
+        return released && delivered == 256 && boundsValid;
     }
 }

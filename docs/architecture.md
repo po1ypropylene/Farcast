@@ -1046,7 +1046,10 @@ See [development](development.md) for commands and cache relocation.
 Packaging relocates the native dependency closure and ships notices. Local builds
 retain a pinned certificate requirement with hardened runtime disabled; distribution
 requires Developer ID, hardened runtime and notarization. Version.xcconfig owns
-version/build metadata. The app build script uses a locked build-number
+version/build metadata. Xcode treats vendored native includes as system headers,
+keeping app-source diagnostics enabled without applying owned-source documentation
+rules to upstream headers. App Intents metadata extraction is skipped because no
+intents are declared. The app build script uses a locked build-number
 reservation helper; every app build advances by one across marketing versions,
 without a reset. Final bundle, loader, sandboxed-helper, mounted-DMG and
 SHA256 checks are required; see [packaging](packaging.md) and [testing](testing.md).

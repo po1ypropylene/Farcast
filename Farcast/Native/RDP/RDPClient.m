@@ -197,8 +197,9 @@ static BOOL endPaint(rdpContext *context) {
             }
             int x = full ? 0 : MAX(0, invalid->x);
             int y = full ? 0 : MAX(0, invalid->y);
-            int right = full ? gdi->width : MIN((int64_t)gdi->width, (int64_t)invalid->x + invalid->w);
-            int bottom = full ? gdi->height : MIN((int64_t)gdi->height, (int64_t)invalid->y + invalid->h);
+            // Sum in 64 bits, then narrow only after clamping to the framebuffer.
+            int right = full ? gdi->width : (int)MAX(0, MIN((int64_t)gdi->width, (int64_t)invalid->x + invalid->w));
+            int bottom = full ? gdi->height : (int)MAX(0, MIN((int64_t)gdi->height, (int64_t)invalid->y + invalid->h));
             if (right > x && bottom > y) {
                 int width = right - x, height = bottom - y;
                 NSMutableData *patch = [NSMutableData dataWithLength:(NSUInteger)width * height * 4];

@@ -391,7 +391,7 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
             name:(NSString *)name
          entries:(NSMutableArray *)entries
             keys:(NSMutableSet *)keys {
-    struct stat info;
+    struct stat info = {0};
     if (entries.count >= maxEntries || !safePath(name) || [keys containsObject:pathKey(name)] || fstat(fd, &info) ||
         (!S_ISREG(info.st_mode) && !S_ISDIR(info.st_mode)) || info.st_size < 0)
         return NO;
@@ -459,7 +459,7 @@ static UINT receiveUnlock(CliprdrClientContext *c, const CLIPRDR_UNLOCK_CLIPBOAR
         root.url = url;
         root.scoped = [url startAccessingSecurityScopedResource];
         root.fd = open(url.fileSystemRepresentation, O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
-        struct stat rootInfo;
+        struct stat rootInfo = {0};
         if (root.fd < 0 || fstat(root.fd, &rootInfo) ||
             ![self addEntry:root.fd root:root relative:@"" name:url.lastPathComponent entries:entries keys:keys]) {
             valid = NO;

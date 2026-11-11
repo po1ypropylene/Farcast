@@ -7,7 +7,6 @@ NSErrorDomain const FCVNCAppleSessionErrorDomain = @"com.peterpo.farcast.vnc.app
 #import <openssl/rand.h>
 #import <openssl/rsa.h>
 #import <openssl/sha.h>
-#import <openssl/srp.h>
 #import <openssl/x509.h>
 
 static void AppendUInt16(NSMutableData *data, NSUInteger value) {
@@ -292,7 +291,8 @@ static NSData *ReadLengthPrefixedData(NSData *data, NSUInteger *offset, BOOL sho
         return nil;
     [self fail:FCVNCAppleSessionProtocolError
         message:@"Apple authentication returned an unsupported SRP group or public-value size."];
-    SRP_gN *group = SRP_get_default_gN("4096");
+    // RFC 5054's 4096-bit SRP group uses the RFC 3526 modulus and generator 5.
+    BIGNUM *expectedModulus = BN_get_rfc3526_prime_4096(NULL);
     BIGNUM *modulus = BN_bin2bn(modulusBytes.bytes, (int)modulusBytes.length, NULL);
     BIGNUM *generator = BN_bin2bn(generatorBytes.bytes, (int)generatorBytes.length, NULL);
     BIGNUM *serverPublic = BN_bin2bn(serverPublicBytes.bytes, (int)serverPublicBytes.length, NULL);
@@ -308,11 +308,11 @@ static NSData *ReadLengthPrefixedData(NSData *data, NSUInteger *offset, BOOL sho
     BN_CTX *bigNumberContext = BN_CTX_secure_new();
     NSMutableData *stretchedPassword = [NSMutableData dataWithLength:128];
     NSData *sessionKey = nil, *clientProof = nil, *expectedServerProof = nil, *clientPublicBytes = nil;
-    BOOL ok = group && modulus && generator && serverPublic && clientPrivate && clientPublic && passwordExponent &&
-              multiplier && scrambler && passwordVerifier && sharedSecretBase && sharedSecretExponent && sharedSecret &&
-              bigNumberContext && BN_cmp(modulus, group->N) == 0 && BN_cmp(generator, group->g) == 0 &&
-              modulusBytes.length == 512 && serverPublicBytes.length <= 512 && !BN_is_zero(serverPublic) &&
-              BN_cmp(serverPublic, modulus) < 0;
+    BOOL ok = expectedModulus && modulus && generator && serverPublic && clientPrivate && clientPublic &&
+              passwordExponent && multiplier && scrambler && passwordVerifier && sharedSecretBase &&
+              sharedSecretExponent && sharedSecret && bigNumberContext && BN_cmp(modulus, expectedModulus) == 0 &&
+              BN_is_word(generator, 5) && modulusBytes.length == 512 && serverPublicBytes.length <= 512 &&
+              !BN_is_zero(serverPublic) && BN_cmp(serverPublic, modulus) < 0;
     if (ok) {
         [self fail:FCVNCAppleSessionAuthenticationError
             message:@"Apple authentication could not compute its SRP proof."];
@@ -372,6 +372,7 @@ static NSData *ReadLengthPrefixedData(NSData *data, NSUInteger *offset, BOOL sho
         }
     }
     OPENSSL_cleanse(stretchedPassword.mutableBytes, stretchedPassword.length);
+    BN_free(expectedModulus);
     BN_clear_free(modulus);
     BN_clear_free(generator);
     BN_clear_free(serverPublic);

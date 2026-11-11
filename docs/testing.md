@@ -226,6 +226,8 @@ Core tests also cover nested folder metadata and retained legacy favorite metada
   the real Swift mailbox bridge on a background thread with a connection-lifetime
   outer pool and stalled main queue. Weak references verify temporary frame bytes
   release after each paint, and retained canonical pixels verify final convergence.
+  Native damage bounds also cover negative origins, integer-overflow-sized extents
+  and fully offscreen rectangles before narrowing to framebuffer coordinates.
 - `scripts/test-rdp-input-latency.sh [adapter-source|--polling-baseline]`: 160 owned TLS enqueue-to-drain
   samples with p50/p95/p99. A comparison source must include the same timing callback;
   this does not measure network RTT or input-to-visual latency.

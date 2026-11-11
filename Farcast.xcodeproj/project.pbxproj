@@ -282,13 +282,16 @@
                 ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
                 ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
                 SWIFT_OBJC_BRIDGING_HEADER = "Farcast/Native-Bridge.h";
-                HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/Vendor/Native/include", "$(SRCROOT)/Vendor/Native/include/freerdp3", "$(SRCROOT)/Vendor/Native/include/winpr3");
+                HEADER_SEARCH_PATHS = "$(inherited)";
+                SYSTEM_HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/Vendor/Native/include", "$(SRCROOT)/Vendor/Native/include/freerdp3", "$(SRCROOT)/Vendor/Native/include/winpr3");
                 LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/Vendor/Native/lib");
                 OTHER_LDFLAGS = ("$(inherited)", "-lssh2", "-lfreerdp3", "-lfreerdp-client3", "-lwinpr3", "-lcrypto", "-lssl", "-lz", "-lsrtp2", "-framework", "VideoToolbox", "-framework", "CoreVideo", "-framework", "CoreMedia");
                 INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Farcast connects to your local servers using SSH and Remote Desktop.";
                 INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
+				/* No App Intents are declared; omit the unused metadata extraction task. */
+				LM_SKIP_METADATA_EXTRACTION = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -325,13 +328,16 @@
                 ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
                 ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
                 SWIFT_OBJC_BRIDGING_HEADER = "Farcast/Native-Bridge.h";
-                HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/Vendor/Native/include", "$(SRCROOT)/Vendor/Native/include/freerdp3", "$(SRCROOT)/Vendor/Native/include/winpr3");
+                HEADER_SEARCH_PATHS = "$(inherited)";
+                SYSTEM_HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/Vendor/Native/include", "$(SRCROOT)/Vendor/Native/include/freerdp3", "$(SRCROOT)/Vendor/Native/include/winpr3");
                 LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/Vendor/Native/lib");
                 OTHER_LDFLAGS = ("$(inherited)", "-lssh2", "-lfreerdp3", "-lfreerdp-client3", "-lwinpr3", "-lcrypto", "-lssl", "-lz", "-lsrtp2", "-framework", "VideoToolbox", "-framework", "CoreVideo", "-framework", "CoreMedia");
                 INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Farcast connects to your local servers using SSH and Remote Desktop.";
                 INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
+				/* No App Intents are declared; omit the unused metadata extraction task. */
+				LM_SKIP_METADATA_EXTRACTION = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";

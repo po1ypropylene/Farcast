@@ -5,6 +5,8 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Remove Xcode build warnings while preserving Apple VNC authentication and safe RDP frame bounds.
+
 - Add “Connect Direct” below “Connect” in VPN-routed connections’ context menus, bypassing the saved VPN for that session and its reconnects.
 
 ## 2.6.0 — 2026-11-10

@@ -53,6 +53,11 @@ unavailable VPN reference, without resolving VPN credentials or starting a helpe
 
 ## Known implementation limits
 
+The workspace presentation harness can stop at its persistent-desktop ownership
+assertion after repeated normal/Retina pop-out window returns. This also occurs
+in earlier warning-producing builds; the full workspace suite is not currently
+a reliable pass. Focused renderer/window-return checks cover a narrower path.
+
 The 4K desktop presentation load fixture checks final-frame convergence and reports
 CPU time/run-loop gaps under excess frame publication. Refresh pacing and GPU
 ownership are local renderer changes shared by RDP and VNC; they do not establish
@@ -61,8 +66,9 @@ production frame rate or end-to-end input latency.
 The RDP frame-memory regression checks release of temporary native snapshot bytes
 after every paint through the actual Swift mailbox bridge, before a background
 channel-like thread drains its outer pool. It covers patch and full publications
-with a stalled main queue and retained final pixels. Sustained memory behavior on
-production GFX/H.264 desktops still requires live confirmation.
+with a stalled main queue and retained final pixels, plus native damage clipping
+at negative origins, overflowing integer sums and fully offscreen rectangles.
+Sustained memory behavior on production GFX/H.264 desktops still requires live confirmation.
 
 Deterministic regressions cover SSH submitted-versus-desired PTY resize through
 EAGAIN, partial-write ordering, explicit input overflow, omitted Command key-up,
