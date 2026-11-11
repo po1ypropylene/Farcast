@@ -44,6 +44,17 @@ import UniformTypeIdentifiers
     @Published private(set) var detachedSessions: [UUID: UUID] = [:]
     @Published private(set) var focusedDetachedSlot: UUID?
     @Published private(set) var detachedInspectors: Set<UUID> = []
+    func presents(_ session: RemoteSession, in slot: UUID?) -> Bool {
+        if let slot { return detachedSessions[slot] == session.id }
+        return !detachedSessions.values.contains(session.id)
+    }
+    func showInspector(for session: RemoteSession) {
+        if let slot = detachedSessions.first(where: { $0.value == session.id })?.key {
+            detachedInspectors.insert(slot)
+        } else {
+            showInspector = true
+        }
+    }
     func toggleInspector(slot: UUID? = nil) {
         if let slot = slot ?? focusedDetachedSlot {
             if detachedInspectors.contains(slot) {

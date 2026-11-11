@@ -5,9 +5,10 @@ struct SessionDetailsLayout: View {
     @ObservedObject var session: RemoteSession
     @ObservedObject var workspace: Workspace
     @Binding var isPresented: Bool
+    var detachedSlot: UUID? = nil
 
     var body: some View {
-        SessionPane(session: session, workspace: workspace).id(session.id)
+        SessionPane(session: session, workspace: workspace, detachedSlot: detachedSlot).id(session.id)
             .padding(.trailing, isPresented && workspace.inspectorPinned ? 301 : 0)
             .overlay(alignment: .trailing) {
                 if isPresented {

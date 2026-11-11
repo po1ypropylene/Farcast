@@ -267,6 +267,7 @@ enum WireGuardTransport {
         workspace.popOut(detached) { _ in detachedContent }
         let slot = workspace.detachedSessions.first!.key
         precondition(workspace.session(in: slot) === detached && detached.state == .connected)
+        precondition(workspace.presents(detached, in: slot) && !workspace.presents(detached, in: nil))
         precondition(workspace.attachedSessions.count == originalCount - 1 && workspace.activeSession === detached)
         workspace.popOut(detached) { _ in preconditionFailure("Existing window must be reused") }
         precondition(workspace.detachedSessions.count == 1 && workspace.sessions.count == originalCount)
@@ -284,6 +285,11 @@ enum WireGuardTransport {
         precondition(workspace.detachedInspectors.contains(slot) && !workspace.showInspector)
         workspace.toggleInspector()
         precondition(!workspace.detachedInspectors.contains(slot))
+        workspace.showInspector(for: detached)
+        precondition(workspace.detachedInspectors.contains(slot) && !workspace.showInspector)
+        workspace.showInspector(for: detached)
+        precondition(workspace.detachedInspectors.contains(slot), "Show Details must keep an open inspector visible")
+        workspace.toggleInspector(slot: slot)
         print("PASS pop out retains session, removes main presentation and reuses window")
         refuseCredentials = false
         workspace.reconnect(detached)
@@ -297,6 +303,8 @@ enum WireGuardTransport {
         print("PASS detached reconnect preserves window and failure preserves transport")
         workspace.returnToWorkspace(slot: slot)
         precondition(workspace.detachedSessions.isEmpty && workspace.selectedSession === detachedReplacement)
+        precondition(
+            workspace.presents(detachedReplacement, in: nil) && !workspace.presents(detachedReplacement, in: slot))
         precondition(detachedReplacement.state == .connected && detachedReplacement.isSelected)
         workspace.popOut(detachedReplacement) { _ in NSView() }
         let other = workspace.attachedSessions.first!

@@ -23,7 +23,7 @@ struct DetachedSessionView: View {
                                 if shown != workspace.detachedInspectors.contains(slot) {
                                     workspace.toggleInspector(slot: slot)
                                 }
-                            }))
+                            }), detachedSlot: slot)
                 }
             }
         }

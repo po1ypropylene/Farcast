@@ -350,6 +350,7 @@ private final class InspectorRDPClient: FCRDPClient {
         let detachedWindow = desktop.window!
         precondition(detachedWindow !== window && workspace.session(in: slot) === session)
         precondition(desktop.viewport !== oldViewport && workspace.attachedSessions.isEmpty)
+        precondition(oldViewport.documentView == nil, "Retired scroll views must release the shared desktop")
         precondition(
             desktop.viewport!.contentView.bounds.size == CGSize(width: 800, height: 500),
             "Pop-out must preserve the remote pixel resolution at 1:1 scale without resizing")
@@ -400,6 +401,7 @@ private final class InspectorRDPClient: FCRDPClient {
             }
             precondition(pixel == marker, "Returning via the close button must keep automatic Metal rendering alive")
         }
+        precondition(desktop.window === window, "Returned desktop must stay attached through subsequent frames")
         var pointerSent = false
         desktop.sendPointer = { _, _, _ in pointerSent = true }
         let click = NSEvent.mouseEvent(
@@ -409,8 +411,12 @@ private final class InspectorRDPClient: FCRDPClient {
             eventNumber: 0, clickCount: 1, pressure: 0)!
         desktop.mouseDown(with: click)
         desktop.mouseUp(with: click)
-        precondition(pointerSent && window.firstResponder === desktop)
         try snapshot("returned", window: window)
+        precondition(
+            pointerSent,
+            "Returned desktop must deliver pointer input; enabled \(desktop.inputEnabled), bounds \(desktop.bounds)")
+        precondition(
+            window.firstResponder === desktop, "Returned desktop must become the first responder after clicking")
         print("PASS production desktop returns live; focus selects one clipboard/input owner")
         for retina in [false, true] {
             desktop.retinaDisplay = retina

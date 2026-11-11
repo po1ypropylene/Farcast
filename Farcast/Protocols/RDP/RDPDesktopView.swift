@@ -1056,7 +1056,7 @@ final class RDPViewport: NSScrollView {
     private var resizeViewportSize: CGSize?
     private var resizeBackingScale: CGFloat?
     private weak var resizeWindow: NSWindow?
-    init(desktop: RDPDesktopView) {
+    init(desktop: RDPDesktopView, attach: Bool = true) {
         self.desktop = desktop
         super.init(frame: .zero)
         borderType = .noBorder
@@ -1066,10 +1066,26 @@ final class RDPViewport: NSScrollView {
         hasHorizontalScroller = desktop.displayMode != .fit
         hasVerticalScroller = desktop.displayMode != .fit
         autohidesScrollers = true
+        if attach { attachDesktop() }
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    func attachDesktop() {
+        guard desktop.viewport !== self || documentView !== desktop else { return }
+        // SwiftUI may reuse a scroll host after a pop-out. AppKit also retains
+        // its document after another clip view reparents it. Transfer both
+        // ownership references on creation and update, before retired hosts
+        // can detach the shared surface during their layout or teardown.
+        let previous = desktop.viewport
+        desktop.viewport = nil
+        if previous?.documentView === desktop { previous?.documentView = nil }
         documentView = desktop
         desktop.viewport = self
     }
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    func detachDesktop() {
+        guard desktop.viewport === self else { return }
+        desktop.viewport = nil
+        if documentView === desktop { documentView = nil }
+    }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         resizeViewportSize = nil
@@ -1135,6 +1151,11 @@ final class RDPViewport: NSScrollView {
 }
 struct DesktopSurface: NSViewRepresentable {
     let view: RDPDesktopView
-    func makeNSView(context: Context) -> RDPViewport { RDPViewport(desktop: view) }
-    func updateNSView(_ nsView: RDPViewport, context: Context) { nsView.layoutDesktop() }
+    var canAttach: () -> Bool = { true }
+    func makeNSView(context: Context) -> RDPViewport { RDPViewport(desktop: view, attach: canAttach()) }
+    func updateNSView(_ nsView: RDPViewport, context: Context) {
+        if canAttach() { nsView.attachDesktop() } else { nsView.detachDesktop() }
+        nsView.layoutDesktop()
+    }
+    static func dismantleNSView(_ nsView: RDPViewport, coordinator: ()) { nsView.detachDesktop() }
 }

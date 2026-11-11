@@ -5,6 +5,7 @@ import SwiftUI
 struct SessionPane: View {
     @ObservedObject var session: RemoteSession
     @ObservedObject var workspace: Workspace
+    var detachedSlot: UUID? = nil
     private func terminalView(_ terminal: TerminalController) -> some View {
         // The sidebar is outside the detail safe area; keep the terminal colour inside it.
         TerminalSurface(controller: terminal).padding(8).background(
@@ -64,7 +65,7 @@ struct SessionPane: View {
                         Button("Exit Full Screen") { session.exitFullScreen() }
                     }
                 } else if let desktop = session.desktop {
-                    DesktopSurface(view: desktop)
+                    DesktopSurface(view: desktop, canAttach: { workspace.presents(session, in: detachedSlot) })
                         .opacity(session.state == .connected ? 1 : 0)
                         .allowsHitTesting(session.state == .connected)
                         .accessibilityHidden(session.state != .connected)
@@ -87,7 +88,7 @@ struct SessionPane: View {
                         } else {
                             HStack {
                                 Button("Close") { workspace.requestClose(session) }
-                                Button("Connection Details") { workspace.toggleInspector() }
+                                Button("Connection Details") { workspace.showInspector(for: session) }
                                 PrimaryActionButton(title: session.credentialsRejected ? "Retry sign-in" : "Reconnect")
                                 {
                                     workspace.reconnect(session)
@@ -119,7 +120,7 @@ struct SessionPane: View {
                 if session.profile.wireGuardID != nil {
                     Text("·").foregroundStyle(.secondary)
                     Button {
-                        workspace.showInspector = true
+                        workspace.showInspector(for: session)
                     } label: {
                         SessionVPNStatus(session: session)
                     }.buttonStyle(.plain).help("Show tunnel connection details")
