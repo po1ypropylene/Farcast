@@ -8,10 +8,29 @@ final class VPNProfileDraftTests: XCTestCase {
         var draft = VPNProfileDraft()
         draft.configuration.addresses = "10.0.0.2/32, fd00::2/128"
         draft.configuration.endpoint = "[::1]:51820"
-        draft.configuration.allowedIPs = "0.0.0.0/0, ::/0"
         draft.privateKey = Data(repeating: 1, count: 32).base64EncodedString()
         draft.configuration.publicKey = Data(repeating: 2, count: 32).base64EncodedString()
         return draft
+    }
+
+    func testAutomaticAndCustomAllowedIPs() throws {
+        var draft = validDraft()
+        XCTAssertTrue(draft.configuration.allowedIPs.isEmpty)
+        XCTAssertNil(draft.configuration.validationMessage)
+        XCTAssertTrue(draft.issues(existingNames: []).isEmpty)
+        for value in [" ", "10.0.0.1/32, fd00::1/128"] {
+            draft.configuration.allowedIPs = value
+            XCTAssertNil(draft.configuration.validationMessage)
+            XCTAssertTrue(draft.issues(existingNames: []).isEmpty)
+            let restored = try JSONDecoder().decode(
+                WireGuardConfiguration.self, from: JSONEncoder().encode(draft.configuration))
+            XCTAssertEqual(restored.allowedIPs, value)
+        }
+        for value in ["10.0.0.1", "10.0.0.0/33", ",", "10.0.0.1/32,"] {
+            draft.configuration.allowedIPs = value
+            XCTAssertNotNil(draft.configuration.validationMessage)
+            XCTAssertNotNil(draft.issues(existingNames: [])["allowedIPs"])
+        }
     }
 
     func testFieldErrorsAndRawNumericEdits() {

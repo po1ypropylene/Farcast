@@ -10,6 +10,7 @@ struct WireGuardConfiguration: Codable, Equatable {
     var dns = ""
     var publicKey = ""
     var endpoint = ""
+    // Empty means automatic app-private routing; explicit imported ranges remain authoritative.
     var allowedIPs = ""
     var keepalive = 25
     var mtu = 1420
@@ -50,7 +51,9 @@ struct WireGuardConfiguration: Codable, Equatable {
         if !Self.validEndpoint(endpoint) {
             return "Enter the WireGuard endpoint as host:port (use [address]:port for IPv6)."
         }
-        if !Self.validList(allowedIPs, prefix: true) { return "Enter the peer’s AllowedIPs as CIDR prefixes." }
+        if !Self.validList(allowedIPs, prefix: true, optional: true) {
+            return "Enter the peer’s AllowedIPs as CIDR prefixes."
+        }
         if !(0...65535).contains(keepalive) { return "Keepalive must be between 0 and 65535 seconds." }
         if !(1280...1500).contains(mtu) { return "MTU must be between 1280 and 1500." }
         return nil
@@ -93,7 +96,11 @@ struct WireGuardImport {
         configuration.dns = fields["DNS"] ?? ""
         configuration.publicKey = fields["PublicKey"] ?? ""
         configuration.endpoint = fields["Endpoint"] ?? ""
-        configuration.allowedIPs = fields["AllowedIPs"] ?? ""
+        // Imports retain their route policy, including refusing absent or empty ranges.
+        guard let allowedIPs = fields["AllowedIPs"], WireGuardConfiguration.validList(allowedIPs, prefix: true) else {
+            throw WireGuardError.invalidImport
+        }
+        configuration.allowedIPs = allowedIPs
         if let mtu = fields["MTU"] {
             guard let value = Int(mtu) else { throw WireGuardError.invalidImport }
             configuration.mtu = value

@@ -178,7 +178,7 @@ struct WireGuardLibrary: View {
     @State private var validationRequest = UUID()
     private func revealIssue(_ reader: ScrollViewProxy) {
         guard let first = draft.fieldOrder.first(where: { issues[$0] != nil }) else { return }
-        if ["dns", "mtu", "presharedKey", "keepalive"].contains(first) { advanced = true }
+        if ["allowedIPs", "dns", "mtu", "presharedKey", "keepalive"].contains(first) { advanced = true }
         DispatchQueue.main.async {
             withAnimation { reader.scrollTo(first, anchor: .center) }
             focus = first
@@ -296,8 +296,10 @@ struct WireGuardLibrary: View {
             if draft.configuration.isOpenVPN {
                 Text("Only Farcast sessions use this VPN.").font(.caption).foregroundStyle(.secondary)
             } else {
-                Text("One peer per profile. No scripts or macOS network changes. ListenPort is automatic.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text(
+                    "Only selected Farcast sessions use this VPN. Routing is automatic; imported ranges are preserved."
+                )
+                .font(.caption).foregroundStyle(.secondary)
             }
         }.padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -336,10 +338,13 @@ struct WireGuardLibrary: View {
                     "Public key *", "publicKey", $draft.configuration.publicKey, prompt: "44-character base64 key",
                     key: true)
                 field("Endpoint *", "endpoint", $draft.configuration.endpoint, prompt: "vpn.example.com:51820")
-                field("Allowed IPs *", "allowedIPs", $draft.configuration.allowedIPs, prompt: "10.0.0.0/24")
             }
             DisclosureGroup(isExpanded: $advanced) {
                 VStack(spacing: 8) {
+                    field(
+                        "Allowed IPs", "allowedIPs", $draft.configuration.allowedIPs, prompt: "Automatic",
+                        caption:
+                            "Leave blank to reach session destinations and DNS through the VPN; or enter CIDR ranges.")
                     field(
                         "DNS servers", "dns", $draft.configuration.dns, prompt: "1.1.1.1, 1.0.0.1",
                         caption: "IP addresses, comma-separated")
@@ -350,7 +355,7 @@ struct WireGuardLibrary: View {
                         "Keepalive", "keepalive", $draft.keepalive, prompt: "25",
                         caption: "Seconds; 0 disables keepalive")
                     Text(
-                        "DNS inside Allowed IPs uses the VPN; other DNS uses this Mac’s network. Active sessions share the tunnel; disconnect them before applying changes."
+                        "Automatic routing sends configured DNS through the VPN. With custom Allowed IPs, DNS outside those ranges uses this Mac’s network. Disconnect shared sessions before applying changes."
                     )
                     .font(.caption).foregroundStyle(.secondary)
                 }.padding(.top, 10)
@@ -393,7 +398,7 @@ struct WireGuardLibrary: View {
             let order = draft.fieldOrder
             if let index = order.firstIndex(of: id), index + 1 < order.count {
                 let next = order[index + 1]
-                if ["dns", "mtu", "presharedKey", "keepalive"].contains(next) { advanced = true }
+                if ["allowedIPs", "dns", "mtu", "presharedKey", "keepalive"].contains(next) { advanced = true }
                 DispatchQueue.main.async { focus = next }
             } else {
                 focus = nil

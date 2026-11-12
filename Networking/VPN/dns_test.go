@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"golang.org/x/net/dns/dnsmessage"
 	"net"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 )
@@ -63,8 +65,20 @@ func TestSplitDNSUsesConfiguredResolverOutsideTunnel(t *testing.T) {
 		t.Fatal("split DNS resolution")
 	}
 }
+func TestAutomaticDNSUsesEncryptedTunnel(t *testing.T) {
+	for _, ranges := range []string{"", " \t", "\u00a0"} {
+		t.Run(fmt.Sprintf("blank-%x", ranges), func(t *testing.T) {
+			testPrivateDNSUsesEncryptedTunnel(t, ranges)
+		})
+	}
+}
 func TestPrivateDNSUsesEncryptedTunnel(t *testing.T) {
+	testPrivateDNSUsesEncryptedTunnel(t, "10.111.0.1/32")
+}
+func testPrivateDNSUsesEncryptedTunnel(t *testing.T, ranges string) {
+	t.Helper()
 	r, server := fixture(t)
+	r.Configuration.AllowedIPs = ranges
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	dev, stack, allowed, err := startWireGuard(ctx, r)
@@ -72,6 +86,13 @@ func TestPrivateDNSUsesEncryptedTunnel(t *testing.T) {
 		t.Fatal("start")
 	}
 	defer dev.Close()
+	if strings.TrimSpace(ranges) == "" {
+		for _, address := range []string{"203.0.113.1", "2001:db8::1"} {
+			if !permitted(netip.MustParseAddr(address), allowed) {
+				t.Fatal("automatic route missing")
+			}
+		}
+	}
 	dns, err := server.ListenUDPAddrPort(netip.MustParseAddrPort("10.111.0.1:0"))
 	if err != nil {
 		t.Fatal("DNS listener")

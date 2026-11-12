@@ -83,7 +83,8 @@ import SwiftUI
             guard
                 let button = nodes(root).first(where: {
                     attribute($0, "accessibilityLabel") as? String == label
-                        && attribute($0, "accessibilityRole") as? String == "AXButton"
+                        && ["AXButton", "AXDisclosureTriangle"].contains(
+                            attribute($0, "accessibilityRole") as? String ?? "")
                 })
             else {
                 print("Synthetic AX labels: \(labels())")
@@ -187,6 +188,24 @@ import SwiftUI
             precondition(!enabled("Save"), "Unchanged profile cannot save")
             precondition(enabled("Delete"))
             precondition(!labels().contains("MTU"), "Advanced fields start collapsed")
+            precondition(!labels().contains("Allowed IPs"), "Custom routes start under Advanced")
+            press("Advanced")
+            precondition(
+                nodes(window).contains(where: {
+                    attribute($0, "accessibilityLabel") as? String == "Allowed IPs"
+                        && attribute($0, "accessibilityRole") as? String == "AXTextField"
+                        && attribute($0, "accessibilityValue") as? String == "0.0.0.0/0"
+                }))
+            focus("Allowed IPs")
+            setText("Allowed IPs", "invalid")
+            focus("Name")
+            press("Advanced")
+            press("Save")
+            precondition(labels().contains("Enter IP ranges in CIDR notation, separated by commas."))
+            precondition(labels().contains("Allowed IPs"), "Save reveals invalid custom routes")
+            press("Revert")
+            let preserved = try profile.configuration()
+            precondition(preserved.allowedIPs == "0.0.0.0/0")
             try capture("vpn-\(scheme)")
             focus("Name")
             setText("Name", "Edited VPN")
@@ -218,7 +237,22 @@ import SwiftUI
                         && attribute($0, "accessibilityValue") as? String == "Untitled VPN"
                 }))
             try capture("vpn-new-\(scheme)")
-            press("Revert")
+            focus("Address")
+            setText("Address", "10.0.0.2/32")
+            focus("Private key")
+            setText("Private key", Data(repeating: 1, count: 32).base64EncodedString())
+            focus("Public key")
+            setText("Public key", Data(repeating: 2, count: 32).base64EncodedString())
+            focus("Endpoint")
+            setText("Endpoint", "vpn.example.invalid:51820")
+            press("Save")
+            let automatic = try container.mainContext.fetch(FetchDescriptor<SavedWireGuard>()).first {
+                $0.id != profile.id
+            }!
+            let automaticConfiguration = try automatic.configuration()
+            precondition(automaticConfiguration.allowedIPs.isEmpty)
+            container.mainContext.delete(automatic)
+            try container.mainContext.save()
             // Restore the synthetic name for the next appearance.
             profile.name = "Synthetic VPN"
             try container.mainContext.save()

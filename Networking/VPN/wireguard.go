@@ -65,7 +65,13 @@ func startWireGuard(ctx context.Context, r request) (*device.Device, *netstack.N
 		ipc += "preshared_key=" + v + "\n"
 	}
 	var allowed []netip.Prefix
-	for _, entry := range strings.Split(c.AllowedIPs, ",") {
+	// This device is app-private and leases restrict the destination host/port.
+	// Automatic routes also keep explicitly configured DNS inside the tunnel.
+	ranges := c.AllowedIPs
+	if strings.TrimSpace(ranges) == "" {
+		ranges = "0.0.0.0/0, ::/0"
+	}
+	for _, entry := range strings.Split(ranges, ",") {
 		p, err := netip.ParsePrefix(strings.TrimSpace(entry))
 		if err != nil {
 			return nil, nil, nil, errors.New("invalid allowed IPs")

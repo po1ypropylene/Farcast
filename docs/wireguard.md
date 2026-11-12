@@ -5,8 +5,8 @@
 1. Open **File → VPN Connections…**, or **Add → WireGuard Connections…**.
    The connection editor also has **Manage WireGuard Connections…**.
 2. Choose **New**. Import your WireGuard `.conf` file, or enter a name, interface
-   address/prefix, private key, peer public key, endpoint, and Allowed IPs. Add a
-   preshared key if your server requires one. Save.
+   address/prefix, private key, peer public key and endpoint. Routing is automatic;
+   optional Allowed IPs, DNS and preshared key settings are under **Advanced**. Save.
 3. Add or edit an **SSH, RDP or VNC** connection. Enter the server's private IP address or
    its internal DNS name as **Address**, with its normal protocol port.
 4. Choose the saved profile under **General → Network → Connect via**, then **Save & Connect**.
@@ -23,6 +23,11 @@ until disconnected. Reconnect loads the current connection and WireGuard setting
 
 ## Configuration details
 
+- New profiles use automatic routing. **Advanced → Allowed IPs** can be left blank:
+  selected session destinations and configured DNS servers use the VPN. This
+  applies only inside Farcast; other applications and macOS routes are unaffected.
+  Enter custom CIDR ranges to restrict destinations and use split DNS. Imported
+  and previously saved ranges are preserved; imports still require valid AllowedIPs.
 - One Interface and one Peer per WireGuard profile. Comma-separated IPv4/IPv6
   addresses and AllowedIPs use CIDR prefixes, for example `10.0.0.2/32` and
   `10.0.0.0/24`. An IPv6 peer endpoint uses `[address]:port`.
@@ -31,7 +36,7 @@ until disconnected. Reconnect loads the current connection and WireGuard setting
   by AllowedIPs use WireGuard; other configured DNS servers use the Mac's normal
   network, matching split routes. This can send hostname queries to a configured
   public resolver. It never changes system DNS settings. Literal server IP addresses
-  skip DNS entirely. The destination IP must be covered by AllowedIPs, with
+  skip DNS entirely. With custom ranges, the destination IP must be covered by AllowedIPs, with
   no direct fallback. The public WireGuard peer hostname resolves using the
   Mac's normal resolver before starting the tunnel.
 - MTU is 1280–1500 (default 1420). Keepalive is 0–65535 seconds (default 25);

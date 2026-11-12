@@ -25,6 +25,10 @@ final class WireGuardTests: XCTestCase {
         let imported = try WireGuardImport.parse(Data(fixture.utf8))
         XCTAssertNil(imported.configuration.validationMessage)
         XCTAssertEqual(imported.configuration.endpoint, "[::1]:51820")
+        XCTAssertEqual(imported.configuration.allowedIPs, "10.111.0.0/24, fd00::/64")
+        let restoredConfiguration = try JSONDecoder().decode(
+            WireGuardConfiguration.self, from: JSONEncoder().encode(imported.configuration))
+        XCTAssertEqual(restoredConfiguration.allowedIPs, imported.configuration.allowedIPs)
         let metadata = String(decoding: try JSONEncoder().encode(imported.configuration), as: UTF8.self)
         XCTAssertFalse(metadata.contains("privateKey"))
         XCTAssertFalse(metadata.contains("presharedKey"))
@@ -39,6 +43,8 @@ final class WireGuardTests: XCTestCase {
     }
     func testRejectUnsafeAndAmbiguousImportsWithoutEchoingContents() {
         for text in [
+            fixture.replacingOccurrences(of: "AllowedIPs = 10.111.0.0/24, fd00::/64", with: ""),
+            fixture.replacingOccurrences(of: "AllowedIPs = 10.111.0.0/24, fd00::/64", with: "AllowedIPs = "),
             fixture + "\n[Peer]\n", fixture + "\nPostUp = synthetic-sensitive-value\n",
             fixture.replacingOccurrences(of: "MTU = 1420", with: "MTU = invalid"),
             fixture.replacingOccurrences(of: "PrivateKey =", with: "UnexpectedKey ="),

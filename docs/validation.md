@@ -182,7 +182,9 @@ Production Windows startup and transition smoothness still require live validati
   SSH/SFTP fixtures check app interoperability, not a complete security audit or
   compatibility with every production server. See [dependency provenance](../ThirdParty/README.md).
 - **OpenVPN:** supports TUN profiles imported from ZIP/folder bundles or individually selected companion files, with certificate/key or password authentication. Legacy incoming LZO requires explicit consent; outgoing traffic remains uncompressed. Scripts, unresolved external files, TAP, proxies, other compression modes, interactive MFA and route exclusions are unsupported. Orbi desktop TAP bundles are detected; the router’s For Smart Phone TUN export is required. Negotiation failures are redacted. Real VPN services, roaming, sleep/wake, throughput and complete SSH/RDP/VNC traffic over OpenVPN need live validation.
-- **WireGuard:** endpoint DNS refreshes on manual reconnect, not periodically.
+- **WireGuard:** automatic app-private routes and encrypted configured DNS, plus explicit
+  imported/custom route restrictions and split DNS, have synthetic regression coverage.
+  Production routing and DNS compatibility remain unverified. Endpoint DNS refreshes on manual reconnect, not periodically.
   Missing profiles, tunnel failures and uncovered destinations fail closed.
 - **SSH forwarding:** loopback-only local listeners, SOCKS5 CONNECT without proxy
   authentication, at most 16 rules/64 flows. BIND/UDP, HTTP proxy, Unix-socket

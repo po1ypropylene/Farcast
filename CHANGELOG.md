@@ -5,6 +5,8 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Make WireGuard routing automatic for new profiles, with optional Allowed IPs under Advanced. Preserve saved/imported ranges and split DNS; automatic routing sends configured DNS through the app-private VPN.
+
 ## 2.7.0 — 2026-11-11
 
 - Keep the live desktop attached after repeated pop-out window returns, and open Connection Details in the window owning the session.

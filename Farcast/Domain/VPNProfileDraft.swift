@@ -57,7 +57,7 @@ struct VPNProfileDraft: Equatable {
         if !WireGuardConfiguration.validEndpoint(configuration.endpoint) {
             result["endpoint"] = "Use host:port, with a port from 1 to 65535."
         }
-        if !WireGuardConfiguration.validList(configuration.allowedIPs, prefix: true) {
+        if !WireGuardConfiguration.validList(configuration.allowedIPs, prefix: true, optional: true) {
             result["allowedIPs"] = "Enter IP ranges in CIDR notation, separated by commas."
         }
         if !WireGuardConfiguration.validList(configuration.dns, prefix: false, optional: true) {

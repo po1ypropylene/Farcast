@@ -1001,7 +1001,10 @@ require all leases to disconnect before new settings apply.
 
 FreeRDP TCPConnect changes dialing only. Original host/port remain in TLS/NLA/trust;
 endpoint redirects fail closed and multitransport is disabled. Destination IPs must
-be within AllowedIPs. Configured DNS covered by those routes uses gVisor/WireGuard;
+be within AllowedIPs. Empty AllowedIPs in app metadata selects automatic IPv4/IPv6
+routes inside the private helper, including configured DNS; destination-scoped leases
+remain enforced. Explicit saved/imported ranges retain their policy, and imports
+require nonempty valid ranges. Configured DNS covered by those routes uses gVisor/WireGuard;
 uncovered DNS uses ordinary UDP/TCP scoped to DNS only, with bounded A/AAAA queries
 and TCP fallback. Literal destinations need no DNS. Resolving public addresses never
 permits direct fallback. No system VPN/TUN/routes/DNS/admin changes occur.

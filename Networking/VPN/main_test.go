@@ -124,7 +124,15 @@ func helper(t *testing.T, r request) (int, *exec.Cmd, io.WriteCloser, *bufio.Rea
 	return 0, nil, nil, nil
 }
 func TestEncryptedTCPAndHalfClose(t *testing.T) {
+	testEncryptedTCPAndHalfClose(t, "10.111.0.1/32")
+}
+func TestAutomaticEncryptedTCPAndHalfClose(t *testing.T) {
+	testEncryptedTCPAndHalfClose(t, "")
+}
+func testEncryptedTCPAndHalfClose(t *testing.T, ranges string) {
+	t.Helper()
 	r, server := fixture(t)
+	r.Configuration.AllowedIPs = ranges
 	// A normal split-tunnel export may list DNS outside its private routes.
 	// Literal RDP addresses must work without using or rejecting those servers.
 	r.Configuration.DNS = "203.0.113.53, 203.0.113.54"
