@@ -13,7 +13,9 @@ AppKit interprets printable input before deciding whether a US physical scan cod
 is appropriate. IME/other committed text is not guessed from the physical key:
 UTF-16 code units, including surrogate pairs, each have a down/up pair. Physical
 navigation, function keys, Control/Option shortcuts and Windows-key combinations
-retain the existing scan-code path. Mac Option continues to mean remote Alt;
+retain the existing scan-code path. Apple keypad digits and operators use committed
+Unicode text without AppKit navigation bindings, including Shift and localized
+decimal separators; keypad Enter retains its extended Enter scan code. Mac Option continues to mean remote Alt;
 local Option dead-key composition is not supported. Command editing
 shortcuts suppress forwarded Windows keys until Command is actually released.
 App and session shortcuts release held input before handing control to AppKit.
@@ -61,8 +63,9 @@ read-only live-server probe; that probe only authenticates, checks pixels and di
 Physical shortcuts still assume the negotiated US layout. Non-US remote layouts,
 AltGr, physical international/media keys, keyboard lock-state feedback from Windows,
 full IME candidate-window behavior, sleep/wake and production long-session behavior
-need separate live validation. Caps synchronization sends only the supported Caps
-state; independent Num/Scroll Lock control is not implemented. Do not disable
+need separate live validation. Toggle synchronization sends the Mac Caps Lock
+state with Num Lock always enabled for Apple keypads; independent Num/Scroll Lock
+control is not implemented. Do not disable
 Windows accessibility features to mask malformed client input.
 
 ## Protocol references

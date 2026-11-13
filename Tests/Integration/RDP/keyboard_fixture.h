@@ -27,8 +27,8 @@ static BOOL fc_fixture_keyboard_event(rdpInput *input, char type, UINT16 flags, 
         {'u', KBD_FLAGS_RELEASE, 0xD83D},
         {'u', 0, 0xDE00},
         {'u', KBD_FLAGS_RELEASE, 0xDE00},
-        {'s', KBD_SYNC_CAPS_LOCK, 0},
-        {'s', 0, 0},
+        {'s', KBD_SYNC_NUM_LOCK | KBD_SYNC_CAPS_LOCK, 0},
+        {'s', KBD_SYNC_NUM_LOCK, 0},
         {'u', KBD_FLAGS_RELEASE, 0xE001},
     };
     const size_t index = (size_t)context->fc_keyboard_index - 1;

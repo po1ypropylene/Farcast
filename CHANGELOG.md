@@ -5,6 +5,10 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+## 2.8.0 — 2026-11-13
+
+- Keep Apple numeric keypad digits and operators numeric in SSH, RDP and VNC; synchronize RDP Num Lock on and preserve VNC Clear without toggling Num Lock.
+
 - Make WireGuard routing automatic for new profiles, with optional Allowed IPs under Advanced. Preserve saved/imported ranges and split DNS; automatic routing sends configured DNS through the app-private VPN.
 
 ## 2.7.0 — 2026-11-11

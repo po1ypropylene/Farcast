@@ -94,6 +94,45 @@ import IOKit.hidsystem
         events.removeAll()
         var unicode: [String] = []
         desktop.sendUnicode = { unit, down in unicode.append("\(unit):\(down)") }
+        let keypad: [(UInt16, String)] = [
+            (82, "0"), (83, "1"), (84, "2"), (85, "3"), (86, "4"), (87, "5"),
+            (88, "6"), (89, "7"), (91, "8"), (92, "9"), (65, "."), (65, ","),
+            (95, ","), (67, "*"), (69, "+"), (75, "/"), (78, "-"), (81, "="),
+        ]
+        for vnc in [false, true] {
+            desktop.usesTextKeySymbols = vnc
+            var textSent = ""
+            desktop.sendText = vnc ? { textSent += $0 } : nil
+            for (key, text) in keypad {
+                for flags: NSEvent.ModifierFlags in [.numericPad, [.numericPad, .shift]] {
+                    desktop.keyDown(with: event(.keyDown, key: key, flags: flags, text: text))
+                    desktop.keyDown(with: event(.keyDown, key: key, flags: flags, text: text, repeatKey: true))
+                    desktop.keyUp(with: event(.keyUp, key: key, flags: flags, text: text))
+                    if vnc {
+                        precondition(textSent == text + text)
+                    } else {
+                        precondition(
+                            unicode
+                                == Array(repeating: text.utf16.flatMap { ["\($0):true", "\($0):false"] }, count: 2)
+                                .flatMap { $0 })
+                    }
+                    precondition(
+                        !events.contains { $0.hasPrefix("80:") || $0.hasPrefix("72:") },
+                        "Keypad digits must not send navigation scans")
+                    unicode.removeAll()
+                    textSent = ""
+                    desktop.releaseInput()
+                    events.removeAll()
+                }
+            }
+        }
+        desktop.usesTextKeySymbols = false
+        desktop.sendText = nil
+        desktop.keyDown(with: event(.keyDown, key: 76, flags: .numericPad, text: "\u{3}"))
+        desktop.keyUp(with: event(.keyUp, key: 76, flags: .numericPad, text: "\u{3}"))
+        precondition(events == ["28:true:true", "28:false:true"], "Keypad Enter remains Enter")
+        events.removeAll()
+        print("PASS RDP/VNC keypad digits/operators, localized decimal, Shift and repeats without navigation")
         desktop.setMarkedText(
             "中", selectedRange: NSRange(location: 1, length: 0),
             replacementRange: NSRange(location: NSNotFound, length: 0))

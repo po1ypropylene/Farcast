@@ -15,7 +15,7 @@ compile_native_adapter "$fixture_root/support.o" "${rdp_support_sources[@]}"
 xcrun swiftc -O -target arm64-apple-macos27.0 -parse-as-library \
   -import-objc-header "$fixture_root/bridge.h" \
   Farcast/Domain/RDPDisplayMode.swift Farcast/Domain/RDPDisplayLayout.swift \
-  Farcast/Domain/RDPResizeCoordinator.swift Farcast/Protocols/RDP/RDPDesktopView.swift \
+  Farcast/Domain/RDPResizeCoordinator.swift Farcast/Domain/NumericKeypad.swift Farcast/Protocols/RDP/RDPDesktopView.swift \
   Tests/Integration/RDP/frame_memory.swift "$fixture_root/frame-memory.o" "$fixture_root/support.o" \
   -L Vendor/Native/lib -Xlinker -rpath -Xlinker "$PWD/Vendor/Native/lib" \
   -lfreerdp3 -lfreerdp-client3 -lwinpr3 -lcrypto -o "$fixture_root/client"

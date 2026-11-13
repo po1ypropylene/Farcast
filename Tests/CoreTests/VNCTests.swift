@@ -107,6 +107,7 @@ final class VNCTests: XCTestCase {
                 VNCKeyboard.keySym(keyCode: 0, characters: String(Unicode.Scalar(scalar)!)),
                 0xFFBE + scalar - 0xF704)
         }
+        XCTAssertEqual(VNCKeyboard.keySym(keyCode: 71, characters: ""), 0xFF0B)
         XCTAssertEqual(VNCKeyboard.keySym(keyCode: 102, characters: ""), 0xFF30)
         XCTAssertEqual(VNCKeyboard.keySym(keyCode: 104, characters: ""), 0xFF27)
         XCTAssertEqual(VNCKeyboard.keySym(keyCode: 0, characters: "é"), 0xE9)

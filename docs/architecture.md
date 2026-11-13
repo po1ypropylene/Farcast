@@ -461,7 +461,10 @@ app shortcuts remain local. Text and file sharing are opt-in.
 Keyboard surfaces reconcile left/right modifier snapshots and release tracked input on
 responder, window/app activation, reparenting and input-disable transitions. Ordinary
 US text commits retain physical scan-code pairs; other committed text keeps Unicode
-pairs. Caps Lock uses ordered RDP Synchronize events. See the
+pairs. Apple keypad digits/operators bypass navigation bindings and use committed
+text in RDP and both VNC modes, preserving localized decimal separators. RDP
+Synchronize events keep Num Lock enabled alongside the Mac Caps Lock state; VNC
+Clear sends Clear rather than toggling Num Lock. See the
 [keyboard input contract](rdp-keyboard.md) for event routing, evidence and layout limits.
 The bounded native event queue coalesces consecutive pure pointer motion while
 preserving key/button/wheel ordering. During FreeRDP reactivation/input suspension,
@@ -770,8 +773,10 @@ child names/snapshots across recursion, and remote-copy parent canonicalization
 uses REALPATH without enumerating the parent directory.
 
 The persistent SSH surface subclasses SwiftTerm's native view for local right-click
-actions. A live UserDefaults preference selects a native context menu (default) or
-automatic copy/paste. Copy uses selected text or the clicked visible output line.
+actions and numeric keypad input. Keypad events use their standard-key equivalents
+so remote application-keypad mode cannot turn numbers/operators into navigation;
+separate arrow keys retain terminal cursor modes. A live UserDefaults preference
+selects a native context menu (default) or automatic copy/paste. Copy uses selected text or the clicked visible output line.
 The context menu uses AppKit validation for its actions; explicit Paste shares the
 keyboard command and sends text to the remote cursor regardless of the clicked row
 or scrollback position. In automatic mode, selected text takes precedence; otherwise

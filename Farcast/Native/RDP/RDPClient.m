@@ -1007,8 +1007,8 @@ static void destroyContext(rdpContext *context) {
                                                              [event[@"pressed"] boolValue] ? 0 : KBD_FLAGS_RELEASE,
                                                              [event[@"code"] unsignedShortValue]);
         else if ([type isEqualToString:@"synchronize"])
-            sent = freerdp_input_send_synchronize_event(context->input,
-                                                        [event[@"caps"] boolValue] ? KBD_SYNC_CAPS_LOCK : 0);
+            sent = freerdp_input_send_synchronize_event(
+                context->input, KBD_SYNC_NUM_LOCK | ([event[@"caps"] boolValue] ? KBD_SYNC_CAPS_LOCK : 0));
         else if ([type isEqualToString:@"pointer"])
             sent = freerdp_input_send_mouse_event(context->input, [event[@"flags"] unsignedShortValue],
                                                   [event[@"x"] unsignedShortValue], [event[@"y"] unsignedShortValue]);

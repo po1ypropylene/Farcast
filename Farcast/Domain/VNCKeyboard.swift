@@ -14,7 +14,7 @@ enum VNCKeyboard {
     static func keySym(keyCode: UInt16, characters: String) -> UInt32? {
         if keyCode == 102 { return 0xFF30 }  // Eisu toggle.
         if keyCode == 104 { return 0xFF27 }  // Hiragana/Katakana.
-        if keyCode == 71 { return 0xFF7F }  // Clear/Num Lock on extended keyboards.
+        if keyCode == 71 { return 0xFF0B }  // Apple Clear is not a Num Lock toggle.
         guard let scalar = characters.unicodeScalars.first else { return nil }
         if (0xF704...0xF726).contains(scalar.value) { return 0xFFBE + scalar.value - 0xF704 }
         if let key = functionCharacterKeySyms[scalar.value] { return key }

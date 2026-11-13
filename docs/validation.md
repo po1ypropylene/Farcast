@@ -51,6 +51,13 @@ VPN settings, route-specific connected-session reuse and repeated manual reconne
 after saved edits. The production SSH/SFTP fixture authenticates directly with an
 unavailable VPN reference, without resolving VPN credentials or starting a helper.
 
+Apple keypad regression checks exercise every digit, operators, localized decimal
+separators, Enter, repeats and separate terminal arrows in normal/application modes.
+RDP/VNC native-surface checks cover numeric text with Shift and repeats; the RDP
+wire peer checks Num Lock enabled alongside both Caps Lock states. VNC Clear is
+checked independently from Num Lock. Physical Apple keyboards and production
+remote applications still require user confirmation.
+
 ## Known implementation limits
 
 The workspace presentation harness checks repeated normal/Retina pop-out returns,

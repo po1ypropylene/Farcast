@@ -23,6 +23,7 @@ import SwiftUI
         window.contentView = view
         window.makeKeyAndOrderFront(nil)
         defer { window.close() }
+        precondition(window.makeFirstResponder(view))
         var sent = Data()
         controller.sendBytes = { sent.append($0) }
         func settle() {
@@ -51,6 +52,54 @@ import SwiftUI
             _ = (item.target as! NSObject).perform(item.action!, with: item)
             settle()
         }
+        func key(_ type: NSEvent.EventType, code: UInt16, text: String, repeatKey: Bool = false) -> NSEvent {
+            NSEvent.keyEvent(
+                with: type, location: .zero, modifierFlags: .numericPad, timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, characters: text,
+                charactersIgnoringModifiers: text, isARepeat: repeatKey, keyCode: code)!
+        }
+        let keypad: [(UInt16, String)] = [
+            (82, "0"), (83, "1"), (84, "2"), (85, "3"), (86, "4"), (87, "5"),
+            (88, "6"), (89, "7"), (91, "8"), (92, "9"), (65, "."), (65, ","),
+            (95, ","), (67, "*"), (69, "+"), (75, "/"), (78, "-"), (81, "="), (76, "\u{3}"),
+        ]
+        for mode in ["\u{1b}>", "\u{1b}=", "\u{1b}[?1h\u{1b}="] {
+            view.feed(text: mode)
+            settle()
+            for (code, text) in keypad {
+                sent.removeAll()
+                NSApp.sendEvent(key(.keyDown, code: code, text: text))
+                NSApp.sendEvent(key(.keyDown, code: code, text: text, repeatKey: true))
+                NSApp.sendEvent(key(.keyUp, code: code, text: text))
+                let expected = code == 76 ? "\r" : text
+                precondition(
+                    String(data: sent, encoding: .utf8) == expected + expected,
+                    "Keypad must type numbers/operators even in application-keypad mode")
+            }
+        }
+        sent.removeAll()
+        NSApp.sendEvent(key(.keyDown, code: 123, text: "\u{F702}"))
+        NSApp.sendEvent(key(.keyUp, code: 123, text: "\u{F702}"))
+        precondition(
+            String(data: sent, encoding: .utf8) == "\u{1b}OD", "Separate arrows retain application-cursor behavior")
+        view.feed(text: "\u{1b}[>10u")
+        sent.removeAll()
+        NSApp.sendEvent(key(.keyDown, code: 84, text: "2"))
+        NSApp.sendEvent(key(.keyUp, code: 84, text: "2"))
+        precondition(
+            String(data: sent, encoding: .utf8) == "\u{1b}[50u\u{1b}[50;1:3u",
+            "Enhanced keyboard mode must report the number and its matching release")
+        view.feed(text: "\u{1b}[<u")
+        view.inputEnabled = false
+        sent.removeAll()
+        NSApp.sendEvent(key(.keyDown, code: 84, text: "2"))
+        precondition(sent.isEmpty)
+        view.inputEnabled = true
+        view.feed(text: "\u{1b}[?1l\u{1b}>")
+        print(
+            "PASS Apple keypad digits/operators, decimal separator, Enter, repeat and separate arrows in terminal modes"
+        )
+
         view.feed(text: "Synthetic output 繁體 😀\r\n$ ")
         settle()
         clipboard.setString("paste text", forType: .string)

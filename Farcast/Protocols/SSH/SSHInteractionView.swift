@@ -10,6 +10,19 @@ import SwiftTerm
     private var contextText = ""
     private var automaticPasteAllowed = false
 
+    // SwiftTerm's key handlers are not open for overriding. One app-lifetime
+    // monitor normalizes only events addressed to the focused SSH surface.
+    private static let keypadMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { event in
+        guard let terminal = event.window?.firstResponder as? SSHInteractionView else { return event }
+        let normalized = NumericKeypad.standardEvent(for: event)
+        return normalized === event || terminal.inputEnabled ? normalized : nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        _ = Self.keypadMonitor
+    }
+
     // A terminal has a remote cursor, not a local editable text model. Never
     // emulate Cut by sending deletion keys for a local scrollback selection.
     override func rightMouseDown(with event: NSEvent) {

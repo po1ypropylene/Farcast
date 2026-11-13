@@ -830,6 +830,12 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
         reconcileModifiers(event.modifierFlags)
         if event.keyCode == 9, event.modifierFlags.contains(.control) { preparePaste?() }
         let shortcut = !event.modifierFlags.intersection([.control, .option, .command]).isEmpty
+        // Bypass AppKit keypad navigation bindings and remote Num Lock state.
+        // RDP sends Unicode pairs; both VNC modes send ordinary character keysyms.
+        if !shortcut, !hasMarkedText(), let text = NumericKeypad.printableText(for: event) {
+            insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            return
+        }
         if !shortcut
             && (hasMarkedText() || Self.printableKeys[event.keyCode] != nil
                 || event.characters?.unicodeScalars.contains(where: {
