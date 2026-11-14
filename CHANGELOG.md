@@ -5,6 +5,9 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Import a Farcast connections folder and matching key from any selected location, with hidden-file-aware pickers, credential unlock and review.
+- Choose non-destructive merge or confirmed clearing of existing connections, folders, VPN profiles and their associated credentials; retain source files and protect imported credentials using current storage settings.
+
 ## 2.8.0 — 2026-11-13
 
 - Keep Apple numeric keypad digits and operators numeric in SSH, RDP and VNC; synchronize RDP Num Lock on and preserve VNC Clear without toggling Num Lock.

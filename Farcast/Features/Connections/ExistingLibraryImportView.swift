@@ -2,7 +2,7 @@ import AppKit
 import SwiftData
 import SwiftUI
 
-struct ExistingLibraryImportView: View {
+struct HistoricalLibraryImportView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var workspace: Workspace

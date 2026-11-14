@@ -12,7 +12,7 @@ Scripts resolve the outer repository root from their own paths, so its folder
 and Git repository can be renamed independently.
 
 Farcast uses its own macOS sandbox and credential namespace. Imported source
-data stays untouched. **File → Import Existing Library…** explicitly imports a
+data stays untouched. **File → Import Connections… → Previous App Library…** explicitly imports a
 user-selected prior library into an empty Farcast library, preserving profile,
 folder and WireGuard IDs and metadata. Copying local credentials requires opt-in;
 Keychain items are never exported/copied. Existing Keychain credentials must be

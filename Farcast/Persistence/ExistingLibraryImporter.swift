@@ -134,7 +134,7 @@ enum PreviousLibraryIdentity {
         }
     }
 
-    private static func readRegularFile(_ file: URL, beneath root: URL, limit: Int) throws -> Data {
+    static func readRegularFile(_ file: URL, beneath root: URL, limit: Int) throws -> Data {
         guard file.path.hasPrefix(root.path + "/") else { throw ExistingLibraryImportError.invalidSource }
         let components = String(file.path.dropFirst(root.path.count + 1)).split(separator: "/").map(String.init)
         guard !components.isEmpty, !components.contains("..") else { throw ExistingLibraryImportError.invalidSource }

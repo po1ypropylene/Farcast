@@ -58,6 +58,16 @@ wire peer checks Num Lock enabled alongside both Caps Lock states. VNC Clear is
 checked independently from Num Lock. Physical Apple keyboards and production
 remote applications still require user confirmation.
 
+Folder import core regressions cover moved source keys, unchanged source database/key
+permissions, merge/re-import with local credential edits, clear-and-import including
+same-ID replacement, metadata-only replacement, wrong keys, corrupt credential
+preflight and injected write failure with metadata/credential rollback. Inputs and
+destinations are disposable. The native UI harness covers unlock gating, explicit
+metadata-only import, merge/clear review controls and successful completion into an
+isolated library. These do not prove crash recovery, signed-app folder grants or real
+Keychain prompt behavior. Large-library responsiveness and full VoiceOver navigation
+remain manual checks.
+
 ## Known implementation limits
 
 The workspace presentation harness checks repeated normal/Retina pop-out returns,

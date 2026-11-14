@@ -110,6 +110,7 @@ enum ConnectionStorageAccess {
         self.storage = storage
     }
     @Published private(set) var storage: ConnectionStorage?
+    weak var settingsDraft: ConnectionStorageDraft?
     weak var workspace: Workspace?
     var canChangeStorage: Bool {
         guard let workspace else { return true }

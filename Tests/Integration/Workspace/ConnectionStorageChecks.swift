@@ -5,7 +5,8 @@ import SwiftUI
 
 /// Uses an isolated preference suite and disposable folders; never opens the user's library or Keychain.
 @MainActor enum ConnectionStorageChecks {
-    static func run() throws {
+    static func run() async throws {
+        func waitForLayout() { RunLoop.main.run(until: Date().addingTimeInterval(0.2)) }
         let manager = FileManager.default
         let root = manager.temporaryDirectory.appendingPathComponent("Farcast-storage-checks-\(UUID())")
         try StorageFile.directory(root)
@@ -99,15 +100,15 @@ import SwiftUI
             window.contentView = NSHostingView(
                 rootView: AppSettings(storageController: controller).preferredColorScheme(scheme))
             window.makeKeyAndOrderFront(nil)
-            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+            waitForLayout()
             // Capture the complete storage form separately so every control can be inspected.
             let form = NSHostingView(
                 rootView: ConnectionStorageSettings(controller: controller)
                     .frame(width: 580, height: 720).preferredColorScheme(scheme))
             window.contentView = form
-            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+            waitForLayout()
             window.setContentSize(form.fittingSize)
-            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+            waitForLayout()
             if CommandLine.arguments.count > 1, let view = window.contentView,
                 let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)
             {
@@ -173,11 +174,11 @@ import SwiftUI
             }
             return walk(window)
         }
-        func press(_ title: String) {
+        func press(_ title: String, role: String = "AXButton") {
             guard
                 let button = nodes().first(where: {
                     attribute($0, "accessibilityLabel") as? String == title
-                        && attribute($0, "accessibilityRole") as? String == "AXButton"
+                        && attribute($0, "accessibilityRole") as? String == role
                 })
             else { preconditionFailure("Missing synthetic storage button") }
             if let native = button as? NSButton {
@@ -199,6 +200,43 @@ import SwiftUI
         precondition(reviewDraft.dirty)
         reviewDraft.revert()
         precondition(!reviewDraft.dirty)
+        // Use the real import view with a synthetic encrypted source and isolated destination.
+        let importSource = try FolderLibraryImport(root: source.root, currentRoot: controller.storage?.root)
+        let importWorkspace = Workspace(defaults: defaults)
+        window.contentView = NSHostingView(
+            rootView: ExistingLibraryImportView(workspace: importWorkspace, source: importSource)
+                .modelContainer(controller.container!))
+        window.setContentSize(NSSize(width: 688, height: 540))
+        settle()
+        let importLabels = nodes().compactMap { attribute($0, "accessibilityLabel") as? String }
+        precondition(importLabels.contains("Choose Key File…"))
+        let next = nodes().first { attribute($0, "accessibilityLabel") as? String == "Continue" }
+        precondition(next != nil && attribute(next!, "isAccessibilityEnabled") as? Bool != true)
+        press("Include saved passwords and private keys", role: "AXCheckBox")
+        press("Continue")
+        if let view = window.contentView { window.setContentSize(view.fittingSize) }
+        settle()
+        let reviewLabels = nodes().compactMap { attribute($0, "accessibilityLabel") as? String }
+        precondition(reviewLabels.contains("Merge with existing connections"))
+        precondition(reviewLabels.contains("Clear existing and import"))
+        if CommandLine.arguments.count > 1, let view = window.contentView,
+            let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+        {
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            try bitmap.representation(using: .png, properties: [:])?.write(
+                to:
+                    URL(fileURLWithPath: CommandLine.arguments[1]).appendingPathComponent("import-review.png"))
+        }
+        press("Import")
+        try await Task.sleep(for: .milliseconds(200))
+        settle()
+        let imported = try ModelContext(controller.container!).fetch(FetchDescriptor<SavedConnection>())
+        let doneLabels = nodes().compactMap { attribute($0, "accessibilityLabel") as? String }
+        precondition(
+            imported.count == 1 && imported.first?.id == connection.id,
+            "Synthetic import count: \(imported.count); labels: \(doneLabels)")
+        precondition(doneLabels.contains("Done"))
+        print("PASS import unlock gating, metadata-only choice, merge/clear review and completed isolated UI import")
         print(
             "PASS pending storage edits, Revert, existing-library preflight, fallback disclosure and migration review cancellation"
         )

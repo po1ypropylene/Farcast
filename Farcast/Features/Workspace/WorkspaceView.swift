@@ -376,7 +376,7 @@ struct WorkspaceView: View {
         Button("VPN Connections…") { workspace.showWireGuard = true }
         Button("Import from ~/.ssh/config…") { chooseSSHConfig() }
         Button("Import Test Servers…") { workspace.chooseTestServerFile() }
-        Button("Import Existing Library…") { workspace.showLibraryImport = true }
+        Button("Import Connections…") { workspace.showLibraryImport = true }
             .disabled(!workspace.sessions.isEmpty)
         Divider()
         Button("New Folder…") {

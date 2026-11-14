@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct ConnectionStorageSettings: View {
+    @Environment(\.openWindow) private var openWindow
     @ObservedObject var controller: ConnectionStorageController
     @StateObject private var draft: ConnectionStorageDraft
     @State private var review = false
@@ -80,6 +81,20 @@ struct ConnectionStorageSettings: View {
                         "Open or unlock your library in the workspace, or choose another library below. No data has been reset."
                     )
                 }
+            }
+            FormSection(title: "Import") {
+                Text(
+                    "Copy connections and saved passwords and private keys from a Farcast folder or backup into this library."
+                )
+                Button("Import Connections…") {
+                    controller.workspace?.showLibraryImport = true
+                    openWindow(id: "workspace")
+                }
+                .disabled(
+                    draft.dirty || !controller.canChangeStorage || controller.container == nil
+                        || controller.workspace == nil
+                )
+                .help("Apply or revert storage changes and close session tabs and editors before importing.")
             }
             FormSection(title: "Location") {
                 Picker("Keep connections", selection: $draft.folderMode) {

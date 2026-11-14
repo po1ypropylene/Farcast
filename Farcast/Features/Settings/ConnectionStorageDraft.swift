@@ -23,6 +23,7 @@ import SwiftData
     init(controller: ConnectionStorageController) {
         self.controller = controller
         revert()
+        controller.settingsDraft = self
     }
     var sameFolder: Bool {
         folderMode && controller.storage?.root.standardizedFileURL.path == root.standardizedFileURL.path

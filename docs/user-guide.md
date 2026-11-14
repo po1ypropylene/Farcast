@@ -1,5 +1,34 @@
 # Using Farcast
 
+## Import a Farcast folder or backup
+
+Choose **File → Import Connections…** (Shift–Command–I), **Add → Import Connections…**,
+or **Settings → Storage → Import Connections…**. Apply or revert pending Storage
+changes and close session tabs first.
+
+1. Choose the `.farcast-connections` folder itself. Hidden folders are visible in
+   the picker, including folders copied from another Mac or stored outside Home.
+2. For key-file protection, choose its matching `.farcast-key` wherever you keep
+   it. For password protection, enter the source library password. Neither changes
+   your current key or protection. You can turn off **Include saved passwords and
+   private keys** to import metadata without unlocking.
+3. Review the connection list and choose **Merge with existing connections**
+   (the default) or **Clear existing and import**. Merge skips matching stable IDs
+   and keeps their existing settings and credentials; different IDs are added even
+   when names match. Clear replaces current connections, folders and VPN profiles,
+   and removes their associated credentials, after a destructive confirmation.
+4. Import, then check the completion counts. Imported credentials use your current
+   library protection, including the disclosed Keychain/local fallback in app-library
+   mode. A malformed credential aborts before destination changes; retry without
+   credentials only if that is what you want.
+
+The source folder and key are read-only inputs. Keep both until you have checked
+connections. Quit other Farcast instances using the source before importing. Import
+does not change storage location, preferences or server trust, and never connects
+automatically. Shared-folder access may require selecting folders again. Clearing
+applies to credentials associated with current profiles, not unrelated orphaned
+credential records. Import has no Undo after successful completion.
+
 ## Move an existing library to Farcast
 
 Farcast starts with its own library. Importing a previous library leaves its
@@ -7,7 +36,7 @@ original data and credentials in place; do not run a data-reset script to migrat
 
 1. Quit the previous app. In Farcast, close all session tabs and use an empty
    library. Import refuses to overwrite existing profiles, folders or tunnels.
-2. Choose **File → Import Existing Library…** (also available from **Add**).
+2. Choose **File → Import Connections… → Previous App Library…** (also available from **Add**).
 3. Enable **Copy saved local credentials** only if you want to copy passwords,
    imported keys and WireGuard keys stored in local files. Copies use the selected
    storage mode’s credential protection. The original mode’s local copies are

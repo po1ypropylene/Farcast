@@ -41,7 +41,8 @@ import SwiftUI
                     Button("VPN Connections…") { workspace.showWireGuard = true }
                     Divider()
                     Button("Import Test Servers…") { workspace.chooseTestServerFile() }
-                    Button("Import Existing Library…") { workspace.showLibraryImport = true }
+                    Button("Import Connections…") { workspace.showLibraryImport = true }
+                        .keyboardShortcut("i", modifiers: [.command, .shift])
                         .disabled(!workspace.sessions.isEmpty)
                 }
                 CommandGroup(replacing: .textEditing) {

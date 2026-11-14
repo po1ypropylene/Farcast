@@ -115,6 +115,23 @@ final class ConnectionStorage {
         return storage
     }
 
+    /// Import access never creates folders, changes permissions, or persists the source key path.
+    static func openForImport(_ root: URL, keyFile: URL? = nil, password: String = "") throws -> ConnectionStorage {
+        var manifest = try manifest(at: root)
+        if manifest.protection == .keyFile {
+            guard let keyFile else { throw ConnectionStorageError.invalid }
+            manifest.keyFile = keyFile.path
+        }
+        let key = try encryptionKey(manifest, password: password, updatePermissions: false)
+        let storage = ConnectionStorage(root: root, manifest: manifest, key: key)
+        if manifest.protection != .unencrypted {
+            guard let verification = manifest.verification,
+                try storage.decode(verification, context: "library") == Data("Farcast storage v1".utf8)
+            else { throw ConnectionStorageError.invalid }
+        }
+        return storage
+    }
+
     static func create(
         _ root: URL, protection: CredentialProtection = .keyFile, keyFile: URL = defaultKey,
         password: String = "", credentialsDirectory: String = "Credentials"
@@ -152,14 +169,18 @@ final class ConnectionStorage {
         self.key = key
     }
 
-    private static func encryptionKey(_ manifest: ConnectionStorageManifest, password: String) throws -> SymmetricKey? {
+    private static func encryptionKey(
+        _ manifest: ConnectionStorageManifest, password: String, updatePermissions: Bool = true
+    ) throws -> SymmetricKey? {
         switch manifest.protection {
         case .unencrypted: return nil
         case .keyFile:
             guard let path = manifest.keyFile else { throw ConnectionStorageError.invalid }
             let data = try StorageFile.read(URL(fileURLWithPath: path), limit: 16)
             guard data.count == 16 else { throw ConnectionStorageError.invalid }
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+            if updatePermissions {
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+            }
             return SymmetricKey(data: data)
         case .password:
             guard let salt = manifest.salt, salt.count == 16, !password.isEmpty else {

@@ -7,9 +7,9 @@ import SwiftUI
 @main struct VPNUIReviewChecks {
     @MainActor static func main() {
         NSApplication.shared.setActivationPolicy(.regular)
-        DispatchQueue.main.async {
+        Task { @MainActor in
             do {
-                try ConnectionStorageChecks.run()
+                try await ConnectionStorageChecks.run()
                 try runChecks()
                 exit(0)
             } catch {

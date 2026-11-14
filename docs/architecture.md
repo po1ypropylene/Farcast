@@ -259,10 +259,31 @@ Import creates new metadata in Test Servers, skips existing UUIDs, offers separa
 credential saving, and never connects or trusts imported fingerprints automatically.
 See [local testing](local-testing.md) for protected-input rules.
 
+### Farcast folder import
+
+File/Add → Import Connections and the Storage Import card open the same two-step
+folder/key and review workflow. `FolderLibraryImport` copies metadata into a private
+700/600 temporary tree before opening SwiftData. It uses the existing manifest,
+AES-GCM verification and UUID-bound credential codec; `openForImport` does not
+change source/key permissions or persist the selected key path. Credentials remain
+in memory until written through the current destination credential store. No source
+Keychain, preferences or trust are imported.
+
+Merge preserves existing profile/VPN IDs and credentials and adds missing folders;
+different IDs remain distinct even if names match. Clear requires closed session
+tabs and destructive confirmation and removes current metadata and its associated
+credentials. Input decoding and credential journaling precede mutations. A separate
+SwiftData context saves once; credential-write or metadata-save failure rolls back
+metadata and restores touched credentials. A restoration failure has a distinct
+message rather than claiming complete rollback. This is an in-process journal, not
+crash-atomic coordination between SwiftData and Keychain/files. Orphaned credentials
+are not globally enumerated or erased. Corrupt source credentials fail the whole
+operation before mutations; metadata-only import is an explicit choice.
+
 ### Explicit library migration
 
 Farcast uses `com.peterpo.farcast` and a new sandbox; it never silently opens or
-resets the previous library. File → Import Existing Library requires an empty
+resets the previous library. File → Import Connections → Previous App Library requires an empty
 destination and no session tabs. A user-selected Data/Library directory supplies
 the old default.store and journal companions, optional local credential files and
 an allowlisted preference subset. The previous app must be quit. Imports copy the
