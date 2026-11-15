@@ -19,6 +19,9 @@ struct AppSettings: View {
     @State private var paneHeights: [String: CGFloat] = [:]
     @State private var maximumHeight: CGFloat = 900
     @State private var notices: BundledNotices?
+    @State private var copied = false
+    @State private var copyReset: Task<Void, Never>?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         VStack(spacing: 0) {
             if selectedTab == "storage" {
@@ -109,25 +112,67 @@ struct AppSettings: View {
                 }
             }
             FormSection(title: "About") {
-                SettingsRow(label: "Version") {
-                    HStack {
-                        Text(Self.version).foregroundStyle(.secondary).textSelection(.enabled)
-                        Button("Copy") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(
-                                "Farcast \(Self.version), macOS \(ProcessInfo.processInfo.operatingSystemVersionString), arm64",
-                                forType: .string)
-                        }.help("Copy version and system information")
+                ViewThatFits(in: .horizontal) {
+                    Grid(
+                        alignment: .leadingFirstTextBaseline, horizontalSpacing: SettingsLayout.labelGap,
+                        verticalSpacing: SettingsLayout.rowSpacing
+                    ) {
+                        GridRow {
+                            Text("Version").frame(width: SettingsLayout.labelWidth, alignment: .trailing)
+                            versionValue
+                            copyButton
+                        }
+                        GridRow {
+                            Text("Resources").frame(width: SettingsLayout.labelWidth, alignment: .trailing)
+                            Button("Acknowledgements…") { notices = .acknowledgements }
+                            Button {
+                                notices = .releaseNotes
+                            } label: {
+                                Text("Release Notes…").frame(maxWidth: .infinity)
+                            }
+                        }
+                    }.fixedSize(horizontal: true, vertical: false)
+                    VStack {
+                        SettingsRow(label: "Version") {
+                            versionValue
+                            copyButton
+                        }
+                        SettingsRow(label: "Licenses") { Button("Acknowledgements…") { notices = .acknowledgements } }
+                        SettingsRow(label: "What’s new") { Button("Release Notes…") { notices = .releaseNotes } }
                     }
-                }
-                SettingsRow(label: "") {
-                    HStack {
-                        Button("Acknowledgements…") { notices = .acknowledgements }
-                        Button("Release Notes") { notices = .releaseNotes }
-                    }
-                }
+                }.buttonStyle(.bordered).controlSize(.regular)
+
             }
         }
+    }
+    private var versionValue: some View {
+        Text(Self.version).monospacedDigit().foregroundStyle(.secondary).textSelection(.enabled)
+            .accessibilityLabel("Version, " + Self.version)
+    }
+    private var copyButton: some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(
+                "Farcast \(Self.version), macOS \(ProcessInfo.processInfo.operatingSystemVersionString), arm64",
+                forType: .string)
+            copyReset?.cancel()
+            copied = true
+            AccessibilityNotification.Announcement("Version copied").post()
+            copyReset = Task { @MainActor in
+                do { try await Task.sleep(for: .milliseconds(1500)) } catch { return }
+                copied = false
+            }
+        } label: {
+            ZStack {
+                Text("Copy Version").opacity(copied ? 0 : 1)
+                Label("Copied", systemImage: "checkmark").opacity(copied ? 1 : 0)
+            }.frame(maxWidth: .infinity)
+        }.accessibilityLabel("Copy version information")
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: copied)
+            .onDisappear {
+                copyReset?.cancel()
+                copied = false
+            }
     }
     private static var version: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"

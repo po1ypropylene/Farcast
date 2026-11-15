@@ -6,6 +6,8 @@ import SwiftUI
 enum SettingsLayout {
     static let width: CGFloat = 620
     static let labelWidth: CGFloat = 190
+    static let labelGap: CGFloat = 12
+    static let rowSpacing: CGFloat = 8
     static let inset: CGFloat = 20
 }
 
@@ -14,7 +16,7 @@ struct SettingsRow<Content: View>: View {
     var caption = ""
     @ViewBuilder var content: () -> Content
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+        HStack(alignment: .firstTextBaseline, spacing: SettingsLayout.labelGap) {
             Text(label).frame(width: SettingsLayout.labelWidth, alignment: .trailing)
             VStack(alignment: .leading, spacing: 5) {
                 content()
@@ -114,7 +116,7 @@ struct SettingsPane<Content: View, Footer: View>: View {
         }
         .onPreferenceChange(SettingsContentHeightKey.self) { height in
             guard height > 0 else { return }
-            DispatchQueue.main.async { reportHeight(height) }
+            DispatchQueue.main.async { reportHeight(ceil(height) + 3) }
         }
     }
     private var heightReader: some View {

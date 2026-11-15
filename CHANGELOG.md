@@ -7,6 +7,8 @@ assigned only when a separate release request is made.
 
 ## 2.9.0 — 2026-11-15
 
+- Align About actions in labeled columns, add stable-width copy feedback and allow a small Settings height margin to avoid unnecessary scrolling.
+
 - Put one Connections heading above the sidebar tree, with flat folder-aware search results and a root drop target on the heading.
 - Prioritize the selected connection in the workspace, clarify new-connection actions and show storage-aware credential privacy text with a Storage settings link. Display endpoint ports without number-grouping separators.
 - Size Settings to the selected pane and screen, retain the last tab, align controls and show pending storage actions only when needed, with a close-time review choice.
