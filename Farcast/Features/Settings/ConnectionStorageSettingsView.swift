@@ -1,27 +1,54 @@
 import AppKit
+import CryptoKit
+import SwiftData
 import SwiftUI
 
 struct ConnectionStorageSettings: View {
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var controller: ConnectionStorageController
     @StateObject private var draft: ConnectionStorageDraft
-    @State private var review = false
     @State private var generate = false
     @State private var keyName = ".farcast-key"
     @State private var generateAfterDismiss = false
-    init(controller: ConnectionStorageController? = nil, draft: ConnectionStorageDraft? = nil) {
+    @State private var backupRevision = 0
+    var reportHeight: (CGFloat) -> Void
+    init(
+        controller: ConnectionStorageController? = nil, draft: ConnectionStorageDraft? = nil,
+        reportHeight: @escaping (CGFloat) -> Void = { _ in }
+    ) {
         let controller = controller ?? .shared
         self.controller = controller
+        self.reportHeight = reportHeight
         _draft = StateObject(wrappedValue: draft ?? ConnectionStorageDraft(controller: controller))
     }
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView { fields.padding(20) }
-            Divider()
-            footer.padding(16).background(.background)
+        SettingsPane(reportHeight: reportHeight) {
+            fields
+        } footer: {
+            if draft.dirty {
+                Divider()
+                footer.padding(16).background(.background)
+            }
         }.textFieldStyle(.roundedBorder).controlSize(.regular)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: draft.dirty)
             .onChange(of: draft.folderMode) { _, _ in draft.inspectDestination() }
-            .sheet(isPresented: $review) { StorageSwitchReview(draft: draft) { review = false } }
+            .onChange(of: draft.dirty) { _, pending in
+                AccessibilityNotification.Announcement(
+                    pending ? "Pending changes: " + draft.pendingSummary : "Storage settings match the active library."
+                ).post()
+            }
+            .onChange(of: draft.message) { _, message in
+                if !draft.dirty && !message.isEmpty { AccessibilityNotification.Announcement(message).post() }
+            }
+            .sheet(
+                isPresented: $draft.reviewRequested,
+                onDismiss: {
+                    let close = draft.closeAfterReview
+                    draft.closeAfterReview = nil
+                    if !draft.dirty { close?() }
+                }
+            ) { StorageSwitchReview(draft: draft) { draft.reviewRequested = false } }
             .sheet(
                 isPresented: $generate,
                 onDismiss: {
@@ -29,90 +56,61 @@ struct ConnectionStorageSettings: View {
                         generateAfterDismiss = false
                         draft.chooseKey(generate: true, filename: keyName)
                     }
-                },
-                content: {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("Generate New Key").font(.headline)
-                        Text(
-                            "Choose a filename, then a folder for the new AES-128 key. Existing files are never overwritten."
-                        )
-                        TextField("Key filename", text: $keyName)
-                        if draft.sameFolder {
-                            Text(
-                                "Your current credentials stay readable. They will be re-encrypted only after you review and apply the protection change."
-                            )
-                        }
-                        HStack {
-                            Spacer()
-                            Button("Cancel") { generate = false }.keyboardShortcut(.cancelAction)
-                            Button("Choose Folder and Generate…") {
-                                generateAfterDismiss = true
-                                generate = false
-                            }
-                            .disabled(keyName.isEmpty || keyName.contains("/") || [".", ".."].contains(keyName))
-                        }
-                    }.textFieldStyle(.roundedBorder).padding(20).frame(width: 480)
                 }
-            )
+            ) {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Generate New Key").font(.headline)
+                    Text(
+                        "Choose a filename, then a folder for the new AES-128 key. Existing files are never overwritten."
+                    )
+                    TextField("Key filename", text: $keyName)
+                    if draft.sameFolder {
+                        Text(
+                            "Your current credentials stay readable. They will be re-encrypted only after you review and apply the protection change."
+                        )
+                    }
+                    HStack {
+                        Spacer()
+                        Button("Cancel") { generate = false }.keyboardShortcut(.cancelAction)
+                        Button("Choose Folder and Generate…") {
+                            generateAfterDismiss = true
+                            generate = false
+                        }.disabled(keyName.isEmpty || keyName.contains("/") || [".", ".."].contains(keyName))
+                    }
+                }.textFieldStyle(.roundedBorder).padding(20).frame(width: 480)
+            }
     }
     private var fields: some View {
         VStack(alignment: .leading, spacing: 16) {
-            FormSection(title: "Currently Using") {
-                Label(
-                    controller.container == nil ? "Library not open" : draft.activeTitle,
-                    systemImage: controller.container == nil ? "exclamationmark.circle.fill" : "checkmark.circle.fill"
-                )
-                .foregroundStyle(controller.container == nil ? .orange : .green)
-                if let active = controller.storage {
-                    Text(active.root.path).textSelection(.enabled).font(.caption)
-                    Text("Credential protection: \(active.manifest.protection.title)")
-                } else if controller.container != nil {
-                    Text("Credential protection: macOS Keychain, with a local fallback")
-                    if controller.hasLocalFallbackCredentials {
-                        Label("Unencrypted local fallback files are in use", systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.orange)
-                    }
-                    Text(
-                        "If Keychain is unavailable, Farcast saves credentials in files only your Mac account can read. These files are not encrypted."
-                    )
-                    .font(.caption).foregroundStyle(.secondary)
-                } else {
-                    Text(
-                        "Open or unlock your library in the workspace, or choose another library below. No data has been reset."
-                    )
-                }
+            StorageStatusRow(text: activeSummary, status: controller.container == nil ? .attention : .ok)
+                .font(.callout)
+            if controller.storage == nil && controller.container != nil {
+                Text(controller.credentialPrivacyDescription).font(.caption).foregroundStyle(.secondary)
             }
-            FormSection(title: "Import") {
-                Text(
-                    "Copy connections and saved passwords and private keys from a Farcast folder or backup into this library."
-                )
-                Button("Import Connections…") {
-                    controller.workspace?.showLibraryImport = true
-                    openWindow(id: "workspace")
-                }
-                .disabled(
-                    draft.dirty || !controller.canChangeStorage || controller.container == nil
-                        || controller.workspace == nil
-                )
-                .help("Apply or revert storage changes and close session tabs and editors before importing.")
+            if !draft.message.isEmpty {
+                Text(draft.message).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
             }
             FormSection(title: "Location") {
-                Picker("Keep connections", selection: $draft.folderMode) {
-                    Text("In Farcast’s app library").tag(false)
-                    Text("In a folder I choose").tag(true)
-                }.pickerStyle(.radioGroup)
+                SettingsRow(label: "Keep connections") {
+                    HStack {
+                        Picker("Keep connections", selection: $draft.folderMode) {
+                            Text("In a folder I choose").tag(true)
+                            Text("In Farcast’s app library").tag(false)
+                        }.pickerStyle(.radioGroup).labelsHidden()
+                        if draft.locationPending { PendingTag() }
+                    }
+                }
                 if draft.folderMode {
-                    Text(
-                        "Keep connections in a location you can back up. Use one Farcast instance at a time; preferences and server trust stay on this Mac."
-                    )
-                    .font(.caption).foregroundStyle(.secondary)
-                    pathRow("Folder", url: draft.root)
+                    SettingsRow(label: "Folder") {
+                        SettingsPathRow(url: draft.root, isDefault: draft.isDefaultRoot)
+                    }
                     HStack {
                         Button("Choose Folder…") { draft.chooseFolder(defaultFolder: false) }
                         Button("Use Default Folder…") { draft.chooseFolder(defaultFolder: true) }
+                            .disabled(draft.isDefaultRoot)
+                            .help("The default ~/.farcast-connections folder is hidden in Finder.")
+                        revealButton(draft.root, label: "folder")
                     }
-                    Text("The default ~/.farcast-connections folder is hidden in Finder.").font(.caption)
-                        .foregroundStyle(.secondary)
                 } else {
                     Text("Connections stay in Farcast’s private app data folder.").font(.caption).foregroundStyle(
                         .secondary)
@@ -120,120 +118,150 @@ struct ConnectionStorageSettings: View {
             }
             FormSection(title: "Credential Protection") {
                 if draft.folderMode {
-                    Picker("Protect passwords and keys", selection: $draft.protection) {
-                        ForEach(CredentialProtection.allCases) { Text($0.title).tag($0) }
-                    }.disabled(draft.existingDestination)
+                    SettingsRow(label: "Protect passwords and keys") {
+                        HStack {
+                            Picker("Protect passwords and keys", selection: $draft.protection) {
+                                Text("Key file").tag(CredentialProtection.keyFile)
+                                Text("Password").tag(CredentialProtection.password)
+                                Text("Unencrypted").tag(CredentialProtection.unencrypted)
+                            }.labelsHidden().disabled(draft.existingDestination)
+                            InfoPopoverButton(
+                                title: "Credential protection",
+                                detail:
+                                    "Passwords and private keys are encrypted with AES-128-GCM in key-file and password modes. Hostnames, usernames and connection names are stored as plain text. Applying a different key re-encrypts your saved credentials. Keep the old key for older backups and migration sources. Use one Farcast instance per library at a time; preferences and server trust stay on this Mac."
+                            )
+                            if draft.protectionPending { PendingTag() }
+                        }
+                    }
                     if draft.existingDestination {
                         Text(
                             "This library uses its saved protection. Use Existing Data to open it before changing protection."
-                        )
-                        .font(.caption).foregroundStyle(.secondary)
+                        ).font(.caption).foregroundStyle(.secondary)
                     }
                     if draft.protection == .keyFile { keyControls }
                     if draft.protection == .password {
-                        SecureField(
-                            draft.existingDestination ? "Library password" : "New library password",
-                            text: $draft.password)
-                        if draft.needsNewPassword { SecureField("Confirm new password", text: $draft.confirmation) }
+                        SettingsRow(label: draft.existingDestination ? "Library password" : "New library password") {
+                            SecureField("Library password", text: $draft.password)
+                        }
+                        if draft.needsNewPassword {
+                            SettingsRow(label: "Confirm password") {
+                                SecureField("Confirm new password", text: $draft.confirmation)
+                            }
+                        }
                         notice(
                             "Keep your library password safe",
-                            detail: "If you lose it, saved passwords and private keys cannot be recovered.",
-                            warning: true)
+                            detail: "If you lose it, saved passwords and private keys cannot be recovered.")
                     }
                     if draft.protection == .unencrypted {
                         notice(
                             "Credentials will not be encrypted",
-                            detail: "Anyone with access to the folder can read passwords and private keys.",
-                            warning: true)
-                    } else {
-                        Text(
-                            "Passwords and private keys are encrypted with AES-128-GCM. Hostnames, usernames and connection names are stored as plain text."
-                        )
-                        .fixedSize(horizontal: false, vertical: true)
+                            detail: "Anyone with access to the folder can read passwords and private keys.")
                     }
                 } else {
-                    LabeledContent("Protection", value: "macOS Keychain with local fallback")
-                    Text("To choose key-file, password or unencrypted protection, select a custom folder.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    SettingsRow(label: "Protection") { Text("macOS Keychain with local fallback") }
+                    Text("To choose key-file, password or unencrypted protection, select a folder.").font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            FormSection(title: "Import") {
+                HStack {
+                    Text("Bring in connections and saved passwords and private keys from another folder or backup.")
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button("Import Connections…") {
+                        controller.workspace?.showLibraryImport = true
+                        openWindow(id: "workspace")
+                    }
+                    .disabled(
+                        draft.dirty || !controller.canChangeStorage || controller.container == nil
+                            || controller.workspace == nil
+                    )
+                    .help("Apply or revert storage changes and close session tabs and editors before importing.")
                 }
             }
         }
     }
+    private var activeSummary: String {
+        guard controller.container != nil else { return "Library not open — open or unlock it in the workspace." }
+        let protection = controller.storage?.manifest.protection
+        let title =
+            protection == .keyFile
+            ? "Key file"
+            : protection == .password
+                ? "Password" : protection == .unencrypted ? "Unencrypted" : "Keychain with local fallback"
+        let count = (try? controller.container?.mainContext.fetchCount(FetchDescriptor<SavedConnection>())) ?? 0
+        return "\(draft.activeTitle) · \(title) · \(count) \(count == 1 ? "connection" : "connections")"
+    }
     private var footer: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if draft.dirty {
-                Label("Changes not applied", systemImage: "pencil.circle").foregroundStyle(.orange)
-                if let issue = draft.configurationIssue { Label(issue, systemImage: "info.circle").font(.caption) }
-            }
-            if !draft.message.isEmpty {
-                Text(draft.message).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-            }
-            HStack {
-                Spacer()
-                Button("Revert") { draft.revert() }.disabled(!draft.dirty)
+            HStack(alignment: .firstTextBaseline) {
+                Text(draft.pendingSummary).font(.callout).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button("Revert") { draft.revert() }
                 PrimaryActionButton(title: draft.actionTitle) {
                     draft.message = ""
                     draft.inspectDestination()
-                    review = true
+                    draft.reviewRequested = true
                 }
-                .disabled(!draft.dirty)
+            }
+            if let issue = draft.configurationIssue {
+                Label(issue, systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
             }
         }
     }
     private var keyControls: some View {
         VStack(alignment: .leading, spacing: 8) {
-            pathRow("Key file", url: draft.keyFile)
-            Label(
-                draft.keyReady ? "Key file found" : "Key file missing or access needed",
-                systemImage: draft.keyReady ? "checkmark.circle" : "exclamationmark.triangle"
-            )
-            .foregroundStyle(draft.keyReady ? Color.secondary : Color.orange)
+            SettingsRow(label: "Key file") { SettingsPathRow(url: draft.keyFile) }
             HStack {
-                Menu("Change Key…") {
+                StorageStatusRow(
+                    text: draft.keyReady ? "Key file found" : "Key file missing or access needed",
+                    status: draft.keyReady ? .ok : .attention)
+                Spacer()
+            }.font(.caption)
+            HStack {
+                Menu("Change Key") {
                     Button("Use Existing Key…") { draft.chooseKey(generate: false) }
                     if !draft.existingDestination { Button("Generate New Key…") { generate = true } }
-                }
-                Button("Back Up Key…") { backupKey() }.disabled(!draft.keyReady)
+                }.fixedSize()
+                Button(backupDate == nil ? "Back Up Key…" : "Back Up Again…") { backupKey() }.disabled(!draft.keyReady)
+                revealButton(draft.keyFile, label: "key file")
             }
-            if draft.sameFolder {
-                Text(
-                    "Selecting a different key is a pending change. Applying it re-encrypts your saved credentials. Keep the old key for older backups and migration sources."
+            if let date = backupDate {
+                Text("Key backed up \(date.formatted(date: .abbreviated, time: .omitted)).").font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                notice(
+                    "Back up your key file",
+                    detail:
+                        "If you lose it, saved passwords and private keys cannot be recovered. Keep the backup separate from this library."
                 )
-                .font(.caption).foregroundStyle(.secondary)
             }
-            notice(
-                "Back up your key file",
-                detail:
-                    "If you lose it, saved passwords and private keys cannot be recovered. Keep the backup separate from this library.",
-                warning: true)
             if draft.keyInsideFolder {
                 notice(
                     "The key is inside the connection folder",
-                    detail: "Anyone with both files can decrypt the credentials. Choose a key outside this folder.",
-                    warning: true)
+                    detail: "Anyone with both files can decrypt the credentials. Choose a key outside this folder.")
             }
         }
     }
-    private func pathRow(_ label: String, url: URL) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label).fontWeight(.medium)
-            HStack(alignment: .top) {
-                Text(url.path).font(.caption).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                Button("Reveal") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-                    .help("Reveal \(label.lowercased()) in Finder").accessibilityLabel(
-                        "Reveal \(label.lowercased()) in Finder"
-                    )
-                    .disabled(!FileManager.default.fileExists(atPath: url.path))
-            }
-        }
+    private func revealButton(_ url: URL, label: String) -> some View {
+        Button("Reveal") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+            .help("Reveal \(label) in Finder").accessibilityLabel("Reveal \(label) in Finder")
+            .disabled(!FileManager.default.fileExists(atPath: url.path))
     }
-    private func notice(_ title: String, detail: String, warning: Bool) -> some View {
+    private func notice(_ title: String, detail: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Label(title, systemImage: warning ? "exclamationmark.triangle" : "info.circle").fontWeight(.medium)
+            Label(title, systemImage: "exclamationmark.triangle").fontWeight(.medium)
             Text(detail).fixedSize(horizontal: false, vertical: true)
         }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+    }
+    private var keyFingerprint: String? {
+        guard let data = try? StorageFile.read(draft.keyFile, limit: 16), data.count == 16 else { return nil }
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+    private var backupDate: Date? {
+        _ = backupRevision
+        return keyFingerprint.flatMap { controller.keyBackupDate(fingerprint: $0) }
     }
     private func backupKey() {
         let panel = NSOpenPanel()
@@ -247,6 +275,9 @@ struct ConnectionStorageSettings: View {
             let data = try StorageFile.read(draft.keyFile, limit: 16)
             guard data.count == 16 else { throw ConnectionStorageError.invalid }
             try StorageFile.write(data, to: folder.appendingPathComponent("farcast-key-backup"), replace: false)
+            let fingerprint = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            controller.recordKeyBackup(fingerprint: fingerprint)
+            backupRevision += 1
             draft.message = "Key backup created as farcast-key-backup. Keep it separate from your connection folder."
         } catch {
             draft.message =

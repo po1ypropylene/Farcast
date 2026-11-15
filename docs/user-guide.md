@@ -662,7 +662,7 @@ network uploads or SSD writes. H.264 requires server support and selection.
 
 ## Choose connection storage
 
-Open **Settings → Storage**. **Currently Using** shows the active library and its
+Open **Settings → Storage**. The status strip shows the active library and its
 credential protection. Choose **In Farcast’s app library** to retain the original
 storage, or **In a folder I choose** for configurable folder storage. Changes stay
 pending until you review and confirm them; **Revert** restores the active settings.
@@ -675,13 +675,12 @@ authorize your home directory; **Choose Folder…** selects another location. Th
 default directory is hidden in Finder; **Reveal** opens the selected location.
 The app remembers sandbox grants; revoked grants require reselection.
 
-Folder credentials support **Key file (AES-128)** (the default), **Password
-(AES-128)** and **Unencrypted**. Hostnames, usernames and connection names are
+Folder credentials support **Key file** (the default), **Password** and **Unencrypted**. Hostnames, usernames and connection names are
 stored as plain text. Passwords and imported private keys use the selected
 protection. Unencrypted mode saves readable local files.
 
 The labeled **Key file** row shows its path and whether the file is accessible.
-**Change Key… → Generate New Key…** asks for a filename, then a destination
+**Change Key → Generate New Key…** asks for a filename, then a destination
 folder. Generation defaults to `~/.farcast-key`, creates 16 random bytes in an
 owner-only file and never overwrites an existing file. Generating a key creates
 a file immediately; reverting the settings does not delete it.
@@ -691,13 +690,16 @@ re-encryption. Keep the original key for older backups and migration sources.
 
 **Back Up Key…** copies the selected key into a user-chosen directory as
 `farcast-key-backup`, with owner-only permissions and no overwrite. Keep it
-separate from the connection folder. Losing the key or password makes encrypted
+separate from the connection folder. A successful backup is remembered for that key and
+shown as a backup date with **Back Up Again…**; Farcast cannot verify that the backup still exists.
+The info button beside protection explains encryption and key changes. Closing Settings
+with pending edits offers review, discard or cancel. Losing the key or password makes encrypted
 credentials unrecoverable. Keep the original key at the absolute location recorded
 in the library when reopening it. Password mode uses PBKDF2-HMAC-SHA256 with a
 random salt and asks you to unlock at launch; the password stays in memory.
 Both encrypted modes use authenticated AES-128-GCM.
 
-**Switch Storage…** opens a review showing source, destination, protection,
+**Change Location…** (or **Apply Changes…** when protection also changes) opens a review showing source, destination, protection,
 connection/VPN counts and readiness. **Migrate and Switch** copies saved
 connections, folders, VPN profiles and their credentials, retaining IDs and the
 original source. Keychain may ask for authorization; inaccessible credentials

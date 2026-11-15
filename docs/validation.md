@@ -68,6 +68,13 @@ isolated library. These do not prove crash recovery, signed-app folder grants or
 Keychain prompt behavior. Large-library responsiveness and full VoiceOver navigation
 remain manual checks.
 
+Settings checks use disposable libraries and preferences to cover natural pane heights,
+fixed window width/top edge, pending-only actions, Revert, close cancellation, accurate
+storage privacy copy and independent per-key backup dates. Native previews cover both
+appearances. Screen changes, Reduce Motion, Finder drops onto the Connections heading,
+full keyboard traversal and VoiceOver still need manual confirmation. Credential status
+is not inferred by loading saved passwords for the workspace overview.
+
 ## Known implementation limits
 
 The workspace presentation harness checks repeated normal/Retina pop-out returns,

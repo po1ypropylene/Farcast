@@ -12,6 +12,8 @@ import SwiftData
     @Published var password = ""
     @Published var confirmation = ""
     @Published var message = ""
+    @Published var reviewRequested = false
+    var closeAfterReview: (() -> Void)?
     var scope: URL?
     var keyAuthorized = false
     @Published var keySelectionChanged = false
@@ -37,9 +39,26 @@ import SwiftData
             || (protection == .keyFile && (keySelectionChanged || keyFile.path != active.manifest.keyFile))
             || (protection == .password && (!password.isEmpty || !confirmation.isEmpty))
     }
-    var activeTitle: String { controller.storage == nil ? "Farcast app library" : "Custom folder" }
+    var activeTitle: String { controller.storage == nil ? "Farcast app library" : "In a folder" }
+    var locationPending: Bool { switching }
+    var protectionPending: Bool {
+        if !switching { return dirty }
+        guard folderMode, !existingDestination else { return false }
+        return protection != (controller.storage?.manifest.protection ?? .keyFile)
+            || keySelectionChanged || !password.isEmpty || !confirmation.isEmpty
+    }
+    var pendingSummary: String {
+        if switching && protectionPending { return "Change connection location and credential protection." }
+        if switching { return "Change connection location to \(destinationTitle)." }
+        return protection == .unencrypted
+            ? "Change protection. Saved credentials will be stored without encryption."
+            : "Change protection. Saved credentials will be re-encrypted."
+    }
+    var isDefaultRoot: Bool { root.standardizedFileURL == ConnectionStorage.defaultRoot.standardizedFileURL }
     var destinationTitle: String { folderMode ? root.path : "Farcast app library" }
-    var actionTitle: String { (switching || !folderMode) ? "Switch Storage…" : "Change Protection…" }
+    var actionTitle: String {
+        switching ? (protectionPending ? "Apply Changes…" : "Change Location…") : "Change Protection…"
+    }
     var needsNewPassword: Bool { folderMode && protection == .password && !existingDestination }
     var keyReady: Bool {
         guard let values = try? keyFile.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),

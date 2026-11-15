@@ -115,8 +115,7 @@ struct ExistingLibraryImportView: View {
     }
 
     private func path(_ value: String) -> some View {
-        Text((value as NSString).abbreviatingWithTildeInPath).lineLimit(1).truncationMode(.middle)
-            .textSelection(.enabled).help(value).font(.callout)
+        SettingsPathRow(url: URL(fileURLWithPath: value)).font(.callout)
     }
 
     @ViewBuilder private func unlockFields(_ source: FolderLibraryImport) -> some View {

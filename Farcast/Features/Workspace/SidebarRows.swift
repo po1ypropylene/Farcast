@@ -26,24 +26,29 @@ struct SidebarRootDropTarget: View {
 
 struct SidebarSectionHeader: View {
     let title: String
-    @Binding var expanded: Bool
-    @State private var hovering = false
-
+    let dropConnections: ([String]) -> Bool
+    @State private var targeted = false
     var body: some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
-        } label: {
-            HStack {
-                Text(title.uppercased()).tracking(0.3)
-                Spacer()
-                Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                    .opacity(hovering || !expanded ? 1 : 0)
-            }.font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
-                .padding(.top, 14).padding(.bottom, 4).contentShape(Rectangle())
-        }.buttonStyle(.plain).onHover { hovering = $0 }
+        Text(title.uppercased()).frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .background(targeted ? Color.accentColor.opacity(0.2) : .clear, in: RoundedRectangle(cornerRadius: 4))
+            .dropDestination(for: String.self) { values, _ in
+                dropConnections(values)
+            } isTargeted: {
+                targeted = $0
+            }
             .anchorPreference(key: SidebarContentBoundsKey.self, value: .bounds) { [$0] }
-            .accessibilityLabel(title).accessibilityValue(expanded ? "Expanded" : "Collapsed")
-            .help(expanded ? "Collapse \(title)" : "Expand \(title)")
+            .selectionDisabled(true)
+            .accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
+    }
+}
+
+struct ConnectionProtocolBadge: View {
+    let kind: RemoteProtocol
+    var body: some View {
+        Text(kind.rawValue).font(.system(size: 9, weight: .semibold))
+            .padding(.horizontal, 5).padding(.vertical, 2)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
     }
 }
 
@@ -167,6 +172,7 @@ struct SidebarConnectionRow: View {
     let tunnel: SavedWireGuard?
     var selected = false
     var selectionEmphasized = false
+    var folderSubtitle = ""
 
     private var destination: String {
         let host = connection.host.contains(":") ? "[\(connection.host)]" : connection.host
@@ -207,13 +213,11 @@ struct SidebarConnectionRow: View {
                         Text(" via " + (tunnel?.name ?? "Unavailable VPN"))
                             .truncationMode(.middle).layoutPriority(2)
                     }
+                    if !folderSubtitle.isEmpty { Text(" · " + folderSubtitle).truncationMode(.middle) }
                 }.font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
-            Text(connection.kind.rawValue)
-                .font(.system(size: 9, weight: .semibold))
-                .padding(.horizontal, 5).padding(.vertical, 2)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
+            ConnectionProtocolBadge(kind: connection.kind)
             SidebarSessionState(workspace: workspace, profileID: connection.id)
         }.padding(.vertical, 3).contentShape(Rectangle())
             .help(help).accessibilityElement(children: .contain)

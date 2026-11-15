@@ -118,6 +118,31 @@ enum ConnectionStorageAccess {
             && !workspace.showLibraryImport && workspace.testServerImport == nil
     }
 
+    static let fallbackPrivacyDescription = "Passwords are stored in a file only your account can read (not encrypted)."
+    var credentialPrivacyDescription: String {
+        guard let storage else {
+            if hasLocalFallbackCredentials {
+                return Self.fallbackPrivacyDescription + " Other saved passwords may be in your Mac’s Keychain."
+            }
+            return
+                "Passwords use your Mac’s Keychain when available; otherwise they are stored in files only your account can read (not encrypted)."
+        }
+        let folder = storage.root.lastPathComponent
+        switch storage.manifest.protection {
+        case .keyFile: return "Passwords are encrypted with your key file and stored in “\(folder)”."
+        case .password: return "Passwords are encrypted with your password and stored in “\(folder)”."
+        case .unencrypted:
+            return
+                "Passwords are stored without encryption in “\(folder)”. Anyone with access to that folder can read them."
+        }
+    }
+    func keyBackupDate(fingerprint: String) -> Date? {
+        defaults.object(forKey: "storage.keyBackup." + fingerprint) as? Date
+    }
+    func recordKeyBackup(fingerprint: String, date: Date = .now) {
+        defaults.set(date, forKey: "storage.keyBackup." + fingerprint)
+    }
+
     func start(password: String = "") {
         guard container == nil else { return }
         do {

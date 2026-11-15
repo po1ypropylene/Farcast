@@ -229,6 +229,15 @@ verification value detects wrong keys/passwords even for empty libraries. Unlock
 keys remain in memory; folder mode never falls back to legacy credentials.
 Security-scoped bookmarks retain selected folder/key access. Metadata is unencrypted.
 
+Settings retains its selected pane in local preferences and uses a native preferences
+window toolbar with SwiftUI pane content. One retained storage draft survives pane changes.
+Measurements from the active pane and a native window bridge resize the window downward
+from the top edge, including toolbar chrome and capped to the current screen’s visible
+frame; Reduce Motion disables resize animation. A layout-pinned footer leaves the content
+scrollable on short screens. The window delegate forwards unrelated native behavior and
+asks to review, discard or cancel pending storage edits before closing. Key backup dates
+are local preferences indexed by SHA256 of the selected key, never by raw key bytes.
+
 Storage Settings uses an independent observable draft. Editing location, protection
 or key selection does not mutate the active controller. Revert clears pending secrets.
 A dedicated native Settings tab separates storage from immediate general preferences.
@@ -312,8 +321,10 @@ routed profiles, resolve VPN names from live metadata, show missing references
 explicitly and expose full endpoints in tooltips and Get Info. Folder identity, optional
 parent ID and collapse state live in SwiftData; legacy folders default to expanded roots.
 Legacy favorite and favoriteOrder fields remain stored for library compatibility; the UI ignores them.
-Search includes ancestor folder names and temporarily reveals matching branches
-without changing saved collapse state. Removing a folder reparents its children and profiles
+Search includes ancestor folder names and displays a flat Results section with folder paths
+in row subtitles, without changing saved collapse state. One Connections heading titles the
+whole tree and accepts root-level drops. Stored folder ordering is retained; connection
+names use natural, case-insensitive sorting. Removing a folder reparents its children and profiles
 without deleting credentials. Native List selection retains system accent and inactive styling.
 Protocol text badges remain on the trailing edge, and protocol icons lead each row.
 The Add button and empty-sidebar context menu share their creation/import actions.

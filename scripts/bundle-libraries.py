@@ -66,6 +66,7 @@ helper_entitlements = Path(__file__).resolve().parent.parent / 'Configuration/Wi
 subprocess.run(helper_signing + ['--entitlements', str(helper_entitlements), str(helper)], check=True)
 project_root = Path(__file__).resolve().parent.parent
 shutil.copyfile(project_root / 'LICENSE', resources / 'LICENSE')
+shutil.copyfile(project_root / 'CHANGELOG.md', resources / 'CHANGELOG.md')
 license_root = project_root / 'ThirdParty'
 if license_root.exists():
     bundled_licenses = resources / 'ThirdParty'

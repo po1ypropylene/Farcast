@@ -7,7 +7,7 @@ struct FormSection<Content: View>: View {
     @ViewBuilder var content: () -> Content
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.body.weight(.semibold))
+            Text(title).font(.body.weight(.semibold)).accessibilityAddTraits(.isHeader)
             VStack(alignment: .leading, spacing: 8, content: content)
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)

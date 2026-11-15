@@ -98,7 +98,8 @@ import SwiftUI
         defer { window.close() }
         for scheme in [ColorScheme.light, .dark] {
             window.contentView = NSHostingView(
-                rootView: AppSettings(storageController: controller).preferredColorScheme(scheme))
+                rootView: AppSettings(storageController: controller).defaultAppStorage(defaults).preferredColorScheme(
+                    scheme))
             window.makeKeyAndOrderFront(nil)
             waitForLayout()
             // Capture the complete storage form separately so every control can be inspected.
@@ -121,6 +122,13 @@ import SwiftUI
         // Draft changes and revert must never alter the active library or its credential protection.
         let pending = ConnectionStorageDraft(controller: controller)
         precondition(!pending.dirty)
+        precondition(controller.credentialPrivacyDescription.contains("encrypted with your key file"))
+        precondition(!controller.credentialPrivacyDescription.contains("stay on this Mac"))
+        precondition(controller.keyBackupDate(fingerprint: "synthetic-key-a") == nil)
+        let backupDate = Date(timeIntervalSince1970: 1_800_000_000)
+        controller.recordKeyBackup(fingerprint: "synthetic-key-a", date: backupDate)
+        precondition(controller.keyBackupDate(fingerprint: "synthetic-key-a") == backupDate)
+        precondition(controller.keyBackupDate(fingerprint: "synthetic-key-b") == nil)
         pending.keySelectionChanged = true
         precondition(pending.dirty, "Explicit key selection must permit re-encryption even when the path is unchanged")
         pending.revert()
@@ -144,6 +152,8 @@ import SwiftUI
         let legacyPreview = ConnectionStorageController(
             defaults: defaults, container: container, legacyCredentialRoot: legacyRoot)
         precondition(legacyPreview.hasLocalFallbackCredentials)
+        precondition(
+            legacyPreview.credentialPrivacyDescription.contains(ConnectionStorageController.fallbackPrivacyDescription))
         let reviewDraft = ConnectionStorageDraft(controller: legacyPreview)
         reviewDraft.folderMode = true
         reviewDraft.root = root.appendingPathComponent("review-destination")
@@ -191,7 +201,7 @@ import SwiftUI
             settle()
         }
         settle()
-        press("Switch Storage…")
+        press(reviewDraft.actionTitle)
         let labels = nodes().compactMap { attribute($0, "accessibilityLabel") as? String }
         precondition(labels.contains("Migrate and Switch"))
         precondition(labels.contains("Switch Without Migrating"))
@@ -236,6 +246,94 @@ import SwiftUI
             imported.count == 1 && imported.first?.id == connection.id,
             "Synthetic import count: \(imported.count); labels: \(doneLabels)")
         precondition(doneLabels.contains("Done"))
+        // Exercise content-driven native Settings resizing and the pending-close guard.
+        defaults.set("general", forKey: "settings.selectedTab")
+        window.contentView = NSHostingView(
+            rootView: AppSettings(storageController: controller).defaultAppStorage(defaults))
+        try await Task.sleep(for: .milliseconds(900))
+        settle()
+        let generalHeight = window.frame.height
+        let top = window.frame.maxY
+        precondition(abs(window.contentView!.bounds.width - 620) < 1)
+        func captureSettings(_ name: String) throws {
+            guard CommandLine.arguments.count > 1, let view = window.contentView,
+                let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+            else { return }
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            try bitmap.representation(using: .png, properties: [:])?.write(
+                to: URL(fileURLWithPath: CommandLine.arguments[1]).appendingPathComponent(name + ".png"))
+        }
+        try captureSettings("settings-general")
+        defaults.set("storage", forKey: "settings.selectedTab")
+        try await Task.sleep(for: .milliseconds(900))
+        settle()
+        let storageHeight = window.frame.height
+        precondition(
+            abs(generalHeight - storageHeight) > 10,
+            "Settings heights: general \(generalHeight), storage \(storageHeight), layout \(window.contentLayoutRect.height)"
+        )
+        precondition(abs(window.frame.maxY - top) < 1, "Shrinking Settings must retain its top edge")
+        precondition(!window.styleMask.contains(.resizable) && !window.styleMask.contains(.miniaturizable))
+        let activeLabels = nodes().compactMap { attribute($0, "accessibilityLabel") as? String }
+        precondition(!activeLabels.contains("Revert"))
+        try captureSettings("settings-storage")
+        guard let settingsDraft = controller.settingsDraft else { preconditionFailure("Storage draft missing") }
+        settingsDraft.keySelectionChanged = true
+        try await Task.sleep(for: .milliseconds(900))
+        settle()
+        settle()
+        try captureSettings("settings-pending")
+        precondition(settingsDraft.dirty, "The selected key must be pending")
+        precondition(
+            window.frame.height > storageHeight, "Pending height \(window.frame.height); active height \(storageHeight)"
+        )
+        precondition(nodes().contains { attribute($0, "accessibilityLabel") as? String == "Revert" })
+        try captureSettings("settings-pending")
+        window.performClose(nil)
+        try await Task.sleep(for: .milliseconds(200))
+        settle()
+        precondition(window.attachedSheet != nil)
+        press("Cancel")
+        try await Task.sleep(for: .milliseconds(200))
+        precondition(settingsDraft.dirty && window.isVisible)
+        settingsDraft.revert()
+        try await Task.sleep(for: .milliseconds(900))
+        settle()
+        settle()
+        precondition(window.frame.height < generalHeight)
+        window.contentView = NSHostingView(
+            rootView: AppSettings(storageController: controller).defaultAppStorage(defaults))
+        try await Task.sleep(for: .milliseconds(900))
+        settle()
+        settle()
+        precondition(
+            nodes().contains { attribute($0, "accessibilityLabel") as? String == "Location" },
+            "Settings must restore the last selected pane")
+        let shortDraft = ConnectionStorageDraft(controller: controller)
+        shortDraft.keySelectionChanged = true
+        window.contentView = NSHostingView(
+            rootView: ConnectionStorageSettings(controller: controller, draft: shortDraft).frame(
+                width: 620, height: 300))
+        window.setContentSize(NSSize(width: 620, height: 300))
+        try await Task.sleep(for: .milliseconds(200))
+        settle()
+        func scrollViews(_ view: NSView) -> [NSScrollView] {
+            (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews)
+        }
+        guard let scroll = scrollViews(window.contentView!).first, let document = scroll.documentView else {
+            preconditionFailure("Short Settings must contain a native scroll view")
+        }
+        precondition(document.bounds.height > scroll.contentView.bounds.height)
+        scroll.contentView.scroll(
+            to: NSPoint(x: 0, y: max(0, document.bounds.height - scroll.contentView.bounds.height)))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        settle()
+        try captureSettings("settings-short-pending")
+        press("Revert")
+        precondition(!shortDraft.dirty)
+        print(
+            "PASS Settings natural pane heights, fixed top/width, pending footer, short-window scrolling, pane restoration, Revert and close cancellation"
+        )
         print("PASS import unlock gating, metadata-only choice, merge/clear review and completed isolated UI import")
         print(
             "PASS pending storage edits, Revert, existing-library preflight, fallback disclosure and migration review cancellation"

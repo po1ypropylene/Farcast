@@ -20,14 +20,16 @@ struct WorkspaceView: View {
     @State private var showSSHConfigImport = false
     @State private var infoConnection: SavedConnection?
     @State private var deletingFolder: ConnectionFolder?
-    @AppStorage("sidebar.connectionsExpanded") private var connectionsExpanded = true
+    @Environment(\.openSettings) private var openSettings
+    @ObservedObject private var storageController = ConnectionStorageController.shared
+    @FocusState private var connectFocused: Bool
     @State private var deletingConnection: SavedConnection?
     private var filtered: [SavedConnection] {
         connections.filter {
             search.isEmpty
                 || "\($0.name) \($0.host) \($0.username) \($0.protocolName) \($0.notes) \(folderPath($0.folderID))"
                     .localizedCaseInsensitiveContains(search)
-        }
+        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
     var body: some View {
         NavigationSplitView {
@@ -50,16 +52,19 @@ struct WorkspaceView: View {
                 ).padding(.horizontal, 14)
                     .padding(.bottom, 12)
                 List(selection: $selectedProfileID) {
-                    ForEach(rootFolders) { folder in folderTree(folder, ancestors: []) }
-                    if !ungrouped.isEmpty {
+                    if !connections.isEmpty {
                         Section {
-                            if connectionsExpanded || !search.isEmpty {
+                            if search.isEmpty {
+                                ForEach(rootFolders) { folder in folderTree(folder, ancestors: []) }
                                 ForEach(ungrouped) { connectionRow($0) }
+                            } else {
+                                ForEach(filtered) { connectionRow($0) }
                             }
                         } header: {
-                            SidebarSectionHeader(title: "Connections", expanded: $connectionsExpanded)
+                            SidebarSectionHeader(
+                                title: search.isEmpty ? "Connections" : "Results",
+                                dropConnections: { move($0, to: nil) })
                         }
-                        .dropDestination(for: String.self) { values, _ in return move(values, to: nil) }
                     }
                 }.listStyle(.sidebar)
                     .overlayPreferenceValue(SidebarContentBoundsKey.self) { anchors in
@@ -70,6 +75,17 @@ struct WorkspaceView: View {
                                 .contextMenu { addMenuItems }
                                 .frame(height: geometry.size.height - top)
                                 .offset(y: top)
+                        }
+                    }
+                    .overlay {
+                        if connections.isEmpty && search.isEmpty {
+                            VStack(spacing: 12) {
+                                Text("No connections yet").foregroundStyle(.secondary)
+                                Menu("Add") { addMenuItems }
+                                Button("Import…") { workspace.showLibraryImport = true }
+                            }.padding()
+                        } else if !search.isEmpty && filtered.isEmpty {
+                            Text("No connections match “\(search)”").foregroundStyle(.secondary).padding()
                         }
                     }
                     .focused($sidebarFocused)
@@ -390,7 +406,8 @@ struct WorkspaceView: View {
         SidebarConnectionRow(
             connection: connection, workspace: workspace,
             tunnel: tunnels.first { $0.id == connection.wireGuardID },
-            selected: selectedProfileID == connection.id, selectionEmphasized: sidebarFocused
+            selected: selectedProfileID == connection.id, selectionEmphasized: sidebarFocused,
+            folderSubtitle: search.isEmpty ? "" : folderPath(connection.folderID)
         )
         .anchorPreference(key: SidebarContentBoundsKey.self, value: .bounds) { [$0] }
         .tag(connection.id).contentShape(Rectangle())
@@ -430,42 +447,75 @@ struct WorkspaceView: View {
                         Image(systemName: "network").font(.system(size: 48, weight: .light)).foregroundStyle(
                             .tint.opacity(0.6))
                     }.padding(.top, 18)
-                    HStack(spacing: 16) {
-                        launchCard(
-                            "SSH Terminal", subtitle: "A secure shell, right here.", kind: .ssh,
-                            color: .teal
-                        ) { create(.ssh) }
-                        launchCard(
-                            "Remote Desktop", subtitle: "Control your Windows servers.", kind: .rdp,
-                            color: .indigo
-                        ) { create(.rdp) }
-                        launchCard(
-                            "VNC Desktop", subtitle: "Control a VNC server.", kind: .vnc,
-                            color: .orange
-                        ) { create(.vnc) }
-                    }
                     if let selected = connections.first(where: { $0.id == selectedProfileID }) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Label(selected.name, systemImage: selected.kind.icon).font(.headline)
-                                Spacer()
-                                Button("Edit…") {
-                                    edit(selected)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Selected connection").font(.headline).accessibilityAddTraits(.isHeader)
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack {
+                                    ConnectionProtocolIcon(kind: selected.kind)
+                                    Text(selected.name).font(.headline)
+                                    ConnectionProtocolBadge(kind: selected.kind)
+                                    Spacer()
+                                    Button("Edit…") { edit(selected) }
+                                    PrimaryActionButton(title: "Connect") { connect(selected) }
+                                        .keyboardShortcut(.defaultAction).focused($connectFocused)
                                 }
-                                PrimaryActionButton(title: "Connect") { connect(selected) }
-                            }
-                            Text("\(selected.username)@\(selected.host):\(String(selected.port))").font(
-                                .system(.body, design: .monospaced)
-                            ).foregroundStyle(.secondary).textSelection(.enabled)
-                            if !selected.notes.isEmpty { Text(selected.notes).foregroundStyle(.secondary) }
-                        }.padding(20).background(.background, in: RoundedRectangle(cornerRadius: 14))
+                                let host = selected.host.contains(":") ? "[\(selected.host)]" : selected.host
+                                Text(
+                                    "\(selected.username.isEmpty ? "" : selected.username + "@")\(host):\(String(selected.port))"
+                                )
+                                .font(.system(.body, design: .monospaced)).foregroundStyle(.secondary).textSelection(
+                                    .enabled)
+                                if let vpnID = selected.wireGuardID {
+                                    let vpn = tunnels.first { $0.id == vpnID }
+                                    Label("Via " + (vpn?.name ?? "Unavailable VPN"), systemImage: "lock.shield")
+                                        .help(
+                                            "Connect through \((try? vpn?.configuration().protocolName) ?? "VPN") profile \(vpn?.name ?? "(missing)"). The destination is reached through this VPN; server identity is checked for the original address."
+                                        )
+                                }
+                                if selected.kind == .ssh
+                                    && selected.authentication == SSHAuthentication.privateKey.rawValue
+                                {
+                                    Label("Private key sign-in", systemImage: "key")
+                                        .help(
+                                            "Configured to use an imported private key. Farcast asks for a key if none is saved."
+                                        )
+                                }
+                                if let last = selected.lastConnected {
+                                    Text("Last connected: \(last.formatted(.relative(presentation: .named)))").font(
+                                        .callout
+                                    ).foregroundStyle(.secondary)
+                                }
+                                if !selected.notes.isEmpty { Text(selected.notes).foregroundStyle(.secondary) }
+                            }.padding(20).background(.background, in: RoundedRectangle(cornerRadius: 14))
+                        }.task(id: selected.id) { connectFocused = true }
                     }
-                    Button("Quick Connect") {
-                        workspace.editor = EditorRequest(draft: ConnectionDraft(), mode: .quick)
-                    }.buttonStyle(.bordered)
-                    HStack(spacing: 8) {
-                        Image(systemName: "lock.shield")
-                        Text("Credentials stay on this Mac. Server identities are checked before sign-in.")
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("New connection").font(.headline).accessibilityAddTraits(.isHeader)
+                        HStack(spacing: 16) {
+                            launchCard(
+                                "New SSH connection", subtitle: "A secure shell, right here.", kind: .ssh, color: .teal
+                            ) { create(.ssh) }
+                            launchCard(
+                                "New Remote Desktop connection", subtitle: "Control your Windows servers.", kind: .rdp,
+                                color: .indigo
+                            ) { create(.rdp) }
+                            launchCard(
+                                "New VNC connection", subtitle: "Control a VNC server.", kind: .vnc, color: .orange
+                            ) { create(.vnc) }
+                        }.fixedSize(horizontal: false, vertical: true)
+                    }
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "lock.shield").accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(
+                                storageController.credentialPrivacyDescription
+                                    + " Server identities are checked before sign-in.")
+                            Button("Storage settings…") {
+                                UserDefaults.standard.set("storage", forKey: "settings.selectedTab")
+                                openSettings()
+                            }.buttonStyle(.link)
+                        }
                     }.font(.callout).foregroundStyle(.secondary)
                 }.padding(36).frame(maxWidth: 860, alignment: .leading)
                     .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .center)
@@ -488,10 +538,10 @@ struct WorkspaceView: View {
                     Text(title).font(.headline)
                     Text(subtitle).foregroundStyle(.secondary)
                 }
-            }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(
+            }.padding(22).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).background(
                 color.opacity(0.06), in: RoundedRectangle(cornerRadius: 14)
             ).overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(color.opacity(0.15)))
-        }.buttonStyle(.plain)
+        }.buttonStyle(ConnectionTileStyle()).help(title + "…").accessibilityLabel(title + "…")
     }
     private func chooseSSHConfig() {
         let panel = NSOpenPanel()
@@ -575,6 +625,30 @@ private struct WorkspaceWindowRegistration: NSViewRepresentable {
                 guard let self, let window, self.window === window else { return }
                 self.workspace?.registerMainWindow(window)
             }
+        }
+    }
+}
+
+private struct ConnectionTileStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        TileBody(configuration: configuration)
+    }
+    private struct TileBody: View {
+        let configuration: Configuration
+        @State private var hovering = false
+        @Environment(\.isFocused) private var focused
+        var body: some View {
+            configuration.label
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(.primary.opacity(configuration.isPressed ? 0.08 : hovering ? 0.04 : 0))
+                        .allowsHitTesting(false)
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14).strokeBorder(focused ? Color.accentColor : .clear, lineWidth: 2)
+                        .allowsHitTesting(false)
+                }
+                .onHover { hovering = $0 }
         }
     }
 }

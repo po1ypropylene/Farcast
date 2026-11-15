@@ -288,7 +288,7 @@ import SwiftUI
             settle()
             for title in [
                 "General", "Storage", "Terminal", "Remote Desktop", "About",
-                "Automatically reconnect RDP after Mac wakes", "When already connected",
+                "Automatically reconnect RDP after Mac wakes", "When a connection is already open",
             ] { precondition(labels().contains(title)) }
             try capture("settings-\(scheme)")
         }

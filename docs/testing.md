@@ -198,6 +198,9 @@ changes. Live OpenVPN interoperability and production throughput remain unverifi
 
 ### VPN and Settings UI
 
+Async native UI checks yield the main actor before asserting measured pane heights and
+window frames, so queued content measurements and resize animations can finish.
+
 Run `scripts/test-vpn-ui.sh` after building the app. It uses in-memory metadata,
 injected synthetic credential storage and owned native windows to check initial
 selection, dirty state, Cancel/Revert/Save, secure-field controls, inline errors,
