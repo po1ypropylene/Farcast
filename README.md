@@ -46,11 +46,11 @@ After this approval, open Farcast normally. See
 
 **Remote desktop**
 
-<img src="docs/images/Farcast-RDP.png" alt="Remote desktop resolution and Retina settings" width="540">
+<img src="docs/images/Farcast-RDP.png" alt="Remote desktop resolution and Retina settings">
 
 **Connection editor**
 
-<img src="docs/images/Farcast-EditConnection.png" alt="Tabbed connection editor and sign-in settings" width="540">
+<img src="docs/images/Farcast-EditConnection.png" alt="Tabbed connection editor and sign-in settings">
 
 ## Build
 

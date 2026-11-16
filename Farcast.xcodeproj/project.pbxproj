@@ -7,12 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A10000000000000000000001 /* SwiftTerm */ = {isa = PBXBuildFile; productRef = A10000000000000000000002; };
+		A10000000000000000000001 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000002 /* SwiftTerm */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		A10000000000000000000005 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
-		D0BBCE2330767B8800D5AE23 /* Farcast.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Farcast.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		D0BBCE2330767B8800D5AE23 /* Farcast.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Farcast.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -27,7 +27,7 @@
 		D0BBCE2030767B8800D5AE23 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
-				A10000000000000000000001 /* SwiftTerm */,
+				A10000000000000000000001 /* SwiftTerm in Frameworks */,
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -68,7 +68,9 @@
 				D0BBCE2530767B8800D5AE23 /* Farcast */,
 			);
 			name = Farcast;
-			packageProductDependencies = ( A10000000000000000000002 /* SwiftTerm */, );
+			packageProductDependencies = (
+				A10000000000000000000002 /* SwiftTerm */,
+			);
 			productName = Farcast;
 			productReference = D0BBCE2330767B8800D5AE23 /* Farcast.app */;
 			productType = "com.apple.product-type.application";
@@ -97,9 +99,11 @@
 			);
 			mainGroup = D0BBCE1A30767B8800D5AE23;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A10000000000000000000003 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D0BBCE2430767B8800D5AE23 /* Products */;
-			packageReferences = ( A10000000000000000000003 /* SwiftTerm */, );
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -116,6 +120,19 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		A10000000000000000000004 /* Bundle Native Libraries */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			name = "Bundle Native Libraries";
+			shellPath = /bin/sh;
+			shellScript = (
+				"python3 \"$SRCROOT/scripts/bundle-libraries.py\" \"$TARGET_BUILD_DIR/$WRAPPER_NAME\" \"$SRCROOT/Vendor/Native\" \"${EXPANDED_CODE_SIGN_IDENTITY:--}\"",
+				"",
+			);
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		D0BBCE1F30767B8800D5AE23 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -124,32 +141,12 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-        A10000000000000000000003 /* SwiftTerm */ = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/migueldeicaza/SwiftTerm"; requirement = {kind = exactVersion; version = 1.99.0; }; };
-/* End XCRemoteSwiftPackageReference section */
-/* Begin XCSwiftPackageProductDependency section */
-        A10000000000000000000002 /* SwiftTerm */ = {isa = XCSwiftPackageProductDependency; package = A10000000000000000000003; productName = SwiftTerm; };
-/* End XCSwiftPackageProductDependency section */
-/* Begin PBXShellScriptBuildPhase section */
-        A10000000000000000000004 /* Bundle Native Libraries */ = {
-            isa = PBXShellScriptBuildPhase;
-            alwaysOutOfDate = 1;
-            buildActionMask = 2147483647;
-            files = ();
-            inputPaths = ();
-            outputPaths = ();
-            name = "Bundle Native Libraries";
-            runOnlyForDeploymentPostprocessing = 0;
-            shellPath = /bin/sh;
-            shellScript = "python3 \"$SRCROOT/scripts/bundle-libraries.py\" \"$TARGET_BUILD_DIR/$WRAPPER_NAME\" \"$SRCROOT/Vendor/Native\" \"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\n";
-        };
-/* End PBXShellScriptBuildPhase section */
-
 /* Begin XCBuildConfiguration section */
 		D0BBCE2C30767B8900D5AE23 /* Debug configuration for PBXProject "Farcast" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -201,7 +198,6 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-                ARCHS = arm64;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -215,6 +211,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -260,7 +257,6 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-                ARCHS = arm64;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
@@ -274,43 +270,66 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Configuration/Farcast.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEVELOPMENT_TEAM = EHKBVESDE4;
 				ENABLE_APP_SANDBOX = YES;
-                CODE_SIGN_ENTITLEMENTS = Configuration/Farcast.entitlements;
-                ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
-                ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
-                SWIFT_OBJC_BRIDGING_HEADER = "Farcast/Native-Bridge.h";
-                HEADER_SEARCH_PATHS = "$(inherited)";
-                SYSTEM_HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/Vendor/Native/include", "$(SRCROOT)/Vendor/Native/include/freerdp3", "$(SRCROOT)/Vendor/Native/include/winpr3");
-                LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/Vendor/Native/lib");
-                OTHER_LDFLAGS = ("$(inherited)", "-lssh2", "-lfreerdp3", "-lfreerdp-client3", "-lwinpr3", "-lcrypto", "-lssl", "-lz", "-lsrtp2", "-framework", "VideoToolbox", "-framework", "CoreVideo", "-framework", "CoreMedia");
-                INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Farcast connects to your local servers using SSH and Remote Desktop.";
-                INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
-				/* No App Intents are declared; omit the unused metadata extraction task. */
-				LM_SKIP_METADATA_EXTRACTION = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = "$(inherited)";
+				INFOPLIST_KEY_CFBundleDisplayName = Farcast;
+				INFOPLIST_KEY_CFBundleName = Farcast;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Farcast connects to your local servers using SSH and Remote Desktop.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Vendor/Native/lib",
+				);
+				LM_SKIP_METADATA_EXTRACTION = YES;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lssh2",
+					"-lfreerdp3",
+					"-lfreerdp-client3",
+					"-lwinpr3",
+					"-lcrypto",
+					"-lssl",
+					"-lz",
+					"-lsrtp2",
+					"-framework",
+					VideoToolbox,
+					"-framework",
+					CoreVideo,
+					"-framework",
+					CoreMedia,
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.peterpo.farcast;
-				PRODUCT_NAME = "Farcast";
-                SWIFT_MODULE_NAME = Farcast;
-                INFOPLIST_KEY_CFBundleDisplayName = "Farcast";
-                INFOPLIST_KEY_CFBundleName = "Farcast";
+				PRODUCT_NAME = Farcast;
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_MODULE_NAME = Farcast;
+				SWIFT_OBJC_BRIDGING_HEADER = "Farcast/Native-Bridge.h";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
+				SYSTEM_HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Vendor/Native/include",
+					"$(SRCROOT)/Vendor/Native/include/freerdp3",
+					"$(SRCROOT)/Vendor/Native/include/winpr3",
+				);
 			};
 			name = Debug;
 		};
@@ -320,43 +339,66 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Configuration/Farcast.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEVELOPMENT_TEAM = EHKBVESDE4;
 				ENABLE_APP_SANDBOX = YES;
-                CODE_SIGN_ENTITLEMENTS = Configuration/Farcast.entitlements;
-                ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
-                ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
-                SWIFT_OBJC_BRIDGING_HEADER = "Farcast/Native-Bridge.h";
-                HEADER_SEARCH_PATHS = "$(inherited)";
-                SYSTEM_HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/Vendor/Native/include", "$(SRCROOT)/Vendor/Native/include/freerdp3", "$(SRCROOT)/Vendor/Native/include/winpr3");
-                LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/Vendor/Native/lib");
-                OTHER_LDFLAGS = ("$(inherited)", "-lssh2", "-lfreerdp3", "-lfreerdp-client3", "-lwinpr3", "-lcrypto", "-lssl", "-lz", "-lsrtp2", "-framework", "VideoToolbox", "-framework", "CoreVideo", "-framework", "CoreMedia");
-                INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Farcast connects to your local servers using SSH and Remote Desktop.";
-                INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
-				/* No App Intents are declared; omit the unused metadata extraction task. */
-				LM_SKIP_METADATA_EXTRACTION = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = "$(inherited)";
+				INFOPLIST_KEY_CFBundleDisplayName = Farcast;
+				INFOPLIST_KEY_CFBundleName = Farcast;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Farcast connects to your local servers using SSH and Remote Desktop.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Vendor/Native/lib",
+				);
+				LM_SKIP_METADATA_EXTRACTION = YES;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lssh2",
+					"-lfreerdp3",
+					"-lfreerdp-client3",
+					"-lwinpr3",
+					"-lcrypto",
+					"-lssl",
+					"-lz",
+					"-lsrtp2",
+					"-framework",
+					VideoToolbox,
+					"-framework",
+					CoreVideo,
+					"-framework",
+					CoreMedia,
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.peterpo.farcast;
-				PRODUCT_NAME = "Farcast";
-                SWIFT_MODULE_NAME = Farcast;
-                INFOPLIST_KEY_CFBundleDisplayName = "Farcast";
-                INFOPLIST_KEY_CFBundleName = "Farcast";
+				PRODUCT_NAME = Farcast;
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_MODULE_NAME = Farcast;
+				SWIFT_OBJC_BRIDGING_HEADER = "Farcast/Native-Bridge.h";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
+				SYSTEM_HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Vendor/Native/include",
+					"$(SRCROOT)/Vendor/Native/include/freerdp3",
+					"$(SRCROOT)/Vendor/Native/include/winpr3",
+				);
 			};
 			name = Release;
 		};
@@ -380,6 +422,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A10000000000000000000003 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
+			requirement = {
+				kind = exactVersion;
+				version = 1.99.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A10000000000000000000002 /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A10000000000000000000003 /* XCRemoteSwiftPackageReference "SwiftTerm" */;
+			productName = SwiftTerm;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = D0BBCE1B30767B8800D5AE23 /* Project object */;
 	validationLevel = 1;
