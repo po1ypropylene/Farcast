@@ -28,6 +28,8 @@ import Foundation
                 try? await Task.sleep(for: .milliseconds(25))
             }
         }
+        controller.refreshLocal(reportRefresh: true)
+        check(controller.message.contains("Local Mac refreshed"), "refresh-reports-completion-with-unchanged-files")
         controller.localURL = source
         controller.copy([tree, one], local: true, cut: false)
         controller.localURL = destination

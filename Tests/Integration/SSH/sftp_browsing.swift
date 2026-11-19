@@ -61,6 +61,7 @@ private final class BrowsingClient: FCSSHClient {
         check(controller.busy && client.listings.count == count + 3, "refresh-bypasses-cache")
         reply("/home", names: ["new.bin"])
         check(controller.remoteFiles.map(\.name) == ["new.bin"], "refresh-replaces-snapshot")
+        check(controller.message.contains("Server refreshed"), "explicit-refresh-reports-completion")
         visit("/other")
         now += 30
         controller.remoteBack()
@@ -79,6 +80,7 @@ private final class BrowsingClient: FCSSHClient {
         controller.receive(id: client.operations.last!, result: [:], error: nil)
         check(controller.busy && client.listings.last?.path == "/other", "successful-mutation-refreshes-current-folder")
         reply("/other")
+        check(!controller.message.contains("refreshed"), "automatic-reload-keeps-browsing-status")
         controller.remoteBack()
         check(controller.busy, "successful-mutation-invalidates-other-folders")
         reply("/home")

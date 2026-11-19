@@ -327,7 +327,7 @@ for that connection. Reconnecting checks the server's capabilities again.
   a server file downloads a snapshot into the app's temporary previews folder, then
   opens it locally. Edits are not uploaded automatically. Previews remain temporary
   local files until macOS removes them; do not rely on them for saved work.
-- Upload/download file conflicts offer **Stop Transfer**, **Overwrite**, or
+- Upload/download file conflicts offer **Stop Transfer**, **Overwrite Once**, or
   **Overwrite All** for the remaining batch. Matching folders merge their contents;
   each conflicting regular file follows the chosen policy. Links and file/folder
   type mismatches are refused. Completed items remain if you stop the batch.

@@ -149,17 +149,10 @@ struct SFTPView: View {
         } message: {
             Text("Moves remove items from their original folder. Transfers ask before overwriting destination files.")
         }
-        .alert(
-            "A file named “\(controller.conflict?.name ?? "")” already exists.",
-            isPresented: Binding(get: { controller.conflict != nil }, set: { _ in })
-        ) {
-            Button("Stop Transfer", role: .cancel) { controller.resolveConflict(overwrite: false) }
-            Button("Overwrite", role: .destructive) { controller.resolveConflict(overwrite: true) }
-            Button("Overwrite All", role: .destructive) { controller.resolveConflict(overwrite: true, all: true) }
-        } message: {
-            Text(
-                "Replace this file, replace all conflicting files in the remaining transfer, or stop the entire transfer. Completed files stay completed."
-            )
+        .background {
+            SFTPConflictAlert(controller: controller)
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
         }
         .alert(
             "File transfer",
@@ -196,9 +189,9 @@ struct SFTPView: View {
                 .accessibilityHint("Opens the local folder picker")
                 Spacer(minLength: 0)
                 IconActionButton(title: "Refresh local files", symbol: "arrow.clockwise") {
-                    controller.refreshLocal()
+                    controller.refreshLocal(reportRefresh: true)
                 }
-                .disabled(controller.busy || controller.localURL == nil).help("Refresh local files")
+                .disabled(controller.busy || controller.needsLocalAccess || controller.localURL == nil)
             }.font(.callout).padding(.horizontal, 10).padding(.bottom, 8)
             Divider()
             filterField($localFilter, title: "Filter local files")
@@ -239,7 +232,7 @@ struct SFTPView: View {
                 IconActionButton(title: "Forward to next server folder", symbol: "chevron.right") {
                     controller.remoteForward()
                 }.disabled(!connected || !controller.canGoRemoteForward)
-            }.frame(minHeight: 24).padding(10).help("SFTP over the existing SSH connection")
+            }.frame(minHeight: 24).padding(10)
             HStack {
                 IconActionButton(title: "Parent server folder", symbol: "arrow.up") {
                     controller.remoteParent()
@@ -364,8 +357,10 @@ struct SFTPView: View {
                     Button("New Folder…") { nameRequest = FileNameRequest(local: local, file: nil) }
                         .disabled(!available || (local && controller.localURL == nil))
                     Button("Select All") { selection.wrappedValue = Set(files.map(\.id)) }.disabled(files.isEmpty)
-                    Button("Refresh") { if local { controller.refreshLocal() } else { controller.refreshRemote() } }
-                        .disabled(!available)
+                    Button("Refresh") {
+                        if local { controller.refreshLocal(reportRefresh: true) } else { controller.refreshRemote() }
+                    }
+                    .disabled(!available)
                     if !items.isEmpty {
                         Divider()
                         Button(local ? "Move to Trash…" : "Delete…", role: .destructive) {

@@ -128,7 +128,10 @@ private struct RemoteFolderCache {
     @Published private(set) var bufferedCount = 0
     private weak var client: FCSSHClient?
     private var requestID: String?
-    private var requestIsListing = false
+    private enum RemoteListing {
+        case browse, refresh, reload
+    }
+    private var remoteListing: RemoteListing?
     private var requestPath = "."
     private var folderCache = RemoteFolderCache()
     @Published private var remoteHistory: [String] = []
@@ -264,28 +267,28 @@ private struct RemoteFolderCache {
     }
     func showFiles() {
         guard !requested, !busy else { return }
-        refreshRemote()
+        readRemote(path: remotePath, listing: .reload)
     }
     func refreshRemote(path: String? = nil) {
-        readRemote(path: path ?? remotePath, refresh: true)
+        readRemote(path: path ?? remotePath, listing: .refresh)
     }
     func navigateRemote(path: String) {
-        readRemote(path: path, refresh: false)
+        readRemote(path: path)
     }
     func remoteBack() {
         guard canGoRemoteBack else { return }
-        readRemote(path: remoteHistory[historyIndex - 1], refresh: false, history: historyIndex - 1)
+        readRemote(path: remoteHistory[historyIndex - 1], history: historyIndex - 1)
     }
     func remoteForward() {
         guard canGoRemoteForward else { return }
-        readRemote(path: remoteHistory[historyIndex + 1], refresh: false, history: historyIndex + 1)
+        readRemote(path: remoteHistory[historyIndex + 1], history: historyIndex + 1)
     }
-    private func readRemote(path: String, refresh: Bool, history: Int? = nil) {
+    private func readRemote(path: String, listing: RemoteListing = .browse, history: Int? = nil) {
         guard !busy, let client else { return }
         requested = true
         requestedHistoryIndex = history
-        if refresh { folderCache.remove(path) }
-        if !refresh, let files = folderCache.files(at: path, now: clock()) {
+        if listing != .browse { folderCache.remove(path) }
+        if let files = folderCache.files(at: path, now: clock()) {
             error = nil
             remotePath = path
             remoteFiles = files
@@ -293,7 +296,7 @@ private struct RemoteFolderCache {
             message = "\(files.count) server items (cached). Refresh to check for changes."
             return
         }
-        requestIsListing = true
+        remoteListing = listing
         requestPath = path
         let id = begin("Reading server folder…")
         client.listDirectory(requestPath, requestID: id)
@@ -367,7 +370,7 @@ private struct RemoteFolderCache {
             batchFileCounts = (result["fileCounts"] as? [String: NSNumber] ?? [:]).mapValues { $0.intValue }
             fileCount = batchFileCounts.values.reduce(0, +)
             runNext()
-        } else if requestIsListing {
+        } else if let remoteListing {
             progress = nil
             busy = false
             remotePath = result["path"] as? String ?? requestPath
@@ -381,7 +384,9 @@ private struct RemoteFolderCache {
                 })
             folderCache.store(remoteFiles, at: remotePath, now: clock())
             recordRemoteVisit(remotePath)
-            message = "\(remoteFiles.count) server items"
+            message =
+                remoteListing == .refresh
+                ? "Server refreshed · \(remoteFiles.count) items" : "\(remoteFiles.count) server items"
         } else {
             if let preview = activeJob?.preview, !NSWorkspace.shared.open(preview) {
                 self.error = "The file was downloaded, but no application could open it."
@@ -468,7 +473,7 @@ private struct RemoteFolderCache {
         saveHomeAccess(url)
         refreshLocal()
     }
-    func refreshLocal() {
+    func refreshLocal(reportRefresh: Bool = false) {
         guard let localURL, !needsLocalAccess else { return }
         do {
             localFiles = sorted(
@@ -485,6 +490,7 @@ private struct RemoteFolderCache {
                         name: url.lastPathComponent, directory: !link && values.isDirectory == true,
                         regular: !link && values.isRegularFile == true, size: UInt64(max(0, values.fileSize ?? 0)))
                 })
+            if reportRefresh { message = "Local Mac refreshed · \(localFiles.count) items" }
         } catch {
             localFiles = []
             self.error = "Could not read the selected local folder. Choose it again to grant access."
@@ -648,7 +654,7 @@ private struct RemoteFolderCache {
         jobs = work
         batchCount = work.count
         completed = 0
-        requestIsListing = false
+        remoteListing = nil
         completedFiles = 0
         batchFileCounts = [:]
         fileCount = 0
@@ -670,7 +676,7 @@ private struct RemoteFolderCache {
             releaseDropAccess()
             message = "Completed \(completed) items"
             refreshLocal()
-            if client != nil { refreshRemote() }
+            if client != nil { readRemote(path: remotePath, listing: .reload) }
             return
         }
         let job = jobs.removeFirst()

@@ -1,8 +1,56 @@
 import AppKit
 import Foundation
+import SwiftUI
 
 @main struct ConflictOperations {
-    @MainActor static func main() async {
+    @MainActor static func main() {
+        _ = NSApplication.shared
+        DropAreaChecks.run()
+        checkAlertDuringTracking()
+        Task { @MainActor in
+            await run()
+            exit(EXIT_SUCCESS)
+        }
+        NSApp.run()
+    }
+
+    @MainActor private static func checkAlertDuringTracking() {
+        let directory = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
+        let controller = SFTPController(homeURL: directory, requiresAccess: false)
+        let client = FCSSHClient()
+        controller.attach(client)
+        controller.busy = true
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 250),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let host = SFTPConflictAlert.Host()
+        window.contentView?.addSubview(host)
+        host.observe(controller)
+        window.orderFront(nil)
+        defer { window.close() }
+
+        var openedDuringTracking = false
+        let observer = NotificationCenter.default.addObserver(
+            forName: NSWindow.willBeginSheetNotification, object: window, queue: nil
+        ) { _ in
+            MainActor.assumeIsolated {
+                openedDuringTracking = RunLoop.current.currentMode == .eventTracking
+                CFRunLoopStop(CFRunLoopGetMain())
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), RunLoop.Mode.eventTracking.rawValue as CFString) {
+            MainActor.assumeIsolated { client.onFileConflict?("tracking-conflict", "fixture.txt") }
+        }
+        // Service the tracking mode exclusively and generate no mouse events.
+        CFRunLoopRunInMode(CFRunLoopMode(RunLoop.Mode.eventTracking.rawValue as CFString), 2, false)
+        precondition(openedDuringTracking && window.attachedSheet != nil, "Conflict must open during event tracking")
+        host.dismiss()
+        print("PASS SFTP conflict alert opens during event tracking without pointer input")
+    }
+
+    @MainActor private static func run() async {
         let files = FileManager.default
         let root = URL(fileURLWithPath: CommandLine.arguments[2]).appendingPathComponent("conflict-data")
         try? files.removeItem(at: root)
@@ -203,11 +251,43 @@ import Foundation
         controller.transfer(selection, upload: true)
         let allUpload = await finish(overwrite: true, all: true)
         check(allUpload == 1 && controller.error == nil, "upload-overwrite-all-across-jobs")
+        try! old.write(to: source.appendingPathComponent("a.bin"))
+        let dropStopPrompts = await respondWithNativeAlert(
+            "Stop Transfer", controller: controller, wait: wait
+        ) {
+            await drop([selection[0]], from: controller)
+        }
+        check(
+            dropStopPrompts == 1 && controller.message == "Cancelled" && !stopped,
+            "native-alert-opens-after-drop-without-input-and-stops-on-first-press")
+        controller.localURL = destination
+        try! files.removeItem(at: destination.appendingPathComponent("a.bin"))
+        controller.transfer([selection[0]], upload: false)
+        await wait { !controller.busy }
+        check(
+            (try? Data(contentsOf: destination.appendingPathComponent("a.bin"))) == new,
+            "native-stop-after-drop-preserves-server-file")
+        try! new.write(to: source.appendingPathComponent("a.bin"))
+
+        controller.localURL = source
+        let overwriteSelection = Array(selection.prefix(2))
+        for (title, expectedPrompts) in [("Overwrite Once", 2), ("Overwrite All", 1)] {
+            for file in overwriteSelection { try! old.write(to: source.appendingPathComponent(file.name)) }
+            controller.transfer(overwriteSelection, upload: true)
+            _ = await finish(overwrite: true, all: true)
+            for file in overwriteSelection { try! new.write(to: source.appendingPathComponent(file.name)) }
+            let prompts = await respondWithNativeAlert(title, controller: controller, wait: wait) {
+                await drop(overwriteSelection, from: controller)
+            }
+            check(
+                prompts == expectedPrompts && controller.error == nil, "\(title) after drop recovers missing mouse-up")
+        }
+
         controller.localURL = destination
         for name in names { try! old.write(to: destination.appendingPathComponent(name)) }
         controller.transfer(selection, upload: false)
-        let individualDownload = await finish(overwrite: true)
-        check(individualDownload == 3 && bytesEqual(new, at: destination), "download-overwrite-one")
+        let individualDownload = await respondWithNativeAlert("Overwrite Once", controller: controller, wait: wait)
+        check(individualDownload == 3 && bytesEqual(new, at: destination), "native-alert-overwrites-one-file-per-click")
         let unsupported = TransferFile(name: "no-atomic.bin", directory: false, regular: true, size: 5)
         controller.localURL = source
         try! old.write(to: source.appendingPathComponent(unsupported.name))
@@ -269,5 +349,127 @@ import Foundation
         let remaining = (try? files.subpathsOfDirectory(atPath: destination.path)) ?? []
         check(!remaining.contains { $0.contains(".farcast-transfer-") }, "no-local-staging-leftovers")
         if failures > 0 { exit(1) }
+    }
+
+    @MainActor private static func drop(_ files: [TransferFile], from controller: SFTPController) async -> Bool {
+        let provider = controller.dragProvider(files, local: true)
+        let token: String? = await withCheckedContinuation { continuation in
+            provider.loadDataRepresentation(forTypeIdentifier: SFTPController.dragType) { data, _ in
+                continuation.resume(returning: data.flatMap { String(data: $0, encoding: .utf8) })
+            }
+        }
+        guard let token else { return false }
+        let area = SFTPDropContainer(content: EmptyView())
+        area.enabled = true
+        area.accept = { controller.acceptDrop($0, local: false) }
+        let info = DragInfo()
+        defer { info.draggingPasteboard.releaseGlobally() }
+        info.draggingPasteboard.setString(token, forType: .string)
+        guard area.draggingEntered(info) == .copy, area.prepareForDragOperation(info), area.performDragOperation(info)
+        else { return false }
+        // The alert must appear even while AppKit still owes the final drag callbacks.
+        return true
+    }
+
+    @MainActor private static func respondWithNativeAlert(
+        _ title: String, controller: SFTPController, wait: (_ condition: () -> Bool) async -> Void,
+        startDrop: (() async -> Bool)? = nil
+    ) async -> Int {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 250),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        var pointer = (isPressed: false, location: NSPoint.zero)
+        let host = SFTPConflictAlert.Host { _ in pointer }
+        window.contentView?.addSubview(host)
+        host.observe(controller)
+        window.orderFront(nil)
+        defer { window.close() }
+
+        func buttons(in view: NSView) -> [NSButton] {
+            if let button = view as? NSButton { return [button] }
+            return view.subviews.flatMap { buttons(in: $0) }
+        }
+        var prompts = 0
+        if let startDrop {
+            var presentedAt: ContinuousClock.Instant?
+            let observer = NotificationCenter.default.addObserver(
+                forName: NSWindow.willBeginSheetNotification, object: window, queue: nil
+            ) { _ in
+                MainActor.assumeIsolated { presentedAt = .now }
+            }
+            defer { NotificationCenter.default.removeObserver(observer) }
+            guard await startDrop() else { return 0 }
+            // Leave the app idle after dropping. A polling timer or mouse event could
+            // wake a stalled run loop and conceal a late presentation.
+            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+            try? await Task.sleep(until: deadline, clock: .continuous)
+            guard let presentedAt, presentedAt < deadline, window.attachedSheet != nil else {
+                controller.cancel()
+                await wait { !controller.busy }
+                return 0
+            }
+        }
+        while controller.busy {
+            await wait { controller.conflict != nil || !controller.busy }
+            guard let conflict = controller.conflict else { break }
+            await wait { window.attachedSheet != nil }
+            guard let content = window.attachedSheet?.contentView else { break }
+            let actions = buttons(in: content)
+            guard let once = actions.first(where: { $0.title == "Overwrite Once" }),
+                let all = actions.first(where: { $0.title == "Overwrite All" }),
+                let action = actions.first(where: { $0.title == title }),
+                !once.hasDestructiveAction, !all.hasDestructiveAction,
+                once.keyEquivalent.isEmpty, all.keyEquivalent.isEmpty
+            else { break }
+            if startDrop != nil && title != "Stop Transfer" {
+                let center = action.convert(NSPoint(x: action.bounds.midX, y: action.bounds.midY), to: nil)
+                pointer = (true, center)
+                guard click(action, releaseInside: nil) else { break }
+                try? await Task.sleep(for: .milliseconds(100))
+                guard controller.conflict?.id == conflict.id else { break }
+                pointer = (false, .zero)
+                try? await Task.sleep(for: .milliseconds(100))
+                guard controller.conflict?.id == conflict.id else { break }
+                pointer = (true, center)
+                guard click(action, releaseInside: nil) else { break }
+                try? await Task.sleep(for: .milliseconds(100))
+                guard controller.conflict?.id == conflict.id else { break }
+                pointer = (false, center)
+            } else {
+                guard click(action, releaseInside: title == "Stop Transfer" ? nil : true) else { break }
+            }
+            await wait { controller.conflict?.id != conflict.id }
+            guard controller.conflict?.id != conflict.id else { break }
+            prompts += 1
+        }
+        host.dismiss()
+        if controller.busy { controller.cancel() }
+        await wait { !controller.busy }
+        return prompts
+    }
+
+    @MainActor private static func click(_ button: NSButton, releaseInside: Bool?) -> Bool {
+        guard let sheet = button.window else { return false }
+        let location = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        guard
+            let down = NSEvent.mouseEvent(
+                with: .leftMouseDown, location: location, modifierFlags: [], timestamp: timestamp,
+                windowNumber: sheet.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)
+        else { return false }
+        if let releaseInside {
+            guard
+                let up = NSEvent.mouseEvent(
+                    with: .leftMouseUp, location: releaseInside ? location : .zero, modifierFlags: [],
+                    timestamp: timestamp + 0.01, windowNumber: sheet.windowNumber, context: nil, eventNumber: 2,
+                    clickCount: 1, pressure: 0)
+            else { return false }
+            NSApp.postEvent(down, atStart: false)
+            NSApp.postEvent(up, atStart: false)
+            return true
+        }
+        NSApp.postEvent(down, atStart: false)
+        return true
     }
 }

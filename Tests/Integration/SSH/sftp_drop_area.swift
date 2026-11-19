@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-private final class DragInfo: NSObject, NSDraggingInfo {
+final class DragInfo: NSObject, NSDraggingInfo {
     let draggingPasteboard = NSPasteboard.withUniqueName()
     var draggingDestinationWindow: NSWindow?
     var draggingSourceOperationMask: NSDragOperation { .copy }
@@ -24,8 +24,8 @@ private final class DragInfo: NSObject, NSDraggingInfo {
     ) {}
 }
 
-@main struct DropAreaChecks {
-    @MainActor static func main() {
+enum DropAreaChecks {
+    @MainActor static func run() {
         _ = NSApplication.shared
         for files in [[], ["one.txt", "folder"]] {
             let area = SFTPDropContainer(
@@ -67,17 +67,23 @@ private final class DragInfo: NSObject, NSDraggingInfo {
                 info.draggingLocation = point
                 precondition(area.draggingEntered(info) == .copy && targeted)
                 precondition(area.prepareForDragOperation(info))
+                let previous = accepted
                 precondition(area.performDragOperation(info) && !targeted)
+                precondition(accepted == previous + 1, "Releasing the drag must hand off the payload")
+                area.concludeDragOperation(info)
+                precondition(accepted == previous + 1, "The drop must be delivered exactly once")
             }
             precondition(accepted == 2)
             info.draggingPasteboard.clearContents()
             info.draggingPasteboard.writeObjects([NSURL(fileURLWithPath: "/tmp/synthetic-drop.txt")])
             precondition(area.draggingEntered(info) == .copy)
             precondition(area.performDragOperation(info) && accepted == 3)
+            area.accept = { _ in false }
+            precondition(!area.performDragOperation(info), "The destination must report rejection to AppKit")
             area.enabled = false
             precondition(area.draggingUpdated(info).isEmpty && !targeted)
             precondition(!area.performDragOperation(info) && accepted == 3)
         }
-        print("PASS SFTP whole-area token/file-URL drops over rows and empty space; disabled drops refused")
+        print("PASS SFTP whole-area token/file-URL drops are delivered once on release; disabled drops refused")
     }
 }

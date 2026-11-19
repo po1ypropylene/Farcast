@@ -7,6 +7,7 @@ assigned only when a separate release request is made.
 
 ## 2.9.1 — 2026-11-19
 
+- Fix SFTP overwrite alerts after drag-and-drop so they open automatically and all three actions respond on the first click. Show when either file pane finishes refreshing.
 - Use **Save & Reconnect** when editing a connection with an open tab, even if it is disconnected. Reconnect in place with the saved settings and switch to that tab.
 
 ## 2.9.0 — 2026-11-15

@@ -71,6 +71,8 @@ final class SFTPDropContainer<Content: View>: NSView {
         targetChanged(false)
         guard enabled else { return false }
         let pasteboard = sender.draggingPasteboard
+        // AppKit asks the destination to import the payload here, when the user
+        // releases the drag. Let the controller start work from this callback.
         if let urls = pasteboard.readObjects(
             forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [NSURL], !urls.isEmpty
         {

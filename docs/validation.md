@@ -41,10 +41,27 @@ temporary-directory cleanup; no prefix-based sweep deletes potentially live data
 
 SFTP controller regressions check file-count progress across selected jobs and recursive
 upload/download trees, including empty files, and byte progress for single-file transfers.
+Refresh checks cover completion status with an unchanged local listing, remote cache
+bypass and automatic reloads after mutations. The native alert harness verifies
+that a synthetic cross-pane upload drop opens the alert while the app is idle,
+with the drag conclusion callback withheld.
+The alert also opens while the main run loop services only AppKit's event-tracking
+mode with no pointer input.
+It then sends one Stop Transfer press without a release,
+checks the unchanged destination bytes, and verifies one Overwrite Once click per
+conflict. For both overwrite actions after a drop, the regression withholds the
+mouse-up event and checks that a held press waits, a release outside leaves the
+alert open, and a release inside confirms the choice. In the signed app,
+use two conflicting fixture files to check that a single pointer click advances to
+the next filename, that Overwrite All resolves the remaining batch, and that Stop
+Transfer preserves the current destination. Inspect the buttons in Light and Dark.
 Native drop-area checks route row and blank-space hits in empty/populated lists to
-one ancestor, exercise session-token/file-URL providers and refuse disabled drops.
-Physical Finder and cross-pane drags still need manual confirmation; the automated
-pointer check did not complete a cross-pane drag.
+one ancestor, exercise session-token/file-URL providers, verify delivery on release,
+and refuse disabled drops.
+A physical Local Mac-to-Server drag in the signed app over loopback opens the alert
+without a follow-up click. Stop Transfer, Overwrite Once and Overwrite All each
+respond to the first click, and the uploaded files match their local sources.
+Physical Finder and Server-to-Local Mac drags still need manual confirmation.
 
 Workspace checks cover explicit VPN bypass for SSH/RDP/VNC, preservation of saved
 VPN settings, route-specific connected-session reuse and repeated manual reconnects

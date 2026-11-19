@@ -916,8 +916,16 @@ entitlement is used. Multi-selection jobs run sequentially and stop on the first
 File buffers capture session-local paths/scopes; Paste never reads system clipboard.
 Copy Path alone writes requested paths. Disconnect clears buffers and late drop callbacks.
 
-Regular-file transfer conflicts ask Stop/Overwrite/Overwrite All; the last is scoped to
-one batch. Real folders merge; links/type mismatches fail. Downloads fsync sibling
+Regular-file transfer conflicts ask Stop Transfer, Overwrite Once or Overwrite All.
+Overwrite All is scoped to one batch. The file pane uses a native alert attached to
+its owning window, observes conflict tokens directly and wakes the event loop
+to present the alert during normal dispatch or drag tracking. Stop Transfer acts on
+pointer down. Overwrite actions require a press and release on the same button.
+If AppKit consumes the mouse-up after a drag, the alert checks for a released
+pointer over the same button while the sheet is still key.
+The alert resolves its conflict token on sheet completion. Warning colors are
+independent of AppKit's destructive-button press handling. Real folders merge;
+links/type mismatches fail. Downloads fsync sibling
 staging then atomically publish; exclusive new files use hard links. Overwrite uploads
 stage exclusively then use posix-rename@openssh.com; unsupported servers preserve the
 original and fail, with no truncate/delete fallback. Same-side local copy/move and
@@ -957,7 +965,8 @@ Explicit row drag sources and one enclosing drop target per file area support in
 session tokens and Finder file URLs with retained scopes/provider lifetime. The full
 area, including empty lists and rows, targets the open folder with a perimeter highlight.
 An AppKit host owns drag registration and clears descendant list destinations;
-there are no insertion positions or separate folder-row destinations. Text is
+it hands the payload to the controller in AppKit's drop callback. There are no
+insertion positions or separate folder-row destinations. Text is
 never treated as paths. Drops copy and reuse recursive/conflict rules. Finder download
 promises and actual production drag/sandbox interoperability remain deferred/unverified.
 
