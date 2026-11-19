@@ -654,6 +654,13 @@ struct ConnectionEditor: View {
             || draft.terminalTheme != original.terminalTheme || draft.fontSize != original.fontSize
             || draft.forwardingRules != original.forwardingRules
     }
+    private var connectTitle: String {
+        switch request.mode {
+        case .quick: return "Connect"
+        case .create: return "Save & Connect"
+        case .edit: return workspace.openSession(for: draft.id) == nil ? "Save & Connect" : "Save & Reconnect"
+        }
+    }
     private var footer: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
@@ -677,7 +684,7 @@ struct ConnectionEditor: View {
                     if request.mode != .quick {
                         Button("Save") { commit(connect: false) }
                     }
-                    PrimaryActionButton(title: request.mode == .quick ? "Connect" : "Save & Connect") {
+                    PrimaryActionButton(title: connectTitle) {
                         commit(connect: true)
                     }.keyboardShortcut(.defaultAction)
                 }.fixedSize()
@@ -775,12 +782,15 @@ struct ConnectionEditor: View {
                 try context.save()
             }
             let snapshot = draft
-            let secret = credential
+            let secret = hasCredential ? credential : nil
             dismiss()
             if connect {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    workspace.connect(
-                        snapshot, credential: hasCredential ? secret : nil, persistent: request.mode != .quick)
+                    if request.mode == .edit {
+                        workspace.connectEditedProfile(snapshot, credential: secret)
+                    } else {
+                        workspace.connect(snapshot, credential: secret, persistent: request.mode != .quick)
+                    }
                 }
             }
         } catch { self.error = error.localizedDescription }

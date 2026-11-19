@@ -31,9 +31,9 @@ private struct TunnelFormHost: View {
     @MainActor static func main() {
         let app = NSApplication.shared
         app.setActivationPolicy(.regular)
-        DispatchQueue.main.async {
+        Task { @MainActor in
             do {
-                try runChecks()
+                try await runChecks()
                 exit(0)
             } catch {
                 print("Synthetic UI checks failed: \(error)")
@@ -42,7 +42,7 @@ private struct TunnelFormHost: View {
         }
         app.run()
     }
-    @MainActor static func runChecks() throws {
+    @MainActor static func runChecks() async throws {
         let app = NSApplication.shared
         app.setActivationPolicy(.regular)
         let suite = "com.peterpo.farcast.ui-review-tests.\(UUID())"
@@ -344,5 +344,55 @@ private struct TunnelFormHost: View {
             workspace.pendingSessionAction == nil && !session.state.active,
             "Idle sessions disconnect without a confirmation")
         print("PASS templates preselect type; terminal tools follow visible surface; idle Disconnect All is immediate")
+
+        workspace.close(session)
+        window.setContentSize(NSSize(width: 540, height: 600))
+        func showEditor(name: String) {
+            var edited = savedDraft
+            edited.name = name
+            window.contentView = NSHostingView(
+                rootView: ConnectionEditor(
+                    workspace: workspace, request: EditorRequest(draft: edited, mode: .edit),
+                    loadCredential: { _ in nil }
+                ).modelContainer(container))
+            settle()
+        }
+        showEditor(name: "Saved without reconnecting")
+        precondition(labels().contains("Save & Connect"))
+        let openSession = RemoteSession(profile: savedDraft, workspace: workspace)
+        let otherSession = RemoteSession(profile: ConnectionDraft(), workspace: workspace)
+        openSession.state = .disconnected
+        workspace.sessions = [openSession, otherSession]
+        workspace.select(otherSession.id)
+        settle()
+        precondition(labels().contains("Save & Reconnect") && labels().contains("Save"))
+
+        let storageRoot = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("editor-storage")
+        let storage = try ConnectionStorage.create(storageRoot, protection: .unencrypted)
+        ConnectionStorageSession.use(storage)
+        defer {
+            ConnectionStorageSession.use(nil)
+            try? FileManager.default.removeItem(at: storageRoot)
+        }
+        press("Save")
+        precondition(saved.name == "Saved without reconnecting", "Save must persist the editor draft: \(labels())")
+        precondition(workspace.selectedSession === otherSession && workspace.sessions.first === openSession)
+
+        showEditor(name: "Saved and reconnected")
+        press("Save & Reconnect")
+        precondition(saved.name == "Saved and reconnected")
+        let reconnectDeadline = Date().addingTimeInterval(2)
+        while workspace.sessions.first === openSession && Date() < reconnectDeadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let replacement = workspace.sessions.first!
+        precondition(replacement.profile.name == saved.name)
+        precondition(workspace.sessions.count == 2 && replacement !== openSession)
+        precondition(workspace.selectedSession === replacement && workspace.prompts.first?.sessionID == replacement.id)
+        workspace.close(replacement)
+        workspace.close(otherSession)
+        settle()
+        precondition(labels().contains("Save & Connect"))
+        print("PASS editor saves without switching tabs and reconnects a disconnected tab in place")
     }
 }

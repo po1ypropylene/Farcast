@@ -12,6 +12,7 @@ import SwiftData
     var message = ""
     var isSelected = false
     var credentialsRejected = false
+    var interruptionReason: String?
     var desktop: DesktopDouble? { nil }
     init(profile: ConnectionDraft, workspace: Workspace, persistent: Bool = true, bypassVPN: Bool = false) {
         self.profile = profile
@@ -199,6 +200,21 @@ enum WireGuardTransport {
         precondition(replaced.id != second.id && replaced.profile.id == second.profile.id)
         precondition(workspace.selectedSessionID == third.id && second.state == .disconnected)
         print("PASS background reconnect retains position and selected tab")
+
+        replaced.disconnect()
+        replaced.credentialsRejected = true
+        precondition(workspace.openSession(for: replaced.profile.id) === replaced)
+        var editedBackground = replaced.profile
+        editedBackground.name = "Edited background"
+        refuseCredentials = true
+        workspace.connectEditedProfile(editedBackground, credential: ConnectionCredential(password: "synthetic"))
+        let editedReplacement = workspace.sessions[1]
+        precondition(workspace.sessions.count == 3 && editedReplacement !== replaced)
+        precondition(editedReplacement.profile.name == editedBackground.name && editedReplacement.state == .connected)
+        precondition(workspace.selectedSession === editedReplacement && editedReplacement.isSelected)
+        precondition(!third.isSelected)
+        refuseCredentials = false
+        print("PASS editor reconnect replaces and selects a disconnected background tab using the edited settings")
 
         var edited = first.profile
         edited.name = "Edited"

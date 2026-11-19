@@ -398,8 +398,12 @@ and multi-monitor resize restrictions still apply. Explicit preset selection
 writes only width/height; unmatched dimensions use Custom and survive tab changes.
 Startup full screen disables windowed mode/resolution controls while preserving
 their values. Opening the editor never rewrites settings. Security can forget an
-existing identity for the entered endpoint. Save applies settings on reconnect;
-Save & Connect opens a session. Organization/notes persist without editor controls.
+existing identity for the entered endpoint. Save applies settings on reconnect.
+**Save & Reconnect** uses the edited settings and credentials to replace an open
+session in place and select it, including when disconnected. The active matching
+session takes precedence over other open sessions for the same profile.
+**Save & Connect** opens a session when none is open. Organization/notes persist
+without editor controls.
 
 RDP negotiates software bitmap rendering for compatibility, then presents BGRA
 frames through Metal and the latest-frame mailbox. Changing graphics negotiation

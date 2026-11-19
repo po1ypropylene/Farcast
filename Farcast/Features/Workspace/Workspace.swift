@@ -194,6 +194,19 @@ import UniformTypeIdentifiers
             persistWorkspace()
         } catch { self.error = error.localizedDescription }
     }
+    func openSession(for profileID: UUID) -> RemoteSession? {
+        if let activeSession, activeSession.profile.id == profileID { return activeSession }
+        return sessions.first { $0.profile.id == profileID }
+    }
+    func connectEditedProfile(_ draft: ConnectionDraft, credential: ConnectionCredential?) {
+        if let session = openSession(for: draft.id) {
+            confirmSessionAction("Reconnect", reason: session.interruptionReason) {
+                self.reconnect(session, editedDraft: draft, credential: credential)
+            }
+        } else {
+            connect(draft, credential: credential)
+        }
+    }
     func select(_ id: UUID?) {
         if let slot = detachedSessions.first(where: { $0.value == id })?.key {
             sessionWindows[slot]?.makeKeyAndOrderFront(nil)
@@ -330,11 +343,16 @@ import UniformTypeIdentifiers
         persistWorkspace()
     }
     func reconnect(_ session: RemoteSession) {
+        reconnect(session, editedDraft: nil, credential: nil)
+    }
+    private func reconnect(
+        _ session: RemoteSession, editedDraft: ConnectionDraft?, credential provided: ConnectionCredential?
+    ) {
         guard !isShuttingDown else { return }
         guard let index = sessions.firstIndex(where: { $0.id == session.id }) else { return }
-        var draft = session.profile
+        var draft = editedDraft ?? session.profile
         let persistent = session.persistent
-        if persistent, let modelContext {
+        if editedDraft == nil, persistent, let modelContext {
             do {
                 let profileID = draft.id
                 var query = FetchDescriptor<SavedConnection>(predicate: #Predicate { $0.id == profileID })
@@ -353,7 +371,9 @@ import UniformTypeIdentifiers
         do {
             // Resolve failures before replacing the existing tab or transport.
             let stored: ConnectionCredential?
-            if session.credentialsRejected && draft.authentication != .interactive {
+            if editedDraft != nil {
+                stored = draft.kind == .ssh && draft.authentication == .interactive ? ConnectionCredential() : provided
+            } else if session.credentialsRejected && draft.authentication != .interactive {
                 stored = nil
             } else {
                 stored = try credential(for: draft)
@@ -372,7 +392,8 @@ import UniformTypeIdentifiers
                 detachedSessions[slot] = replacement.id
                 sessionWindows[slot]?.title = draft.name
                 updateActiveSession()
-            } else if wasSelected {
+            }
+            if editedDraft != nil || wasSelected {
                 select(replacement.id)
             }
             start(replacement, credential: stored)

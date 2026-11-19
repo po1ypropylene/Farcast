@@ -5,6 +5,10 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+## 2.9.1 — 2026-11-19
+
+- Use **Save & Reconnect** when editing a connection with an open tab, even if it is disconnected. Reconnect in place with the saved settings and switch to that tab.
+
 ## 2.9.0 — 2026-11-15
 
 - Align About actions in labeled columns, add stable-width copy feedback and allow a small Settings height margin to avoid unnecessary scrolling.

@@ -110,8 +110,11 @@ Double-click a saved connection to connect. For connections with a VPN selected,
 right-click and choose **Connect Direct** below **Connect** to bypass that VPN for
 this session, including reconnects. The saved VPN setting stays unchanged; ordinary
 **Connect** and double-click still use it. Direct connections follow the Mac’s normal
-network routing. Context menus provide editing,
-duplication, and deletion. After SSH rejects credentials, **Retry sign-in**
+network routing. Context menus provide editing, duplication, and deletion.
+When editing a connection with an open tab, choose **Save & Reconnect** to apply
+the changes and switch to that tab, even if the session is disconnected.
+**Save** closes the editor and keeps your current tab selected.
+After SSH rejects credentials, **Retry sign-in**
 asks for fresh credentials instead of silently reusing the saved value. Check the
 username/authentication option in Edit Connection if needed. Saving replacement
 credentials remains optional; reconnecting alone does not delete the stored value.
