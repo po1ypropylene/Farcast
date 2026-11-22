@@ -100,6 +100,23 @@ private struct RemoteFolderCache {
     }
 }
 
+@MainActor final class SFTPRecentFolders: ObservableObject {
+    static let shared = SFTPRecentFolders()
+    static let localKey = "sftpRecentLocalFolders"
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+
+    func paths(for key: String) -> [String] { defaults.stringArray(forKey: key) ?? [] }
+
+    func record(_ path: String, for key: String) {
+        let recent = paths(for: key)
+        guard recent.first != path else { return }
+        objectWillChange.send()
+        defaults.set([path] + recent.filter { $0 != path }.prefix(19), forKey: key)
+    }
+}
+
 /// One controller per SSH session. Local folders and buffered sources retain their security scopes.
 @MainActor final class SFTPController: ObservableObject {
     @Published var remotePath = "."
@@ -163,10 +180,13 @@ private struct RemoteFolderCache {
     private var dropAttempt = UUID()
     static let dragType = UTType.utf8PlainText.identifier
 
+    let remoteRecentsKey: String?
     init(
+        connectionID: UUID? = nil,
         homeURL: URL? = nil, requiresAccess: Bool = true,
         clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     ) {
+        self.remoteRecentsKey = connectionID.map { "sftpRecentRemoteFolders." + $0.uuidString }
         self.clock = clock
         let realHome = getpwuid(getuid()).map { String(cString: $0.pointee.pw_dir) } ?? NSHomeDirectory()
         self.homeURL = homeURL ?? URL(fileURLWithPath: realHome, isDirectory: true)
@@ -305,6 +325,7 @@ private struct RemoteFolderCache {
         client.listDirectory(requestPath, requestID: id)
     }
     private func recordRemoteVisit(_ path: String) {
+        if let remoteRecentsKey { SFTPRecentFolders.shared.record(path, for: remoteRecentsKey) }
         defer { requestedHistoryIndex = nil }
         if let index = requestedHistoryIndex {
             historyIndex = index
@@ -458,13 +479,30 @@ private struct RemoteFolderCache {
         clearBuffer()
         message = "Reconnect SSH to browse files."
     }
-    func chooseLocalFolder() {
+    func navigateLocal(path: String) {
+        guard !busy, !path.isEmpty else { return }
+        let target: URL
+        if path == "~" || path.hasPrefix("~/") {
+            target = homeURL.appendingPathComponent(String(path.dropFirst(2)))
+        } else {
+            target = URL(fileURLWithPath: path, isDirectory: true, relativeTo: localURL ?? homeURL)
+        }
+        let url = target.standardizedFileURL
+        let root = (scope ?? homeURL).resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        guard !needsLocalAccess, url.resolvingSymlinksInPath().standardizedFileURL.pathComponents.starts(with: root)
+        else {
+            chooseLocalFolder(startingAt: url)
+            return
+        }
+        refreshLocal(target: url)
+    }
+    func chooseLocalFolder(startingAt target: URL? = nil) {
         guard !busy else { return }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.directoryURL = localURL ?? homeURL
+        panel.directoryURL = target ?? localURL ?? homeURL
         panel.message =
             needsLocalAccess
             ? "Allow access to your Home folder for file transfers." : "Choose a local folder for file transfers."
@@ -476,8 +514,8 @@ private struct RemoteFolderCache {
         saveHomeAccess(url)
         refreshLocal()
     }
-    func refreshLocal(reportRefresh: Bool = false) {
-        guard let localURL, !needsLocalAccess else { return }
+    func refreshLocal(reportRefresh: Bool = false, target: URL? = nil) {
+        guard let localURL = target ?? localURL, !needsLocalAccess else { return }
         do {
             localFiles = sorted(
                 try FileManager.default.contentsOfDirectory(
@@ -493,9 +531,13 @@ private struct RemoteFolderCache {
                         name: url.lastPathComponent, directory: !link && values.isDirectory == true,
                         regular: !link && values.isRegularFile == true, size: UInt64(max(0, values.fileSize ?? 0)))
                 })
+            self.localURL = localURL
+            if remoteRecentsKey != nil {
+                SFTPRecentFolders.shared.record(localURL.path, for: SFTPRecentFolders.localKey)
+            }
             if reportRefresh { message = "Local Mac refreshed · \(localFiles.count) items" }
         } catch {
-            localFiles = []
+            if target == nil { localFiles = [] }
             self.error = "Could not read the selected local folder. Choose it again to grant access."
         }
     }

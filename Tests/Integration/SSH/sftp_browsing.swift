@@ -19,7 +19,9 @@ private final class BrowsingClient: FCSSHClient {
 @main struct BrowsingChecks {
     @MainActor static func main() {
         var now = 100.0
-        let controller = SFTPController(clock: { now })
+        let controller = SFTPController(connectionID: UUID(), clock: { now })
+        let historyKey = controller.remoteRecentsKey!
+        defer { UserDefaults.standard.removeObject(forKey: historyKey) }
         let client = BrowsingClient()
         controller.attach(client)
         func check(_ condition: Bool, _ label: String) {
@@ -55,6 +57,10 @@ private final class BrowsingClient: FCSSHClient {
         controller.navigateRemote(path: "/missing")
         reply("/missing", error: "Synthetic missing folder")
         check(controller.remotePath == "/other" && !controller.canGoRemoteForward, "failed-visit-preserves-history")
+        let reopened = SFTPRecentFolders(defaults: .standard)
+        check(reopened.paths(for: historyKey) == ["/other", "/home", "/home/folder"], "persistent-recent-order")
+        let otherConnection = SFTPController(connectionID: UUID())
+        check(reopened.paths(for: otherConnection.remoteRecentsKey!).isEmpty, "separate-connection-recents")
         controller.remoteBack()
         check(controller.remotePath == "/home" && controller.error == nil, "back-after-failed-visit")
         controller.refreshRemote()

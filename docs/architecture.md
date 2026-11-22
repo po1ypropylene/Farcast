@@ -910,7 +910,10 @@ necessary and Home bookmarks retain their existing scope.
 Home comes from getpwuid, since NSHomeDirectory names the sandbox container. Explicit
 NSOpenPanel read/write permission gates access; a Home security-scoped bookmark is
 remembered/refreshed, while other folder scopes stay session-owned. The Local Mac
-path opens the folder picker; its heading is a plain label. Local operations run on
+folder button opens the picker. Both panes retain the 20 most recent successful
+listings in preferences. Server history uses the profile UUID, and local history
+is shared across connections. Choosing a local path outside the current grant
+opens the picker to request access. Local operations run on
 workers with O_NOFOLLOW, cancellation and retained scopes. No broad filesystem
 entitlement is used. Multi-selection jobs run sequentially and stop on the first error.
 File buffers capture session-local paths/scopes; Paste never reads system clipboard.

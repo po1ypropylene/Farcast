@@ -7,6 +7,8 @@ struct SFTPView: View {
     var connected: Bool
     @State private var localSelection = Set<String>()
     @State private var remoteSelection = Set<String>()
+    @ObservedObject private var recents = SFTPRecentFolders.shared
+    @State private var localPath = ""
     @State private var path = ""
     @State private var localFilter = ""
     @State private var remoteFilter = ""
@@ -61,6 +63,7 @@ struct SFTPView: View {
         .buttonStyle(.bordered)
         .controlSize(.regular)
         .onAppear {
+            localPath = controller.localURL?.path ?? ""
             path = controller.remotePath
             if diskAccessExplained { controller.prepareLocalAccess() } else { showDiskAccess = true }
             if connected { controller.showFiles() }
@@ -78,7 +81,7 @@ struct SFTPView: View {
                     "Enable Farcast in System Settings → Privacy & Security → Full Disk Access to transfer files in protected folders. macOS may ask you to restart Farcast after enabling it."
                 )
                 Text(
-                    "After returning, click the local folder path to choose your Home folder or another local folder to allow file transfers. Farcast remembers Home access. You can also enable Full Disk Access later from the Local Mac panel."
+                    "After returning, click Choose local folder to choose your Home folder or another local folder to allow file transfers. Farcast remembers Home access. You can also enable Full Disk Access later from the Local Mac panel."
                 )
                 .foregroundStyle(.secondary)
                 HStack {
@@ -102,7 +105,10 @@ struct SFTPView: View {
         .onChange(of: controller.busy) { _, busy in
             if !busy { path = controller.remotePath }
         }
-        .onChange(of: controller.localURL) { _, _ in localSelection = [] }
+        .onChange(of: controller.localURL) { _, url in
+            localPath = url?.path ?? ""
+            localSelection = []
+        }
         .onChange(of: controller.localFiles) { _, files in localSelection.formIntersection(files.map(\.id)) }
         .onChange(of: controller.remoteFiles) { _, files in remoteSelection.formIntersection(files.map(\.id)) }
         .onChange(of: localFilter) { _, _ in localSelection.formIntersection(visibleLocalFiles.map(\.id)) }
@@ -169,30 +175,24 @@ struct SFTPView: View {
             Label("Local Mac", systemImage: "laptopcomputer").font(.headline)
                 .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
                 .padding(10)
-            HStack {
+            HStack(alignment: .top) {
                 IconActionButton(title: "Parent local folder", symbol: "arrow.up") {
                     controller.localParent()
                 }
                 .disabled(controller.busy || !controller.canGoLocalUp).help("Parent local folder")
-                Button {
+                SFTPPathField(
+                    title: "Local folder", text: $localPath, paths: recents.paths(for: SFTPRecentFolders.localKey)
+                ) {
+                    controller.navigateLocal(path: $0)
+                }.disabled(controller.busy)
+                IconActionButton(title: "Choose local folder", symbol: "folder") {
                     controller.chooseLocalFolder()
-                } label: {
-                    Text(controller.localURL?.path ?? "Choose a folder to grant access")
-                        .lineLimit(1).truncationMode(.middle)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain).disabled(controller.busy)
-                .help("Choose a local folder")
-                .accessibilityLabel("Choose local folder")
-                .accessibilityValue(controller.localURL?.path ?? "No folder selected")
-                .accessibilityHint("Opens the local folder picker")
-                Spacer(minLength: 0)
+                }.disabled(controller.busy)
                 IconActionButton(title: "Refresh local files", symbol: "arrow.clockwise") {
                     controller.refreshLocal(reportRefresh: true)
                 }
                 .disabled(controller.busy || controller.needsLocalAccess || controller.localURL == nil)
-            }.font(.callout).padding(.horizontal, 10).padding(.bottom, 8)
+            }.font(.callout).padding(.horizontal, 10).padding(.bottom, 8).zIndex(1)
             Divider()
             filterField($localFilter, title: "Filter local files")
             fileList(visibleLocalFiles, selection: $localSelection, local: true)
@@ -233,15 +233,17 @@ struct SFTPView: View {
                     controller.remoteForward()
                 }.disabled(!connected || !controller.canGoRemoteForward)
             }.frame(minHeight: 24).padding(10)
-            HStack {
+            HStack(alignment: .top) {
                 IconActionButton(title: "Parent server folder", symbol: "arrow.up") {
                     controller.remoteParent()
                 }
                 .disabled(!connected || controller.busy || controller.remotePath == "/").help("Parent server folder")
-                TextField("Server folder", text: $path).frame(minHeight: 24).onSubmit {
-                    controller.navigateRemote(path: path)
-                }
-                .disabled(!connected || controller.busy)
+                SFTPPathField(
+                    title: "Server folder", text: $path,
+                    paths: controller.remoteRecentsKey.map { recents.paths(for: $0) } ?? []
+                ) {
+                    controller.navigateRemote(path: $0)
+                }.disabled(!connected || controller.busy)
                 IconActionButton(title: "Open server folder", symbol: "arrow.right") {
                     controller.navigateRemote(path: path)
                 }
@@ -250,7 +252,7 @@ struct SFTPView: View {
                     controller.refreshRemote()
                 }
                 .disabled(!connected || controller.busy).help("Refresh server files")
-            }.font(.callout).padding(.horizontal, 10).padding(.bottom, 8)
+            }.font(.callout).padding(.horizontal, 10).padding(.bottom, 8).zIndex(1)
             Divider()
             filterField($remoteFilter, title: "Filter server files")
             fileList(visibleRemoteFiles, selection: $remoteSelection, local: false)

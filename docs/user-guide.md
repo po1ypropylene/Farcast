@@ -292,10 +292,11 @@ for that connection. Reconnecting checks the server's capabilities again.
 
 - The left panel starts at your actual Home folder. macOS asks for folder access
   the first time; approve Home to remember that permission for future sessions.
-  Browse its subfolders or click the local folder path to choose another local
-  folder with the standard macOS folder picker. No credentials are added.
+  Type or paste a path and press Return, or click the triangle at the right edge to show recent folders over the file pane. Typing filters the suggestions in either pane.
+  Press Return to open your entry, or use the arrow keys and Return to open a suggestion.
+  Local history is shared across connections. Use **Choose local folder** to grant access. No credentials are added.
 - The right panel starts in the server's SFTP home folder. Double-click folders,
-  use the parent arrow, type a server path, or use **Back/Forward** to revisit
+  use the parent arrow, type or paste a server path, pick a recent folder for this connection, or use **Back/Forward** to revisit
   successfully opened folders. Recent server listings may be cached for up to
   30 seconds; the status bar identifies cached results. **Refresh** always reads
   the server again. Remote changes made in this tab invalidate cached listings;

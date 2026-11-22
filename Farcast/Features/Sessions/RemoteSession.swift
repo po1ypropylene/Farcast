@@ -119,7 +119,7 @@ import SwiftTerm
         self.workspace = workspace
         self.persistent = persistent
         self.bypassVPN = bypassVPN
-        self.files = files ?? SFTPController()
+        self.files = files ?? SFTPController(connectionID: profile.kind == .ssh ? profile.id : nil)
         self.forwarding = SSHForwardingController(rules: profile.forwardingRules)
         if profile.kind == .ssh {
             terminal = TerminalController(profile: profile)

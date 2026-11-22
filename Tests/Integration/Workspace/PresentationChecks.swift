@@ -13,6 +13,19 @@ private final class InspectorRDPClient: FCRDPClient {
     }
 }
 
+private struct FolderFieldFixture: View {
+    @State private var path = ""
+    let open: (String) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SFTPPathField(title: "Fixture path", text: $path, paths: ["/other", "/work/one", "/work/two"], open: open)
+                .zIndex(1)
+            Color.gray.frame(height: 220)
+        }
+    }
+}
+
 /// Exercises the production SwiftUI hosts and persistent desktop across real windows.
 @main struct PresentationChecks {
     @MainActor static func main() throws {
@@ -452,6 +465,62 @@ private final class InspectorRDPClient: FCRDPClient {
                 SFTPView(controller: files, connected: false).defaultAppStorage(defaults).preferredColorScheme(.dark))
         settle()
         try snapshot("sftp", window: window)
+        var opened: [String] = []
+        let host = NSHostingView(rootView: FolderFieldFixture { opened.append($0) })
+        window.contentView = host
+        settle()
+        func findField(in view: NSView) -> NSTextField? {
+            if let field = view as? NSTextField, field.isEditable { return field }
+            return view.subviews.lazy.compactMap { findField(in: $0) }.first
+        }
+        let field = findField(in: host)!
+        window.makeFirstResponder(field)
+        let editor = field.currentEditor() as! NSTextView
+        func type(_ path: String) {
+            editor.selectAll(nil)
+            editor.insertText(path, replacementRange: editor.selectedRange())
+            settle()
+        }
+        func press(_ selector: Selector) {
+            editor.doCommand(by: selector)
+            settle()
+        }
+        let disclosure = (field.superview as! NSStackView).arrangedSubviews.compactMap { $0 as? NSButton }.first!
+        press(#selector(NSResponder.cancelOperation(_:)))
+        disclosure.performClick(nil)
+        settle()
+        press(#selector(NSResponder.moveDown(_:)))
+        press(#selector(NSResponder.insertNewline(_:)))
+        type("/no-match")
+        let closedHeight = host.fittingSize.height
+        type("/work")
+        precondition(host.fittingSize.height == closedHeight, "Suggestions must overlay the content below the field")
+        press(#selector(NSResponder.insertNewline(_:)))
+        type("work")
+        press(#selector(NSResponder.moveDown(_:)))
+        press(#selector(NSResponder.moveDown(_:)))
+        press(#selector(NSResponder.insertNewline(_:)))
+        type("work")
+        press(#selector(NSResponder.moveUp(_:)))
+        type("/unlisted")
+        press(#selector(NSResponder.insertNewline(_:)))
+        precondition(opened == ["/other", "/work", "/work/two", "/unlisted"])
+        type("work")
+        let r = field.convert(field.bounds, to: nil)
+        let point = NSPoint(x: r.midX, y: r.minY - 16)
+        for eventType in [NSEvent.EventType.leftMouseUp, .leftMouseDown] {
+            let event = NSEvent.mouseEvent(
+                with: eventType, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
+            if eventType == .leftMouseUp { NSApp.postEvent(event, atStart: true) } else { window.sendEvent(event) }
+        }
+        settle()
+        while let event = NSApp.nextEvent(matching: .leftMouseUp, until: Date(), inMode: .default, dequeue: true) {
+            window.sendEvent(event)
+        }
+        settle()
+        precondition(opened.last == "/work/one", "click on overlay row")
+        print("PASS SFTP path field filters suggestions, submits literal drafts and honors explicit keyboard selection")
         defaults.set(false, forKey: "sftpDiskAccessExplained")
         window.contentView = NSHostingView(
             rootView:

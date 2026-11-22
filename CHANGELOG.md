@@ -5,6 +5,10 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+## 2.10.0 — 2026-11-22
+
+- Type or paste in either SFTP path field to filter recent folders in an overlay below it. Return opens the typed path, or the suggestion highlighted with the arrow keys. Local history is shared across connections and server history is saved per connection.
+
 - Prevent a double-click from confirming two SFTP overwrite prompts. Dragging off Stop Transfer before releasing now leaves the transfer pending.
 
 ## 2.9.1 — 2026-11-19
