@@ -258,10 +258,13 @@ private struct RemoteFolderCache {
         resetRemoteBrowsing()
         message = "Choose Files or Split to browse this server."
     }
-    func resolveConflict(overwrite: Bool, all: Bool = false) {
+    enum ConflictDecision { case stop, overwriteOnce, overwriteAll }
+
+    func resolveConflict(_ decision: ConflictDecision) {
         guard let conflict else { return }
         self.conflict = nil
-        if all && overwrite { overwriteAll = true }
+        let overwrite = decision != .stop
+        if decision == .overwriteAll { overwriteAll = true }
         client?.resolveFileConflict(conflict.id, overwrite: overwrite)
         if !overwrite { cancel() }
     }

@@ -47,9 +47,9 @@ that a synthetic cross-pane upload drop opens the alert while the app is idle,
 with the drag conclusion callback withheld.
 The alert also opens while the main run loop services only AppKit's event-tracking
 mode with no pointer input.
-It then sends one Stop Transfer press without a release,
+It tests Stop Transfer with a held press and releases outside and inside,
 checks the unchanged destination bytes, and verifies one Overwrite Once click per
-conflict. For both overwrite actions after a drop, the regression withholds the
+conflict, including a rapid second click on the next sheet. For both overwrite actions after a drop, the regression withholds the
 mouse-up event and checks that a held press waits, a release outside leaves the
 alert open, and a release inside confirms the choice. In the signed app,
 use two conflicting fixture files to check that a single pointer click advances to
@@ -58,10 +58,11 @@ Transfer preserves the current destination. Inspect the buttons in Light and Dar
 Native drop-area checks route row and blank-space hits in empty/populated lists to
 one ancestor, exercise session-token/file-URL providers, verify delivery on release,
 and refuse disabled drops.
-A physical Local Mac-to-Server drag in the signed app over loopback opens the alert
-without a follow-up click. Stop Transfer, Overwrite Once and Overwrite All each
-respond to the first click, and the uploaded files match their local sources.
-Physical Finder and Server-to-Local Mac drags still need manual confirmation.
+A physical Local Mac-to-Server drag previously confirmed first-click behavior over
+loopback. The current release-inside and double-click checks use synthetic input.
+The harness exercises a withheld mouse-up directly. Which AppKit event caused the
+original physical-drag failure remains unknown. Physical Finder and Server-to-Local
+Mac drags still need manual confirmation.
 
 Workspace checks cover explicit VPN bypass for SSH/RDP/VNC, preservation of saved
 VPN settings, route-specific connected-session reuse and repeated manual reconnects

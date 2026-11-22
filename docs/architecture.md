@@ -919,8 +919,9 @@ Copy Path alone writes requested paths. Disconnect clears buffers and late drop 
 Regular-file transfer conflicts ask Stop Transfer, Overwrite Once or Overwrite All.
 Overwrite All is scoped to one batch. The file pane uses a native alert attached to
 its owning window, observes conflict tokens directly and wakes the event loop
-to present the alert during normal dispatch or drag tracking. Stop Transfer acts on
-pointer down. Overwrite actions require a press and release on the same button.
+to present the alert during normal dispatch or drag tracking. Pointer activation requires a press and
+release on the same button for all three actions. A second overwrite press within
+the system double-click interval is ignored.
 If AppKit consumes the mouse-up after a drag, the alert checks for a released
 pointer over the same button while the sheet is still key.
 The alert resolves its conflict token on sheet completion. Warning colors are

@@ -5,6 +5,8 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Prevent a double-click from confirming two SFTP overwrite prompts. Dragging off Stop Transfer before releasing now leaves the transfer pending.
+
 ## 2.9.1 — 2026-11-19
 
 - Fix SFTP overwrite alerts after drag-and-drop so they open automatically and all three actions respond on the first click. Show when either file pane finishes refreshing.

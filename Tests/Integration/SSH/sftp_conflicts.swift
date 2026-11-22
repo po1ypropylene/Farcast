@@ -127,12 +127,12 @@ import SwiftUI
             TransferFile(name: "b.bin", directory: false, regular: true, size: 5),
             TransferFile(name: "tree", directory: true, regular: false, size: 0),
         ]
-        func finish(overwrite: Bool, all: Bool = false) async -> Int {
+        func finish(_ decision: SFTPController.ConflictDecision) async -> Int {
             var prompts = 0
             for _ in 0..<1200 {
                 if controller.conflict != nil {
                     prompts += 1
-                    controller.resolveConflict(overwrite: overwrite, all: all)
+                    controller.resolveConflict(decision)
                 }
                 if !controller.busy { return prompts }
                 try? await Task.sleep(for: .milliseconds(25))
@@ -156,7 +156,7 @@ import SwiftUI
         check(controller.transferSpeed == nil, "stale-progress-ignored")
         checkSingleFileBytes = true
         controller.transfer([selection[0]], upload: true)
-        _ = await finish(overwrite: true)
+        _ = await finish(.overwriteOnce)
         check(singleFileByteProgress && controller.error == nil, "single-upload-progress-remains-byte-based")
         checkSingleFileBytes = false
         let counted = source.appendingPathComponent("counted")
@@ -204,7 +204,7 @@ import SwiftUI
         controller.localURL = source
         fileLabels = []
         controller.transfer([selection[2], folder], upload: true)
-        _ = await finish(overwrite: true, all: true)
+        _ = await finish(.overwriteAll)
         check(
             controller.error == nil
                 && (1...5).allSatisfy { number in
@@ -213,7 +213,7 @@ import SwiftUI
         controller.localURL = destination
         fileLabels = []
         controller.transfer([selection[2], folder], upload: false)
-        _ = await finish(overwrite: true, all: true)
+        _ = await finish(.overwriteAll)
         check(
             controller.error == nil
                 && (1...5).allSatisfy { number in
@@ -228,7 +228,7 @@ import SwiftUI
         client.send(Data("conflict-terminal-marker\n".utf8))
         await wait { String(decoding: terminal, as: UTF8.self).contains("conflict-terminal-marker") }
         check(String(decoding: terminal, as: UTF8.self).contains("conflict-terminal-marker"), "terminal-during-prompt")
-        let uploadPrompts = await finish(overwrite: true)
+        let uploadPrompts = await finish(.overwriteOnce)
         check(uploadPrompts == 3 && controller.error == nil, "overwrite-one-prompts-for-each-nested-file")
         controller.localURL = destination
         controller.transfer(selection, upload: false)
@@ -236,20 +236,20 @@ import SwiftUI
         check(controller.error == nil && bytesEqual(new, at: destination), "upload-replacements-byte-equality")
         for name in names { try! old.write(to: destination.appendingPathComponent(name)) }
         controller.transfer(selection, upload: false)
-        let downloadPrompts = await finish(overwrite: true, all: true)
+        let downloadPrompts = await finish(.overwriteAll)
         check(
             downloadPrompts == 1 && controller.error == nil && bytesEqual(new, at: destination),
             "download-overwrite-all-batch-and-nested")
         controller.transfer(selection, upload: false)
         await wait { controller.conflict != nil || !controller.busy }
         check(controller.conflict != nil, "overwrite-all-resets-next-batch")
-        let stopPrompts = await finish(overwrite: false)
+        let stopPrompts = await finish(.stop)
         check(
             stopPrompts == 1 && bytesEqual(new, at: destination) && !stopped,
             "stop-entire-batch-retains-files-and-session")
         controller.localURL = source
         controller.transfer(selection, upload: true)
-        let allUpload = await finish(overwrite: true, all: true)
+        let allUpload = await finish(.overwriteAll)
         check(allUpload == 1 && controller.error == nil, "upload-overwrite-all-across-jobs")
         try! old.write(to: source.appendingPathComponent("a.bin"))
         let dropStopPrompts = await respondWithNativeAlert(
@@ -259,7 +259,7 @@ import SwiftUI
         }
         check(
             dropStopPrompts == 1 && controller.message == "Cancelled" && !stopped,
-            "native-alert-opens-after-drop-without-input-and-stops-on-first-press")
+            "native-alert-opens-after-drop-without-input-and-stops-on-release-inside")
         controller.localURL = destination
         try! files.removeItem(at: destination.appendingPathComponent("a.bin"))
         controller.transfer([selection[0]], upload: false)
@@ -274,7 +274,7 @@ import SwiftUI
         for (title, expectedPrompts) in [("Overwrite Once", 2), ("Overwrite All", 1)] {
             for file in overwriteSelection { try! old.write(to: source.appendingPathComponent(file.name)) }
             controller.transfer(overwriteSelection, upload: true)
-            _ = await finish(overwrite: true, all: true)
+            _ = await finish(.overwriteAll)
             for file in overwriteSelection { try! new.write(to: source.appendingPathComponent(file.name)) }
             let prompts = await respondWithNativeAlert(title, controller: controller, wait: wait) {
                 await drop(overwriteSelection, from: controller)
@@ -295,7 +295,7 @@ import SwiftUI
         await wait { !controller.busy }
         try! new.write(to: source.appendingPathComponent(unsupported.name))
         controller.transfer([unsupported], upload: true)
-        let unsupportedPrompts = await finish(overwrite: true)
+        let unsupportedPrompts = await finish(.overwriteOnce)
         check(unsupportedPrompts == 1 && controller.error != nil, "unsupported-atomic-replace-reports-error")
         controller.error = nil
         controller.localURL = destination
@@ -315,7 +315,7 @@ import SwiftUI
         try! Data(repeating: 171, count: 32 * 1024 * 1024).write(to: source.appendingPathComponent(cancellable.name))
         controller.transfer([cancellable], upload: true)
         await wait { controller.conflict != nil || !controller.busy }
-        controller.resolveConflict(overwrite: true)
+        controller.resolveConflict(.overwriteOnce)
         await wait { controller.progress != nil || !controller.busy }
         check(controller.busy && controller.progress != nil, "overwrite-upload-active-before-cancel")
         controller.cancel()
@@ -410,6 +410,7 @@ import SwiftUI
                 return 0
             }
         }
+        var lastPress: TimeInterval = 0
         while controller.busy {
             await wait { controller.conflict != nil || !controller.busy }
             guard let conflict = controller.conflict else { break }
@@ -422,7 +423,13 @@ import SwiftUI
                 !once.hasDestructiveAction, !all.hasDestructiveAction,
                 once.keyEquivalent.isEmpty, all.keyEquivalent.isEmpty
             else { break }
-            if startDrop != nil && title != "Stop Transfer" {
+            if prompts > 0 {
+                guard click(action, releaseInside: true, timestamp: lastPress + 0.01) else { break }
+                try? await Task.sleep(for: .milliseconds(100))
+                guard controller.conflict?.id == conflict.id else { break }
+                try? await Task.sleep(for: .seconds(NSEvent.doubleClickInterval))
+            }
+            if startDrop != nil {
                 let center = action.convert(NSPoint(x: action.bounds.midX, y: action.bounds.midY), to: nil)
                 pointer = (true, center)
                 guard click(action, releaseInside: nil) else { break }
@@ -435,9 +442,11 @@ import SwiftUI
                 guard click(action, releaseInside: nil) else { break }
                 try? await Task.sleep(for: .milliseconds(100))
                 guard controller.conflict?.id == conflict.id else { break }
+                lastPress = ProcessInfo.processInfo.systemUptime
                 pointer = (false, center)
             } else {
-                guard click(action, releaseInside: title == "Stop Transfer" ? nil : true) else { break }
+                lastPress = ProcessInfo.processInfo.systemUptime
+                guard click(action, releaseInside: true, timestamp: lastPress) else { break }
             }
             await wait { controller.conflict?.id != conflict.id }
             guard controller.conflict?.id != conflict.id else { break }
@@ -449,10 +458,11 @@ import SwiftUI
         return prompts
     }
 
-    @MainActor private static func click(_ button: NSButton, releaseInside: Bool?) -> Bool {
+    @MainActor private static func click(
+        _ button: NSButton, releaseInside: Bool?, timestamp: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) -> Bool {
         guard let sheet = button.window else { return false }
         let location = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
-        let timestamp = ProcessInfo.processInfo.systemUptime
         guard
             let down = NSEvent.mouseEvent(
                 with: .leftMouseDown, location: location, modifierFlags: [], timestamp: timestamp,

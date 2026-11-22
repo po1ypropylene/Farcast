@@ -24,6 +24,8 @@ struct SFTPConflictAlert: NSViewRepresentable {
         private var pointerMonitor: Any?
         private weak var pressedButton: NSButton?
         private var releaseTimer: Timer?
+        private var lastOverwritePress: TimeInterval?
+        private var pressTimestamp: TimeInterval = 0
         private let pointerState: (NSWindow) -> (isPressed: Bool, location: NSPoint)?
 
         init(
@@ -59,6 +61,7 @@ struct SFTPConflictAlert: NSViewRepresentable {
             conflictObservation?.cancel()
             dismiss()
             self.controller = controller
+            // @Published emits before storage changes. Read the conflict on the scheduled turn.
             conflictObservation = controller?.$conflict.sink { [weak self] _ in
                 self?.schedulePresentation()
             }
@@ -107,10 +110,9 @@ struct SFTPConflictAlert: NSViewRepresentable {
                     guard let controller, controller.conflict?.id == conflict.id else { return }
                     // AppKit completes the sheet before the worker can report a new conflict.
                     switch response {
-                    case .alertFirstButtonReturn: controller.resolveConflict(overwrite: false)
-                    case .alertSecondButtonReturn: controller.resolveConflict(overwrite: true)
-                    case .alertThirdButtonReturn: controller.resolveConflict(overwrite: true, all: true)
-                    default: break
+                    case .alertSecondButtonReturn: controller.resolveConflict(.overwriteOnce)
+                    case .alertThirdButtonReturn: controller.resolveConflict(.overwriteAll)
+                    default: controller.resolveConflict(.stop)
                     }
                 }
             }
@@ -129,19 +131,20 @@ struct SFTPConflictAlert: NSViewRepresentable {
             finishPress(activate: false)
         }
 
-        // Stop safely on the press even if a preceding drag consumes its release.
-        // Confirm replacements only after a release on the pressed button.
         private func trackPointer(_ event: NSEvent) -> NSEvent? {
             if event.type == .leftMouseDown {
                 finishPress(activate: false)
                 guard let button = actionButton(at: event) else { return event }
-                if button === presented?.alert.buttons.first {
-                    _ = button.sendAction(button.action, to: button.target)
-                } else {
-                    pressedButton = button
-                    button.highlight(true)
-                    watchForRelease()
+                // A new sheet can get a new click count in the middle of a double-click.
+                if button !== presented?.alert.buttons.first, let lastOverwritePress,
+                    event.timestamp - lastOverwritePress < NSEvent.doubleClickInterval
+                {
+                    return nil
                 }
+                pressTimestamp = event.timestamp
+                pressedButton = button
+                button.highlight(true)
+                watchForRelease()
                 return nil
             }
             guard let button = pressedButton else { return event }
@@ -184,7 +187,10 @@ struct SFTPConflictAlert: NSViewRepresentable {
             let button = pressedButton
             pressedButton = nil
             button?.highlight(false)
-            if activate, let button { _ = button.sendAction(button.action, to: button.target) }
+            if activate, let button {
+                if button !== presented?.alert.buttons.first { lastOverwritePress = pressTimestamp }
+                button.performClick(nil)
+            }
         }
 
         private func actionButton(at event: NSEvent) -> NSButton? {
