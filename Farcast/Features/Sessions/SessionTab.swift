@@ -54,6 +54,8 @@ struct SessionTab: View {
         }
         .accessibilityElement(children: .contain)
         .contextMenu {
+            Button("Take Screenshot") { ScreenshotService.capture(session) }.disabled(!session.canTakeScreenshot)
+            Divider()
             Button("Reconnect") { workspace.requestReconnect(session) }
             Button("Disconnect") { workspace.requestDisconnect(session) }.disabled(!session.state.active)
             Button("Close") { workspace.requestClose(session) }

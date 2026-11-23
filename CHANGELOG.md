@@ -5,6 +5,8 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Capture the visible SSH terminal or RDP/VNC desktop with the camera button or ⇧⌘S. Screenshots retain native pixel dimensions and can be saved as PNG or JPEG, copied to the clipboard, or both. Choose destinations and feedback in Settings → Screenshots.
+
 ## 2.10.0 — 2026-11-22
 
 - Type or paste in either SFTP path field to filter recent folders in an overlay below it. Return opens the typed path, or the suggestion highlighted with the arrow keys. Local history is shared across connections and server history is saved per connection.

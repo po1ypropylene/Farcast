@@ -103,6 +103,24 @@ import SwiftUI
         view.feed(text: "Synthetic output 繁體 😀\r\n$ ")
         settle()
         clipboard.setString("paste text", forType: .string)
+        do {
+            let screenshot = try controller.screenshot().render()
+            precondition(screenshot.scale == window.backingScaleFactor)
+            precondition(screenshot.image.width == Int((view.bounds.width * screenshot.scale).rounded()))
+            precondition(screenshot.image.height == Int((view.bounds.height * screenshot.scale).rounded()))
+            let pixels = screenshot.image.dataProvider!.data! as Data
+            let stride = screenshot.image.bytesPerRow
+            let hasText = (0..<48).contains { row in
+                (0..<200).contains { column in
+                    let offset = row * stride + column * 4
+                    return pixels[offset] > 115 && pixels[offset + 1] > 115 && pixels[offset + 2] > 115
+                }
+            }
+            precondition(hasText, "A terminal screenshot must contain visible glyphs")
+            print("PASS terminal screenshot retains visible glyphs and window backing scale")
+        } catch {
+            preconditionFailure("Terminal screenshot failed: \(error)")
+        }
         let outputEvent = event(row: 0)
         let inputEvent = event(row: 1)
         let outputMenu = view.menu(for: outputEvent)!
@@ -222,5 +240,14 @@ import SwiftUI
         settle()
         precondition(preferences.string(forKey: SSHInteractionView.rightClickPreference) == "automatic")
         print("PASS production Settings hosts the persistent right-click preference")
+        preferences.set(false, forKey: "screenshot.saveToFolder")
+        preferences.set(false, forKey: "screenshot.copyToClipboard")
+        let screenshots = window.toolbar!.items.first { $0.itemIdentifier.rawValue == "screenshots" }!
+        precondition(NSApp.sendAction(screenshots.action!, to: screenshots.target, from: screenshots))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+        precondition(window.title == "Screenshots")
+        precondition(window.toolbar?.items.map(\.label) == ["General", "Screenshots", "Storage"])
+        precondition(preferences.bool(forKey: "screenshot.saveToFolder"))
+        print("PASS Screenshots Settings sits between General and Storage and restores a valid destination")
     }
 }

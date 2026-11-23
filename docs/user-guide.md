@@ -473,6 +473,22 @@ a session prevents its automatic wake recovery. Display sleep alone does not dis
   decoding, microphone capture, RD Gateway, RemoteApp, smart cards and printers
   are not included in this release.
 
+## Take a session screenshot
+
+Click the camera in the session toolbar, press **Shift–Command–S**, or choose
+**Session → Take Screenshot**. You can also Control-click a session tab and
+capture that tab. SSH captures the visible terminal, including the terminal pane
+in Split View. RDP and VNC keep the desktop’s native pixel resolution. When the
+visible area shows only part of the desktop, choose **Capture Entire Remote
+Desktop** to include the rest.
+
+Farcast saves PNG files to Desktop by default. The first time you save, macOS
+asks you to select a folder so Farcast can retain access. Choosing **Not Now**
+copies that capture to the clipboard. In **Settings → Screenshots**, choose a
+different folder, JPEG, clipboard copying, preview feedback, or shutter sound.
+For a one-off destination, open the camera menu and choose **Save Screenshot
+As…** or **Copy Screenshot to Clipboard**. Clipboard screenshots use PNG.
+
 ## Shortcuts
 
 | Action | Shortcut |

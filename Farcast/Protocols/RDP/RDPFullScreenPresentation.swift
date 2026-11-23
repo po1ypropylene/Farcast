@@ -62,6 +62,7 @@ import CoreGraphics
             let surface = RDPDesktopView(frame: root.bounds, mailbox: desktop.mailbox)
             surface.autoresizingMask = [.width, .height]
             surface.displayMode = .fit
+            surface.retinaDisplay = desktop.retinaDisplay
             surface.sourceRect = layout.sourceRect(for: target.monitor)
             surface.expectedDesktopSize = layout.bounds.size
             surface.setDesktopSize(target.monitor.rect.size)

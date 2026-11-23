@@ -66,7 +66,7 @@ struct SessionPane: View {
                     }
                 } else if let desktop = session.desktop {
                     DesktopSurface(view: desktop, canAttach: { workspace.presents(session, in: detachedSlot) })
-                        .opacity(session.state == .connected ? 1 : 0)
+                        .opacity(session.state == .connected || session.hasScreenshotContent ? 1 : 0)
                         .allowsHitTesting(session.state == .connected)
                         .accessibilityHidden(session.state != .connected)
                 }
@@ -98,6 +98,14 @@ struct SessionPane: View {
                     }.padding(32).glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24)).padding(32)
                 }
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay {
+                    if session.screenshotFlash {
+                        Color.white.opacity(0.35).allowsHitTesting(false).accessibilityHidden(true)
+                    }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if !session.fullScreenPresented { ScreenshotOverlay(session: session) }
+                }
             Divider()
             HStack(spacing: 9) {
                 Circle().fill(session.state.color).frame(width: 6, height: 6)
@@ -126,7 +134,9 @@ struct SessionPane: View {
                     }.buttonStyle(.plain).help("Show tunnel connection details")
                 }
                 Spacer()
-                if session.state == .connected, !session.clipboardMessage.isEmpty {
+                if let message = session.screenshotStatus {
+                    Text(message).lineLimit(1).help(message)
+                } else if session.state == .connected, !session.clipboardMessage.isEmpty {
                     Text(session.clipboardMessage).lineLimit(1).truncationMode(.tail)
                         .help(session.clipboardMessage)
                         .accessibilityLabel("File clipboard: \(session.clipboardMessage)")

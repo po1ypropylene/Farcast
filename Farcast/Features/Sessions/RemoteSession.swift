@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import Foundation
 import SwiftTerm
+import SwiftUI
 
 @MainActor final class RemoteSession: ObservableObject, Identifiable {
     let id = UUID()
@@ -29,6 +30,23 @@ import SwiftTerm
     let forwarding: SSHForwardingController
     @Published private(set) var credentialsRejected = false
     let files: SFTPController
+    @Published private(set) var hasScreenshotContent = false
+    @Published var screenshotFeedback: ScreenshotFeedback?
+    @Published var screenshotStatus: String?
+    @Published var screenshotFlash = false
+    var screenshotPreviewHovered = false
+    var screenshotPreviewFocused = false
+    var screenshotFeedbackID: UUID?
+
+    var screenshotDesktop: RDPDesktopView? {
+        fullScreen?.surfaces.first(where: { $0.window?.isKeyWindow == true })
+            ?? fullScreen?.surfaces.first ?? desktop
+    }
+
+    var canTakeScreenshot: Bool {
+        hasScreenshotContent && (terminal == nil || showsTerminalTools)
+    }
+
     let terminal: TerminalController?
     let desktop: RDPDesktopView?
     private var ssh: FCSSHClient?
@@ -132,6 +150,10 @@ import SwiftTerm
                 (profile.kind == .rdp || (profile.kind == .vnc && profile.vncRemoteIsMac)) && profile.retinaDisplay
             view.setDesktopSize(CGSize(width: profile.desktopWidth, height: profile.desktopHeight))
             desktop = view
+            view.frameAvailabilityChanged = { [weak self] available in
+                guard let self, self.hasScreenshotContent != available else { return }
+                self.hasScreenshotContent = available
+            }
         }
     }
     func start(credential: ConnectionCredential) {
@@ -309,6 +331,7 @@ import SwiftTerm
                     guard let self, self.generation == attempt else { return }
                     if !self.isSelected { self.hasUnreadOutput = true }
                     self.terminal?.view.feed(byteArray: Array(data)[...])
+                    if !data.isEmpty && !self.hasScreenshotContent { self.hasScreenshotContent = true }
                 }
             }
             client.onTrust = trustCallback(attempt: attempt)
@@ -873,6 +896,16 @@ import SwiftTerm
         fullScreenPresented = true
         record("Desktop entered full screen on \(screens.count) display(s).")
         presentation.show()
+        for surface in presentation.surfaces {
+            guard let root = surface.superview else { continue }
+            let overlay = NSHostingView(rootView: ScreenshotOverlay(session: self))
+            overlay.translatesAutoresizingMaskIntoConstraints = false
+            root.addSubview(overlay)
+            NSLayoutConstraint.activate([
+                overlay.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+                overlay.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            ])
+        }
         if resizeEnabled, let screen = screens.first,
             let request = RDPResizeRequest(
                 points: screen.frame.size,

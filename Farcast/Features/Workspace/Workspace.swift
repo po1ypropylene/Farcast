@@ -285,6 +285,10 @@ import UniformTypeIdentifiers
         }
         updateActiveSession()
     }
+    func isSessionPresentation(_ window: NSWindow) -> Bool {
+        window === mainWindow || sessionWindows.values.contains { $0 === window }
+    }
+
     func registerMainWindow(_ window: NSWindow) {
         mainWindow = window
         if window.isKeyWindow { activate(window) }

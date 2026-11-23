@@ -84,12 +84,21 @@ import MetalKit
             primary.texture!.getBytes(
                 $0.baseAddress!, bytesPerRow: 4, from: MTLRegionMake2D(0, 0, 1, 1), mipmapLevel: 0)
         }
-        precondition(first == [32, 0, 96, 255])
+        let firstPrimaryPixel: [UInt8] = [32, 0, 96, 255]
+        precondition(first == firstPrimaryPixel)
         first.withUnsafeMutableBytes {
             left.texture!.getBytes($0.baseAddress!, bytesPerRow: 4, from: MTLRegionMake2D(0, 0, 1, 1), mipmapLevel: 0)
         }
         precondition(first == [0, 44, 96, 255])
         print("PASS production Metal upload crops marked framebuffer pixels without duplicating full-desktop textures")
+        let visibleCapture = try primary.screenshot(entireDesktop: false).render()
+        let compositeCapture = try primary.screenshot(entireDesktop: true).render()
+        precondition(visibleCapture.image.width == 1600 && visibleCapture.image.height == 1200)
+        precondition(compositeCapture.image.width == 2400 && compositeCapture.image.height == 1200)
+        precondition(visibleCapture.image.alphaInfo == .noneSkipFirst)
+        let capturedBytes = visibleCapture.image.dataProvider!.data! as Data
+        precondition(Array(capturedBytes.prefix(4)) == firstPrimaryPixel)
+        print("PASS screenshots capture native monitor and composite dimensions with the expected crop origin")
         NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: app)
         precondition(presentation.surfaces.allSatisfy { $0.renderingSuspended && $0.texture == nil })
         NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: app)
@@ -199,6 +208,10 @@ import MetalKit
                 $0.baseAddress!, bytesPerRow: 4, from: MTLRegionMake2D(0, 0, 1, 1), mipmapLevel: 0)
         }
         precondition(first == [31, 101, 201, 255] && surface.uploadedBytes == 0)
+        let adaptive = try surface.screenshot(entireDesktop: false).render()
+        precondition(adaptive.image.width == 640 && adaptive.image.height == 480)
+        precondition([CGImageAlphaInfo.none, .noneSkipFirst, .noneSkipLast].contains(adaptive.image.alphaInfo))
+        print("PASS Adaptive screenshots convert a decoded IOSurface to an opaque native-sized image")
         video = nil
         surface.suspendRendering(true)
         surface.suspendRendering(false)

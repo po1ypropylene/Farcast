@@ -201,10 +201,10 @@ struct SettingsWindowSizing: NSViewRepresentable {
                 window.toolbarStyle = .preference
             }
             window.toolbar?.selectedItemIdentifier = NSToolbarItem.Identifier(selectedTab)
-            window.title = selectedTab == "storage" ? "Storage" : "General"
+            window.title = panePresentation(selectedTab).title
         }
         func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-            [NSToolbarItem.Identifier("general"), NSToolbarItem.Identifier("storage")]
+            ["general", "screenshots", "storage"].map { NSToolbarItem.Identifier($0) }
         }
         func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
             toolbarDefaultItemIdentifiers(toolbar)
@@ -217,13 +217,19 @@ struct SettingsWindowSizing: NSViewRepresentable {
             willBeInsertedIntoToolbar flag: Bool
         ) -> NSToolbarItem? {
             let item = NSToolbarItem(itemIdentifier: identifier)
-            let storage = identifier.rawValue == "storage"
-            item.label = storage ? "Storage" : "General"
-            item.image = NSImage(
-                systemSymbolName: storage ? "externaldrive" : "gearshape", accessibilityDescription: item.label)
+            let pane = panePresentation(identifier.rawValue)
+            item.label = pane.title
+            item.image = NSImage(systemSymbolName: pane.symbol, accessibilityDescription: pane.title)
             item.target = self
             item.action = #selector(selectPane(_:))
             return item
+        }
+        private func panePresentation(_ id: String) -> (title: String, symbol: String) {
+            switch id {
+            case "screenshots": return (String(localized: "Screenshots"), "camera")
+            case "storage": return (String(localized: "Storage"), "externaldrive")
+            default: return (String(localized: "General"), "gearshape")
+            }
         }
         @objc private func selectPane(_ sender: NSToolbarItem) { selectTab?(sender.itemIdentifier.rawValue) }
         override func responds(to selector: Selector!) -> Bool {

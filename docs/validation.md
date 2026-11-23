@@ -314,3 +314,15 @@ Changes take effect on the next connection or reconnect; disabling immediately
 hides experimental Connection Details. Baseline refresh pacing and drawable
 lifecycle fixes remain active in both modes. OpenH264 remains bundled as an
 optional software decoder; the server selects the actual codec.
+
+## Session screenshots
+
+`swift test --filter ScreenshotImageTests` verifies padded opaque BGRX pixels,
+sRGB, PNG and JPEG dimensions and DPI, viewport crop rounding, and collision-safe
+filenames under concurrent writes. `scripts/test-workspace.sh` checks terminal
+glyphs at the window backing scale, the native Settings toolbar, monitor and
+composite framebuffer crops, and opaque conversion of an Adaptive IOSurface.
+Live Apple Adaptive color matching, physical mixed-density displays, clipboard
+behavior in third-party apps, and sustained 5K capture timing and memory still
+need manual coverage. A cursor painted into a remote video frame is part of the
+captured pixels.

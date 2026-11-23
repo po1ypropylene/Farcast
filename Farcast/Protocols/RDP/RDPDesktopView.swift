@@ -32,7 +32,10 @@ final class FrameMailbox: @unchecked Sendable {
         notificationPending = false
         lock.unlock()
         views.removeAll { $0.value == nil }
-        for view in views { view.value?.drawLatestFrame() }
+        for view in views {
+            view.value?.frameAvailabilityChanged?(snapshot() != nil)
+            view.value?.drawLatestFrame()
+        }
     }
     func put(_ next: DesktopFrame) {
         lock.lock()
@@ -112,6 +115,17 @@ final class FrameMailbox: @unchecked Sendable {
 
 final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     nonisolated let mailbox: FrameMailbox
+    var frameAvailabilityChanged: ((Bool) -> Void)?
+    private(set) var previousScreenshotViewport: CGRect?
+    private(set) var previousScreenshotScale: CGFloat?
+    var screenshotVideoFrame: CVPixelBuffer? { surfaceBuffer }
+
+    func rememberScreenshotViewport() {
+        guard viewport != nil, !visibleRect.isEmpty else { return }
+        previousScreenshotViewport = visibleRect
+        previousScreenshotScale = window?.backingScaleFactor
+    }
+
     var sourceRect: CGRect?
     var expectedDesktopSize: CGSize?
     var retinaDisplay = false
@@ -240,6 +254,7 @@ final class RDPDesktopView: MTKView, MTKViewDelegate, NSTextInputClient {
     /// Call only after the previous transport worker has retired.
     func discardDesktopFrame() {
         _ = mailbox.take()
+        frameAvailabilityChanged?(false)
         texture = nil
         surfaceTexture = nil
         surfaceBuffer = nil
@@ -1082,6 +1097,7 @@ final class RDPViewport: NSScrollView {
         // ownership references on creation and update, before retired hosts
         // can detach the shared surface during their layout or teardown.
         let previous = desktop.viewport
+        desktop.rememberScreenshotViewport()
         desktop.viewport = nil
         if previous?.documentView === desktop { previous?.documentView = nil }
         documentView = desktop
@@ -1089,6 +1105,7 @@ final class RDPViewport: NSScrollView {
     }
     func detachDesktop() {
         guard desktop.viewport === self else { return }
+        desktop.rememberScreenshotViewport()
         desktop.viewport = nil
         if documentView === desktop { documentView = nil }
     }

@@ -25,6 +25,7 @@ import SwiftUI
         Window("Farcast", id: "workspace") {
             ConnectionStorageWorkspace(workspace: workspace) {
                 delegate.workspace = workspace
+                ScreenshotShortcut.install(workspace: workspace)
             }.preferredColorScheme(appearance == "Dark" ? .dark : appearance == "Light" ? .light : nil)
         }.defaultSize(width: 1280, height: 820)
             .commands {
@@ -84,6 +85,8 @@ private struct SessionMenuItems: View {
     @ObservedObject var workspace: Workspace
     var body: some View {
         Group {
+            ScreenshotMenuItems(session: session, shortcuts: true)
+            Divider()
             Button("Reconnect") {
                 workspace.requestReconnect(session)
             }

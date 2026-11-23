@@ -27,6 +27,12 @@ struct AppSettings: View {
             if selectedTab == "storage" {
                 ConnectionStorageSettings(
                     controller: storageController, draft: storageDraft, reportHeight: { paneHeights["storage"] = $0 })
+            } else if selectedTab == "screenshots" {
+                SettingsPane(reportHeight: { paneHeights["screenshots"] = $0 }) {
+                    ScreenshotSettingsView()
+                } footer: {
+                    EmptyView()
+                }
             } else {
                 SettingsPane(reportHeight: { paneHeights["general"] = $0 }) {
                     general

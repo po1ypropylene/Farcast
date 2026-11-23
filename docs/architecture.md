@@ -1209,3 +1209,22 @@ Changes take effect on the next connection or reconnect; disabling immediately
 hides experimental Connection Details. Baseline refresh pacing and drawable
 lifecycle fixes remain active in both modes. OpenH264 remains bundled as an
 optional software decoder; the server selects the actual codec.
+
+## Session screenshots
+
+The session command captures the native content independently of the workspace
+and full-screen overlays. SSH uses SwiftTerm’s AppKit renderer at the window
+backing scale. RDP and classic VNC use their immutable mailbox snapshots. RDP
+dirty-region updates own the canonical storage under the mailbox lock, and Data
+copy-on-write isolates snapshots from subsequent updates. Apple Adaptive VNC
+retains the imported decoded buffer for Core Image conversion using its color
+metadata. The active viewport maps into top-left framebuffer coordinates before
+integral cropping. The composite framebuffer remains available for multi-monitor
+capture.
+
+The screenshot writer serializes conversion, encoding and file output off the
+main actor. The screenshot folder grant is independent of SFTP home and RDP
+redirected folders. File writes acquire the app-scoped bookmark and exclusively
+create names. Clipboard writes use PNG on the main actor and proceed on file
+failure when clipboard output was selected. The local event monitor consumes the
+screenshot shortcut before either remote input surface receives it.

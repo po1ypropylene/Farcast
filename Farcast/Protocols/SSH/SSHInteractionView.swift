@@ -18,8 +18,16 @@ import SwiftTerm
         return normalized === event || terminal.inputEnabled ? normalized : nil
     }
 
+    private(set) var screenshotBackingScale: CGFloat = 1
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        if let window { screenshotBackingScale = window.backingScaleFactor }
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if let window { screenshotBackingScale = window.backingScaleFactor }
         _ = Self.keypadMonitor
     }
 

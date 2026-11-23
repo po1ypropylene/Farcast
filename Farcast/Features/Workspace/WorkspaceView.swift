@@ -161,6 +161,10 @@ struct WorkspaceView: View {
                         }
                     }
                     ToolbarSpacer(.fixed, placement: .primaryAction)
+                    ToolbarItem(placement: .primaryAction) {
+                        if let session = workspace.selectedSession { ScreenshotToolbarButton(session: session) }
+                    }
+                    ToolbarSpacer(.fixed, placement: .primaryAction)
                     ToolbarItemGroup(placement: .primaryAction) {
                         if let session = workspace.selectedSession {
                             if session.profile.kind != .ssh {

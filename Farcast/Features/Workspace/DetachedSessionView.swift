@@ -79,6 +79,8 @@ private struct DetachedSessionToolbar: View {
             }.sessionActionColor(.reconnect)
             SessionDisconnectButton(session: session, workspace: workspace, compact: true)
             Divider().frame(height: 16).padding(.horizontal, 4)
+            ScreenshotToolbarButton(session: session)
+            Divider().frame(height: 16).padding(.horizontal, 4)
             if session.profile.kind != .ssh {
                 SessionFullScreenButton(session: session)
             } else {
