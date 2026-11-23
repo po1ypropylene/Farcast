@@ -46,7 +46,7 @@ After this approval, open Farcast normally. See
 
 **Remote desktop**
 
-<img src="docs/images/Farcast-RDP.png" alt="Remote desktop resolution and Retina settings">
+<img src="docs/images/Farcast-RDP.png" alt="Windows desktop showing Microsoft Word in Farcast’s RDP session">
 
 **Connection editor**
 
