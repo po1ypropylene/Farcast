@@ -26,12 +26,18 @@ import SwiftData
             precondition(folder.name == "Original folder" && folder.order == 7)
             precondition(profile.folderID == folder.id && profile.favorite)
             precondition(folder.parentID == nil && folder.isCollapsed == nil && profile.favoriteOrder == nil)
+            precondition(profile.sshFileTransfer == nil && profile.fileTransfer == FileTransferSettings())
+            var transfer = FileTransferSettings()
+            transfer.compress = true
+            profile.fileTransfer = transfer
             let id = folder.id
             folder.name = "Renamed folder"
             folder.isCollapsed = true
             profile.favoriteOrder = 2
             try container.mainContext.save()
             let reopened = try ModelContainer(for: schema, configurations: [config])
+            let restoredProfile = try reopened.mainContext.fetch(FetchDescriptor<SavedConnection>())
+            precondition(restoredProfile.first?.fileTransfer.compress == true)
             let restored = try reopened.mainContext.fetch(FetchDescriptor<ConnectionFolder>())
             precondition(
                 restored[0].id == id && restored[0].name == "Renamed folder" && restored[0].isCollapsed == true)

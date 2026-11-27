@@ -29,6 +29,7 @@
     BOOL _passwordResponseUsed;
     NSMutableArray<NSDictionary *> *_fileRequests;
     NSString *_activeFileRequest;
+    NSString *_workerOverwritePolicy;
     NSMutableDictionary *_preparedFileTrees;
     BOOL _discardPreparedFileTrees;
     LIBSSH2_SESSION *_workerSession;
@@ -113,4 +114,8 @@ static inline NSDictionary *remoteSnapshot(LIBSSH2_SFTP_ATTRIBUTES attrs) {
 - (NSString *)makeRemoteDirectory:(NSString *)path;
 - (NSString *)removeManifest:(NSArray *)manifest root:(NSString *)root remote:(BOOL)remote;
 - (NSDictionary *)performTreeOperation:(NSDictionary *)request;
+@end
+
+@interface FCSSHClient (RsyncOperations)
+- (NSDictionary *)performRsync:(NSDictionary *)request;
 @end

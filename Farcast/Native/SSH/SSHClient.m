@@ -439,6 +439,7 @@ static void keyboardPrompt(const char *name, int nameLen, const char *instructio
             if (request) {
                 [_fileRequests removeObjectAtIndex:0];
                 _activeFileRequest = request[@"id"];
+                _workerOverwritePolicy = request[@"overwritePolicy"];
             }
             [_lock unlock];
             if (request) {

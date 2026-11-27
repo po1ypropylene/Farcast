@@ -1,6 +1,6 @@
 import Foundation
 
-struct ConnectionDraft: Identifiable {
+struct ConnectionDraft: Identifiable, Equatable {
     var id = UUID()
     var name = ""
     var host = ""
@@ -32,6 +32,7 @@ struct ConnectionDraft: Identifiable {
     var redirectedFoldersUnavailable = false
     var wireGuardID: UUID?
     var audioPlayback = true
+    var fileTransfer = FileTransferSettings()
     var forwardingRules: [SSHForwardingRule] = []
     var forwardingRulesUnavailable = false
     init() {}
@@ -65,6 +66,7 @@ struct ConnectionDraft: Identifiable {
         }
         wireGuardID = saved.wireGuardID
         audioPlayback = saved.audioPlayback
+        fileTransfer = saved.fileTransfer
         if let data = saved.sshForwardingRules {
             do {
                 guard data.count <= 64 * 1024 else { throw CocoaError(.coderReadCorrupt) }
@@ -105,6 +107,7 @@ struct ConnectionDraft: Identifiable {
             }
         }
         if kind == .ssh {
+            if let issue = fileTransfer.validationMessage { return issue }
             if forwardingRulesUnavailable {
                 return "Saved tunnel settings could not be read. Reset them and add the rules again."
             }

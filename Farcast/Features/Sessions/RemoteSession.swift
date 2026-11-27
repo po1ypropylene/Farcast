@@ -6,7 +6,7 @@ import SwiftUI
 
 @MainActor final class RemoteSession: ObservableObject, Identifiable {
     let id = UUID()
-    let profile: ConnectionDraft
+    private(set) var profile: ConnectionDraft
     let persistent: Bool
     let bypassVPN: Bool
     @Published private(set) var connectedAt: Date?
@@ -138,6 +138,7 @@ import SwiftUI
         self.persistent = persistent
         self.bypassVPN = bypassVPN
         self.files = files ?? SFTPController(connectionID: profile.kind == .ssh ? profile.id : nil)
+        self.files.settings = profile.fileTransfer
         self.forwarding = SSHForwardingController(rules: profile.forwardingRules)
         if profile.kind == .ssh {
             terminal = TerminalController(profile: profile)
@@ -977,6 +978,7 @@ import SwiftUI
                 rdpReconnect.connected(now: ProcessInfo.processInfo.systemUptime)
                 monitorRDP(attempt: attempt)
             }
+            if profile.kind == .ssh { files.connected() }
             if profile.kind == .ssh && filesAvailable && (sshMode == .files || sshMode == .split) { files.showFiles() }
             desktop?.inputEnabled = true
             presentStartupDesktopIfReady()
@@ -1147,6 +1149,12 @@ import SwiftUI
                 self.start(credential: credential)
             }
         }
+    }
+    func applyTerminalAppearance(theme: String, size: Double) {
+        profile.terminalTheme = theme
+        profile.fontSize = size
+        terminal?.applyAppearance(theme: theme, fontSize: size)
+        terminalZoom = 100
     }
     func disconnect() {
         rdpSleepInterrupted = false

@@ -1228,3 +1228,14 @@ redirected folders. File writes acquire the app-scoped bookmark and exclusively
 create names. Clipboard writes use PNG on the main actor and proceed on file
 failure when clipboard output was selected. The local event monitor consumes the
 screenshot shortcut before either remote input surface receives it.
+
+## SSH file transfer engines
+
+Farcast packages an independent rsync executable and a signed remote-shell helper.
+A transfer starts rsync in its own process group. The helper hands its two stream
+descriptors to the authenticated SSH worker through a private inherited Unix
+socketpair. There is no listening socket, SSH subprocess or credential export.
+Only the worker opens, services and closes the new exec channel. The remote path
+is supplied as a quoted literal after the server options. Folder browsing,
+remote copies and checked moves continue through SFTP. App Sandbox can prevent
+execution of user-installed rsync binaries, including Homebrew installs.

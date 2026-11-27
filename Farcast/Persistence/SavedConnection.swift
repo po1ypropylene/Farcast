@@ -29,6 +29,14 @@ import SwiftData
     var rdpFolderExports: Data? = nil
     var wireGuardID: UUID? = nil
     var audioPlayback: Bool = true
+    var sshFileTransfer: Data? = nil
+    var fileTransfer: FileTransferSettings {
+        get {
+            sshFileTransfer.flatMap { try? JSONDecoder().decode(FileTransferSettings.self, from: $0) }
+                ?? FileTransferSettings()
+        }
+        set { sshFileTransfer = try? JSONEncoder().encode(newValue) }
+    }
     var sshForwardingRules: Data? = nil
     var lastConnected: Date?
     var created: Date
@@ -58,6 +66,7 @@ import SwiftData
         rdpFolderExports = try? JSONEncoder().encode(draft.redirectedFolders)
         wireGuardID = draft.wireGuardID
         audioPlayback = draft.audioPlayback
+        sshFileTransfer = try? JSONEncoder().encode(draft.fileTransfer)
         sshForwardingRules = try? JSONEncoder().encode(draft.forwardingRules)
         created = Date()
     }
@@ -75,6 +84,7 @@ import SwiftData
         copy.rdpUseAllMonitors = rdpUseAllMonitors
         copy.rdpRetinaDisplay = rdpRetinaDisplay
         copy.rdpFolderExports = rdpFolderExports
+        copy.sshFileTransfer = sshFileTransfer
         copy.sshForwardingRules = sshForwardingRules
         return copy
     }
@@ -104,6 +114,7 @@ import SwiftData
         rdpFolderExports = try? JSONEncoder().encode(draft.redirectedFolders)
         wireGuardID = draft.wireGuardID
         audioPlayback = draft.audioPlayback
+        sshFileTransfer = try? JSONEncoder().encode(draft.fileTransfer)
         sshForwardingRules = try? JSONEncoder().encode(draft.forwardingRules)
     }
 }

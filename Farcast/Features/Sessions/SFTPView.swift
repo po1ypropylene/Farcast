@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct SFTPView: View {
     @ObservedObject var controller: SFTPController
     var connected: Bool
+    var profileID: UUID? = nil
     @State private var localSelection = Set<String>()
     @State private var remoteSelection = Set<String>()
     @ObservedObject private var recents = SFTPRecentFolders.shared
@@ -35,6 +36,7 @@ struct SFTPView: View {
             }
             Divider()
             HStack(spacing: 12) {
+                RsyncControls(controller: controller, profileID: profileID)
                 if controller.busy {
                     if let progress = controller.progress {
                         ProgressView(value: progress).frame(width: 100)
@@ -42,7 +44,13 @@ struct SFTPView: View {
                         ProgressView().controlSize(.small)
                     }
                 }
-                Text(controller.message).lineLimit(1)
+                if let badge = controller.engineBadge { Text(badge).font(.caption) }
+                if !controller.rsyncProgress.isEmpty { Text(controller.rsyncProgress).monospacedDigit() }
+                if let notice = controller.fallbackNotice {
+                    Text(notice).lineLimit(1).help(notice)
+                } else if controller.busy || !controller.message.hasSuffix(" server items") {
+                    Text(controller.message).lineLimit(1)
+                }
                 Spacer()
                 TimelineView(.periodic(from: .now, by: 1)) { _ in
                     if let speed = controller.transferSpeed {
@@ -57,7 +65,11 @@ struct SFTPView: View {
                         .disabled(controller.cancelling)
                         .help("Stops file work and keeps the SSH connection open.")
                 }
-                Text("Ask before overwriting files").foregroundStyle(.secondary)
+                Picker("Overwrite policy", selection: $controller.overwritePolicy) {
+                    Text("Ask before overwriting files").tag("ask")
+                    Text("Overwrite existing files").tag("overwrite")
+                    Text("Skip existing files").tag("skip")
+                }.labelsHidden().fixedSize().pickerStyle(.menu)
             }.font(.callout).padding(10).background(.bar)
         }
         .buttonStyle(.bordered)

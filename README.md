@@ -2,7 +2,7 @@
 
 <img src="docs/images/Farcast-Icon.png" alt="Farcast app icon" width="128" height="128">
 
-SSH terminals, SFTP files and RDP/VNC desktops in one native Mac app.
+SSH terminals, rsync/SFTP file transfers and RDP/VNC desktops in one native Mac app.
 Includes saved connections, session tabs, SSH tunnels and optional shared WireGuard or OpenVPN for SSH, RDP and VNC.
 
 Farcast is free and open source under the [MIT License](LICENSE): free to download,

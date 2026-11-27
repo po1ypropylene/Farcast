@@ -17,6 +17,7 @@ class Files(paramiko.SFTPServerInterface):
     def __init__(self, server, *args, root, **kwargs):
         super().__init__(server, *args, **kwargs)
         self.root = Path(tempfile.mkdtemp(prefix='files-', dir=root))
+        server.file_root = self.root
         (self.root / 'folder').mkdir()
         (self.root / 'empty.txt').write_bytes(b'')
         (self.root / 'hello 世界.txt').write_bytes(bytes(range(256)) * 8192)

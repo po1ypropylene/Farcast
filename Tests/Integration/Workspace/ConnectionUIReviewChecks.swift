@@ -84,7 +84,7 @@ private struct TunnelFormHost: View {
                 attribute($0, "accessibilityLabel") as? String ?? attribute($0, "accessibilityValue") as? String
             }
         }
-        func press(_ label: String) {
+        func press(_ label: String, at line: Int = #line) {
             guard let button = nodes(window).first(where: { attribute($0, "accessibilityLabel") as? String == label })
             else {
                 print("Synthetic AX labels: \(labels())")
@@ -95,7 +95,7 @@ private struct TunnelFormHost: View {
             precondition(button.responds(to: selector))
             typealias Press = @convention(c) (AnyObject, Selector) -> Bool
             let perform = unsafeBitCast(button.method(for: selector), to: Press.self)
-            precondition(perform(button, selector), "Control could not be activated")
+            precondition(perform(button, selector), "Control could not be activated: \(label) at \(line)")
             settle()
         }
         func focus(_ label: String) {
@@ -122,6 +122,16 @@ private struct TunnelFormHost: View {
             precondition(field.responds(to: selector))
             typealias SetValue = @convention(c) (AnyObject, Selector, NSString) -> Void
             unsafeBitCast(field.method(for: selector), to: SetValue.self)(field, selector, value as NSString)
+            settle()
+        }
+        func typeText(_ label: String, _ value: String) {
+            focus(label)
+            guard let editor = window.firstResponder as? NSTextView else {
+                preconditionFailure("Expected a field editor for " + label)
+            }
+            editor.selectAll(nil)
+            editor.insertText(value, replacementRange: editor.selectedRange())
+            window.makeFirstResponder(nil)
             settle()
         }
         func snapshot(_ name: String) throws {
@@ -231,6 +241,9 @@ private struct TunnelFormHost: View {
             )
             .modelContainer(container).preferredColorScheme(.dark))
         settle()
+        press("Files")
+        press("Compress data during rsync transfers")
+        press("General")
         press("Save")
         let destination = nodes(window).first { attribute($0, "accessibilityLabel") as? String == "Destination host" }!
         let selector = NSSelectorFromString("accessibilityFrame")
@@ -358,14 +371,20 @@ private struct TunnelFormHost: View {
             settle()
         }
         showEditor(name: "Saved without reconnecting")
-        precondition(labels().contains("Save & Connect"))
+        precondition(labels().contains("Save") && !labels().contains("Save & Reconnect"))
         let openSession = RemoteSession(profile: savedDraft, workspace: workspace)
         let otherSession = RemoteSession(profile: ConnectionDraft(), workspace: workspace)
         openSession.state = .disconnected
         workspace.sessions = [openSession, otherSession]
         workspace.select(otherSession.id)
         settle()
-        precondition(labels().contains("Save & Reconnect") && labels().contains("Save"))
+        precondition(!labels().contains("Save & Reconnect") && labels().contains("Files"))
+        press("Files")
+        precondition(labels().contains("Compress data during rsync transfers"))
+        press("Compress data during rsync transfers")
+        precondition(!labels().contains("Save & Reconnect"))
+        press("General")
+        typeText("Name", "Metadata edit")
 
         let storageRoot = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("editor-storage")
         let storage = try ConnectionStorage.create(storageRoot, protection: .unencrypted)
@@ -375,10 +394,12 @@ private struct TunnelFormHost: View {
             try? FileManager.default.removeItem(at: storageRoot)
         }
         press("Save")
-        precondition(saved.name == "Saved without reconnecting", "Save must persist the editor draft: \(labels())")
+        precondition(saved.fileTransfer.compress && openSession.files.settings.compress)
+        precondition(saved.name == "Metadata edit", "Save must persist the editor draft: \(labels())")
         precondition(workspace.selectedSession === otherSession && workspace.sessions.first === openSession)
 
         showEditor(name: "Saved and reconnected")
+        typeText("Address", "updated.fixture.invalid")
         press("Save & Reconnect")
         precondition(saved.name == "Saved and reconnected")
         let reconnectDeadline = Date().addingTimeInterval(2)
@@ -392,7 +413,7 @@ private struct TunnelFormHost: View {
         workspace.close(replacement)
         workspace.close(otherSession)
         settle()
-        precondition(labels().contains("Save & Connect"))
+        precondition(labels().contains("Save") && !labels().contains("Save & Reconnect"))
         print("PASS editor saves without switching tabs and reconnects a disconnected tab in place")
     }
 }

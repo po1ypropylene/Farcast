@@ -5,6 +5,11 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+## 2.11.0 — 2026-11-27
+
+- SSH file copies now prefer rsync on new and existing profiles. Farcast includes rsync 3.5.2, uses the authenticated SSH session, and can fall back to SFTP. Set the method and compression per connection in Files. Compression starts off.
+- Set overwrite behavior in Files and edit terminal appearance and transfer settings without reconnecting.
+
 - Capture the visible SSH terminal or RDP/VNC desktop with the camera button or ⇧⌘S. Screenshots retain native pixel dimensions and can be saved as PNG or JPEG, copied to the clipboard, or both. Choose destinations and feedback in Settings → Screenshots.
 
 ## 2.10.0 — 2026-11-22

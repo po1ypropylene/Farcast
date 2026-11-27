@@ -11,6 +11,9 @@ import SwiftUI
             print("Farcast loader check passed")
             exit(EXIT_SUCCESS)
         }
+        if ProcessInfo.processInfo.arguments.contains("--verify-rsync") {
+            exit(RsyncDiscovery.verifyBundled() ? EXIT_SUCCESS : EXIT_FAILURE)
+        }
         if ProcessInfo.processInfo.arguments.contains("--verify-wireguard-helper") {
             exit(WireGuardBundleProbe.run() ? EXIT_SUCCESS : EXIT_FAILURE)
         }

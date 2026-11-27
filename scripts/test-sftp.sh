@@ -18,9 +18,9 @@ xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Farcast/Native/SSH -I Vendor
 "$fixture_root"/operations "$fixture_port" "$fixture_root" "$fixture_root/fingerprint"
 
 compile_native_adapter "$fixture_root/native.o" "${ssh_sources[@]}"
-xcrun swiftc -parse-as-library -target arm64-apple-macos27.0 -import-objc-header Farcast/Native/SSH/SSHClient.h Farcast/Features/Sessions/SFTPController.swift Tests/Integration/SSH/sftp_browsing.swift "$fixture_root"/native.o -L Vendor/Native/lib -lssh2 -Xlinker -rpath -Xlinker "$PWD/Vendor/Native/lib" -o "$fixture_root"/browsing-client
+xcrun swiftc -parse-as-library -target arm64-apple-macos27.0 Farcast/Domain/FileTransferSettings.swift Farcast/Features/Sessions/RsyncDiscovery.swift -import-objc-header Farcast/Native/SSH/SSHClient.h Farcast/Features/Sessions/SFTPController.swift Tests/Integration/SSH/sftp_browsing.swift "$fixture_root"/native.o -L Vendor/Native/lib -lssh2 -Xlinker -rpath -Xlinker "$PWD/Vendor/Native/lib" -o "$fixture_root"/browsing-client
 "$fixture_root"/browsing-client
-xcrun swiftc -parse-as-library -target arm64-apple-macos27.0 -import-objc-header Farcast/Native/SSH/SSHClient.h Farcast/Features/Sessions/SFTPController.swift Tests/Integration/SSH/sftp_local_operations.swift "$fixture_root"/native.o -L Vendor/Native/lib -lssh2 -Xlinker -rpath -Xlinker "$PWD/Vendor/Native/lib" -o "$fixture_root"/local-operations-client
+xcrun swiftc -parse-as-library -target arm64-apple-macos27.0 Farcast/Domain/FileTransferSettings.swift Farcast/Features/Sessions/RsyncDiscovery.swift -import-objc-header Farcast/Native/SSH/SSHClient.h Farcast/Features/Sessions/SFTPController.swift Tests/Integration/SSH/sftp_local_operations.swift "$fixture_root"/native.o -L Vendor/Native/lib -lssh2 -Xlinker -rpath -Xlinker "$PWD/Vendor/Native/lib" -o "$fixture_root"/local-operations-client
 "$fixture_root"/local-operations-client "$fixture_root"
 
 xcrun clang -fobjc-arc -mmacosx-version-min=27.0 -I Farcast/Native/SSH -I Vendor/Native/include -L Vendor/Native/lib -Wl,-rpath,"$PWD/Vendor/Native/lib" -framework Foundation -lssh2 "${ssh_sources[@]}" Tests/Integration/SSH/sftp_cancel.m -o "$fixture_root"/cancel-client
@@ -28,10 +28,10 @@ for direction in upload download; do
     "$fixture_root"/cancel-client "$direction" "$fixture_port" "$fixture_root" "$fixture_root/fingerprint"
 done
 
-xcrun swiftc -parse-as-library -target arm64-apple-macos27.0 -import-objc-header Farcast/Native/SSH/SSHClient.h Farcast/Features/Sessions/SFTPController.swift Tests/Integration/SSH/sftp_drop_operations.swift "$fixture_root"/native.o -L Vendor/Native/lib -lssh2 -Xlinker -rpath -Xlinker "$PWD/Vendor/Native/lib" -o "$fixture_root"/drop-client
+xcrun swiftc -parse-as-library -target arm64-apple-macos27.0 Farcast/Domain/FileTransferSettings.swift Farcast/Features/Sessions/RsyncDiscovery.swift -import-objc-header Farcast/Native/SSH/SSHClient.h Farcast/Features/Sessions/SFTPController.swift Tests/Integration/SSH/sftp_drop_operations.swift "$fixture_root"/native.o -L Vendor/Native/lib -lssh2 -Xlinker -rpath -Xlinker "$PWD/Vendor/Native/lib" -o "$fixture_root"/drop-client
 "$fixture_root"/drop-client "$fixture_port" "$fixture_root" "$fixture_root/fingerprint"
 
-xcrun swiftc -parse-as-library -target arm64-apple-macos27.0 -import-objc-header Farcast/Native/SSH/SSHClient.h \
+xcrun swiftc -parse-as-library -target arm64-apple-macos27.0 Farcast/Domain/FileTransferSettings.swift Farcast/Features/Sessions/RsyncDiscovery.swift -import-objc-header Farcast/Native/SSH/SSHClient.h \
     Farcast/Features/Sessions/{SFTPController,SFTPConflictAlert,SFTPDropArea}.swift \
     Tests/Integration/SSH/{sftp_conflicts,sftp_drop_area}.swift \
     "$fixture_root"/native.o -L Vendor/Native/lib -lssh2 -Xlinker -rpath -Xlinker "$PWD/Vendor/Native/lib" -o "$fixture_root"/conflict-client

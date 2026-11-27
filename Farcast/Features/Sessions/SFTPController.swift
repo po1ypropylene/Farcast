@@ -119,6 +119,57 @@ private struct RemoteFolderCache {
 
 /// One controller per SSH session. Local folders and buffered sources retain their security scopes.
 @MainActor final class SFTPController: ObservableObject {
+    @Published var settings = FileTransferSettings() {
+        didSet {
+            if connectedForProbe
+                && (oldValue.remoteRsyncPath != settings.remoteRsyncPath
+                    || oldValue.method == .sftpOnly && settings.method != .sftpOnly)
+            {
+                recheck()
+            }
+        }
+    }
+    @Published var overwritePolicy = "ask"
+    @Published private(set) var localRsync: RsyncDiscovery.Result?
+    @Published private(set) var remoteRsync: RsyncDiscovery.Result?
+    @Published private(set) var engineBadge: String?
+    @Published private(set) var rsyncProgress = ""
+    @Published private(set) var fallbackNotice: String?
+    private var reportedFallback = false
+    private var connectedForProbe = false
+    private var probeID: String?
+    private var batchSettings = FileTransferSettings()
+    private var batchPolicy = "ask"
+    private var batchLocal: RsyncInstall?
+    private var batchRemote: RsyncInstall?
+    private var waitingForProbe = false
+    var detecting: Bool {
+        connectedForProbe && settings.method != .sftpOnly && (localRsync == nil || remoteRsync == nil)
+    }
+    var rsyncAvailable: Bool { localRsync?.installs.first != nil && remoteRsync?.installs.first != nil }
+    var engineTitle: String {
+        if settings.method == .sftpOnly { return "SFTP" }
+        if detecting { return "Checking…" }
+        return rsyncAvailable ? "rsync" : settings.method == .rsyncOnly ? "rsync unavailable" : "SFTP"
+    }
+    func connected() {
+        guard !connectedForProbe else { return }
+        connectedForProbe = true
+        recheck(refresh: false)
+    }
+    func recheck(refresh: Bool = true) {
+        guard let client, connectedForProbe, settings.method != .sftpOnly else { return }
+        let id = UUID().uuidString
+        probeID = id
+        remoteRsync = nil
+        localRsync = nil
+        client.probeRsync(settings.remoteRsyncPath ?? "", requestID: id)
+        Task {
+            let result = await RsyncDiscovery.local(
+                override: UserDefaults.standard.string(forKey: RsyncDiscovery.preference) ?? "", refresh: refresh)
+            if probeID == id { localRsync = result }
+        }
+    }
     @Published var remotePath = "."
     @Published var remoteFiles: [TransferFile] = []
     @Published var localURL: URL?
@@ -245,6 +296,21 @@ private struct RemoteFolderCache {
 
     func attach(_ client: FCSSHClient) {
         self.client = client
+        client.onRsyncProgress = { [weak self] id, line in
+            DispatchQueue.main.async {
+                guard let self, self.requestID == id, !self.cancelling else { return }
+                if line.hasPrefix("item:") {
+                    self.message = String(line.dropFirst(5))
+                    return
+                }
+                let fields = line.split(whereSeparator: { $0.isWhitespace })
+                guard fields.count >= 4, let percent = Double(fields[1].dropLast()), (0...100).contains(percent) else {
+                    return
+                }
+                self.progress = percent / 100
+                self.rsyncProgress = fields[2] + " · " + fields[3]
+            }
+        }
         conflict = nil
         overwriteAll = false
         client.onFileConflict = { [weak self, weak client] token, name in
@@ -359,7 +425,26 @@ private struct RemoteFolderCache {
         return id
     }
     func receive(id: String, result: [AnyHashable: Any], error: String?) {
+        if id == probeID {
+            remoteRsync = RsyncDiscovery.remote(result["versions"] as? Data, override: settings.remoteRsyncPath)
+            return
+        }
         guard requestID == id else { return }
+        if !cancelling, result["startup"] as? Bool == true, let job = activeJob {
+            recheck()
+            if batchSettings.method == .automatic {
+                engineBadge = "SFTP"
+                if !reportedFallback {
+                    reportedFallback = true
+                    fallbackNotice = "rsync unavailable on server, used SFTP"
+                }
+                client?.fileOperation(
+                    job.operation, source: job.source, destination: job.destination, move: job.move, requestID: id)
+                return
+            }
+        }
+        engineBadge = nil
+        rsyncProgress = ""
         requestID = nil
         resetTransferSpeed()
         if cancelling {
@@ -458,6 +543,14 @@ private struct RemoteFolderCache {
             "\(transferItemLabel): \(ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .file)) transferred"
     }
     func disconnected() {
+        connectedForProbe = false
+        waitingForProbe = false
+        probeID = nil
+        localRsync = nil
+        remoteRsync = nil
+        engineBadge = nil
+        fallbackNotice = nil
+        reportedFallback = false
         localWork.cancel()
         preparingTransfers = false
         conflict = nil
@@ -693,6 +786,18 @@ private struct RemoteFolderCache {
             // Recursive writes/moves may affect several cached ancestors, even on failure.
             folderCache = RemoteFolderCache()
         }
+        if settings.method != .sftpOnly, let issue = settings.validationMessage {
+            error = issue
+            return
+        }
+        batchSettings = settings
+        batchPolicy = overwritePolicy
+        client?.fileOverwritePolicy = batchPolicy
+        fallbackNotice = nil
+        if work.contains(where: { $0.move }) && batchPolicy == "skip" {
+            error = "Choose Ask or Overwrite before moving items so every source is copied before removal."
+            return
+        }
         localWork = FileWorkCancellation()
         overwriteAll = false
         conflict = nil
@@ -703,6 +808,46 @@ private struct RemoteFolderCache {
         completedFiles = 0
         batchFileCounts = [:]
         fileCount = 0
+        let copies = work.allSatisfy { !$0.local && !$0.move && ["uploadTree", "downloadTree"].contains($0.operation) }
+        if copies && batchSettings.method != .sftpOnly && detecting {
+            let id = begin("Checking rsync…")
+            waitingForProbe = true
+            Task {
+                for _ in 0..<30 where detecting && requestID == id && !cancelling {
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+                guard waitingForProbe, requestID == id else { return }
+                waitingForProbe = false
+                if cancelling {
+                    receive(id: id, result: [:], error: nil)
+                    return
+                }
+                startBatch(work, copies: copies)
+            }
+        } else {
+            startBatch(work, copies: copies)
+        }
+    }
+    private func startBatch(_ work: [FileJob], copies: Bool) {
+        batchLocal = copies && batchSettings.method != .sftpOnly ? localRsync?.installs.first : nil
+        batchRemote = copies && batchSettings.method != .sftpOnly ? remoteRsync?.installs.first : nil
+        if batchSettings.method == .rsyncOnly
+            && work.contains(where: { ["uploadTree", "downloadTree"].contains($0.operation) })
+            && (batchLocal == nil || batchRemote == nil)
+        {
+            let id = begin("Checking rsync…")
+            receive(
+                id: id, result: [:],
+                error: copies
+                    ? "rsync is unavailable on this Mac or server."
+                    : "Move uses SFTP to verify the source before removing it.")
+            return
+        }
+        if batchLocal != nil && batchRemote != nil {
+            preparingTransfers = false
+            runNext()
+            return
+        }
         preparingTransfers = work.allSatisfy {
             !$0.local && ["uploadTree", "downloadTree", "copyRemote"].contains($0.operation)
         }
@@ -738,7 +883,17 @@ private struct RemoteFolderCache {
                 let failure = Self.performLocal(job, cancellation: cancellation)
                 DispatchQueue.main.async { self.receive(id: id, result: [:], error: failure) }
             }
+        } else if let binary = batchLocal, let server = batchRemote {
+            let upload = job.operation == "uploadTree"
+            engineBadge = batchSettings.compress ? "rsync · compressed" : "rsync"
+            client?.transferRsync(
+                [
+                    "binary": binary.path, "server": server.path, "local": upload ? job.source : job.destination,
+                    "remote": upload ? job.destination : job.source, "upload": upload, "policy": batchPolicy,
+                    "compress": batchSettings.compress, "extra": batchSettings.extraRsyncArgs,
+                ], requestID: id)
         } else {
+            engineBadge = ["uploadTree", "downloadTree"].contains(job.operation) ? "SFTP" : nil
             client?.fileOperation(
                 job.operation, source: job.source, destination: job.destination, move: job.move, requestID: id)
         }

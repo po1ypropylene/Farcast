@@ -16,6 +16,11 @@ struct ConnectionEditor: View {
     @State private var quickAddress = ""
     @State private var draft: ConnectionDraft
     @State private var credential = ConnectionCredential()
+    @State private var originalCredential = ConnectionCredential()
+    @State private var storageInfo = (text: "", warning: false)
+    @State private var keyInfo = false
+    @State private var localRsyncPath = UserDefaults.standard.string(forKey: RsyncDiscovery.preference) ?? ""
+    @State private var originalLocalPath = UserDefaults.standard.string(forKey: RsyncDiscovery.preference) ?? ""
     @State private var remember = true
     @State private var revealPassword = false
     @State private var selectedTab = EditorTab.general
@@ -46,7 +51,7 @@ struct ConnectionEditor: View {
         _draft = State(initialValue: request.draft)
         _selectedTab = State(initialValue: request.initialTab)
         let parent = NSApp.keyWindow?.sheetParent ?? NSApp.keyWindow
-        _sheetHeight = State(initialValue: min(600, max(320, (parent?.contentLayoutRect.height ?? 680) - 80)))
+        _sheetHeight = State(initialValue: min(680, max(320, (parent?.contentLayoutRect.height ?? 760) - 48)))
     }
     private var title: String {
         switch request.mode {
@@ -72,17 +77,22 @@ struct ConnectionEditor: View {
                 tabContent
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .padding(.horizontal, Self.contentPadding).padding(.top, 16).padding(.bottom, 16)
-            }.id(selectedTab)
+            }.scrollIndicators(.visible).id(selectedTab)
             Divider()
             footer
         }.buttonStyle(.bordered).controlSize(.regular).textFieldStyle(.roundedBorder)
-            .frame(width: Self.sheetWidth, height: sheetHeight)
+            .frame(
+                minWidth: Self.sheetWidth, idealWidth: Self.sheetWidth, minHeight: min(400, sheetHeight),
+                idealHeight: sheetHeight, maxHeight: .infinity
+            )
             .background(ConnectionEditorInitialFocus(clear: request.mode == .edit).frame(width: 0, height: 0))
             .sheet(isPresented: $showWireGuard) { WireGuardLibrary() }
             .onAppear {
                 do { if let stored = try loadCredential(draft.id) { credential = stored } } catch {
                     self.error = error.localizedDescription
                 }
+                if request.mode != .quick { storageInfo = CredentialStore.editorSavingDescription(draft.id) }
+                originalCredential = credential
                 refreshFingerprint()
                 if request.mode != .edit && selectedTab == .general {
                     focusedField = request.mode == .quick ? .quickAddress : .address
@@ -122,8 +132,15 @@ struct ConnectionEditor: View {
                     }
                 }
             }
-            ConnectionProtocolPicker(selection: protocolSelection).frame(height: 28)
+            ConnectionProtocolPicker(selection: protocolSelection).frame(height: 28).disabled(request.mode == .edit)
+                .help(
+                    request.mode == .edit
+                        ? "Create a new connection to use a different protocol" : "Connection protocol")
             section("Server") {
+                row("Name") {
+                    TextField("Name", text: $draft.name, prompt: Text("Defaults to address")).accessibilityLabel("Name")
+                        .focused($focusedField, equals: .name)
+                }
                 row("Address") {
                     HStack(spacing: 6) {
                         TextField("Address", text: $draft.host, prompt: Text("server.example.com or 192.168.1.10"))
@@ -137,10 +154,7 @@ struct ConnectionEditor: View {
                 }
                 if let message = hostMessage { inlineMessage(message) }
                 if let message = portMessage { inlineMessage(message) }
-                row("Name") {
-                    TextField("Name", text: $draft.name, prompt: Text("Defaults to address")).accessibilityLabel("Name")
-                        .focused($focusedField, equals: .name)
-                }
+
             }
             section("Sign in") {
                 if draft.kind == .vnc {
@@ -203,6 +217,7 @@ struct ConnectionEditor: View {
                         )
                 }
             }
+            if draft.kind != .ssh && fingerprint != nil { security }
         }
     }
     private var protocolSelection: Binding<RemoteProtocol> {
@@ -237,11 +252,23 @@ struct ConnectionEditor: View {
                     Text(credential.keyName ?? "No key selected").foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle)
                     Spacer(minLength: 0)
-                    Button("Choose Key…") { importKey() }
+                    Button(credential.privateKey == nil ? "Choose Key…" : "Replace…") { importKey() }
+                    Button {
+                        keyInfo.toggle()
+                    } label: {
+                        Image(systemName: "info.circle")
+                    }.buttonStyle(.borderless)
+                        .popover(isPresented: $keyInfo) {
+                            Text("The imported key is saved with your credentials. The original file stays unchanged.")
+                                .padding().frame(width: 280)
+                        }
                 }
             }
-            passwordRow("Passphrase", placeholder: "Optional")
-            caption("The imported key is saved with your credentials; the original file stays unchanged.")
+            if let key = credential.privateKey {
+                let details = PrivateKeyDetails(key)
+                if let description = details.description { caption(description) }
+                if details.encrypted { passwordRow("Passphrase", placeholder: "Optional") }
+            }
         }
         if draft.kind == .ssh && draft.authentication == .interactive {
             caption("The server’s authentication questions will appear when you connect.")
@@ -250,11 +277,13 @@ struct ConnectionEditor: View {
             row("") {
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Save credentials on this Mac", isOn: $remember)
-                    Text(CredentialStore.savingDescription)
-                        .font(.callout).foregroundStyle(.secondary).lineLimit(2)
+                    Text(storageInfo.text)
+                        .font(.callout).foregroundStyle(storageInfo.warning ? Color.orange : Color.secondary).lineLimit(
+                            2
+                        )
                         .fixedSize(horizontal: false, vertical: true)
                         .help(
-                            "Turn off to enter credentials each time. Change the folder and protection in Settings."
+                            CredentialStore.savingDescription
                         )
                 }
             }
@@ -287,10 +316,10 @@ struct ConnectionEditor: View {
     private var availableTabs: [EditorTab] {
         var tabs: [EditorTab] =
             draft.kind == .ssh
-            ? [.general, .terminal, .tunnels]
+            ? [.general, .terminal, .files, .tunnels]
             : (draft.kind == .vnc ? [.general, .display] : [.general, .display, .devices])
         // Keep the existing ability to forget a trusted endpoint when entering a new profile.
-        if request.mode == .edit || fingerprint != nil { tabs.append(.security) }
+        if draft.kind == .ssh && (request.mode == .edit || fingerprint != nil) { tabs.append(.security) }
         return tabs
     }
     private var portMessage: String? {
@@ -309,6 +338,7 @@ struct ConnectionEditor: View {
         return draft.domain.contains("\0") ? "Domain must not contain null characters." : nil
     }
     private var validationTab: EditorTab? {
+        if draft.kind == .ssh && draft.fileTransfer.validationMessage != nil { return .files }
         if hostMessage != nil || portMessage != nil || usernameMessage != nil || domainMessage != nil {
             return .general
         }
@@ -391,6 +421,10 @@ struct ConnectionEditor: View {
     @ViewBuilder private var tabContent: some View {
         switch selectedTab {
         case .general: commonFields
+        case .files:
+            ConnectionFilesSettings(
+                settings: $draft.fileTransfer, localPath: $localRsyncPath,
+                controller: workspace.sessions.first { $0.profile.id == draft.id && $0.state == .connected }?.files)
         case .terminal: terminalAppearance
         case .tunnels:
             SSHForwardingEditor(
@@ -641,17 +675,19 @@ struct ConnectionEditor: View {
     private func refreshFingerprint() { fingerprint = workspace.trust.fingerprint(for: draft.endpointKey) }
     private var needsReconnectNote: Bool {
         guard request.mode == .edit,
-            workspace.sessions.contains(where: { $0.profile.id == draft.id && $0.state.active })
+            workspace.openSession(for: draft.id) != nil
         else { return false }
         let original = request.draft
-        return draft.vncRemoteIsMac != original.vncRemoteIsMac || draft.launchFullScreen != original.launchFullScreen
+        return draft.host != original.host || draft.port != original.port || draft.username != original.username
+            || draft.authentication != original.authentication || draft.domain != original.domain
+            || draft.wireGuardID != original.wireGuardID || credential != originalCredential
+            || draft.vncRemoteIsMac != original.vncRemoteIsMac || draft.launchFullScreen != original.launchFullScreen
             || draft.useAllMonitors != original.useAllMonitors
             || draft.retinaDisplay != original.retinaDisplay
             || draft.displayMode != original.displayMode || draft.dynamicResolution != original.dynamicResolution
             || draft.desktopWidth != original.desktopWidth || draft.desktopHeight != original.desktopHeight
             || draft.clipboard != original.clipboard || draft.audioPlayback != original.audioPlayback
             || draft.redirectedFolders != original.redirectedFolders
-            || draft.terminalTheme != original.terminalTheme || draft.fontSize != original.fontSize
             || draft.forwardingRules != original.forwardingRules
     }
     private var connectTitle: String {
@@ -660,6 +696,10 @@ struct ConnectionEditor: View {
         case .create: return "Save & Connect"
         case .edit: return workspace.openSession(for: draft.id) == nil ? "Save & Connect" : "Save & Reconnect"
         }
+    }
+    private var dirty: Bool {
+        request.mode != .edit || draft != request.draft || credential != originalCredential || !remember
+            || localRsyncPath != originalLocalPath
     }
     private var footer: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -681,12 +721,14 @@ struct ConnectionEditor: View {
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 8) {
                     Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                    if request.mode != .quick {
-                        Button("Save") { commit(connect: false) }
+                    if request.mode == .edit && !needsReconnectNote {
+                        PrimaryActionButton(title: "Save") { commit(connect: false) }
+                            .keyboardShortcut(.return, modifiers: .command).disabled(!dirty)
+                    } else {
+                        if request.mode != .quick { Button("Save") { commit(connect: false) }.disabled(!dirty) }
+                        PrimaryActionButton(title: connectTitle) { commit(connect: true) }.keyboardShortcut(
+                            .return, modifiers: .command)
                     }
-                    PrimaryActionButton(title: connectTitle) {
-                        commit(connect: true)
-                    }.keyboardShortcut(.defaultAction)
                 }.fixedSize()
             }
             if needsReconnectNote {
@@ -730,6 +772,7 @@ struct ConnectionEditor: View {
     private func importKey() {
         do {
             if let imported = try PrivateKeyPicker.pick() {
+                credential.password = ""
                 credential.privateKey = imported.data
                 credential.keyName = imported.name
             }
@@ -769,7 +812,9 @@ struct ConnectionEditor: View {
             draft.authentication == .privateKey ? credential.privateKey != nil : !credential.password.isEmpty
         do {
             if request.mode != .quick {
-                if remember && hasCredential && draft.authentication != .interactive {
+                if request.mode == .edit && remember && credential == originalCredential {
+                    // Metadata-only edits do not rewrite credentials.
+                } else if remember && hasCredential && draft.authentication != .interactive {
                     try CredentialStore.save(credential, for: draft.id)
                 } else {
                     try CredentialStore.delete(draft.id)
@@ -780,6 +825,22 @@ struct ConnectionEditor: View {
                     context.insert(SavedConnection(draft: draft))
                 }
                 try context.save()
+            }
+            if draft.kind == .ssh {
+                if localRsyncPath != originalLocalPath {
+                    UserDefaults.standard.set(localRsyncPath, forKey: RsyncDiscovery.preference)
+                }
+                for session in workspace.sessions {
+                    if session.profile.id == draft.id {
+                        session.files.settings = draft.fileTransfer
+                        if draft.fontSize != request.draft.fontSize
+                            || draft.terminalTheme != request.draft.terminalTheme
+                        {
+                            session.applyTerminalAppearance(theme: draft.terminalTheme, size: draft.fontSize)
+                        }
+                    }
+                    if localRsyncPath != originalLocalPath { session.files.recheck() }
+                }
             }
             let snapshot = draft
             let secret = hasCredential ? credential : nil
@@ -822,6 +883,7 @@ private struct ConnectionProtocolPicker: NSViewRepresentable {
     }
     func updateNSView(_ control: NSSegmentedControl, context: Context) {
         context.coordinator.parent = self
+        control.isEnabled = context.environment.isEnabled
         control.selectedSegment = RemoteProtocol.allCases.firstIndex(of: selection) ?? 0
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSSegmentedControl, context: Context) -> CGSize? {

@@ -272,3 +272,6 @@ The native full-screen return fixture requires an unlocked interactive Mac. If m
 refuses the fixture's full-screen transition while locked, its entry precondition
 fails before exercising renderer return. Offscreen Metal/window-transfer checks
 remain separate evidence; repeat the full-screen fixture after unlocking.
+
+Run `scripts/test-rsync.sh` after a Release build to check the bundled tools,
+native exec-channel transport and sandboxed transfers on an owned SSH fixture.

@@ -5,7 +5,7 @@ Read README.md, docs/architecture.md, docs/local-testing.md, docs/branding.md an
 ## Product boundaries
 
 - Native SwiftUI app, macOS 27+, **arm64 only**. No Intel/older-macOS compatibility work.
-- SSH console and on-demand SFTP file transfer share one authenticated SSH session; RDP and VNC provide desktop access. No SCP/WebDAV, SSH agent requirement or external protocol executable.
+- SSH console and on-demand SFTP file transfer share one authenticated SSH session; RDP and VNC provide desktop access. No SCP/WebDAV, SSH agent requirement or external protocol executable except rsync for SSH file transfers.
 - Authentication is in-app password, imported private key, or keyboard-interactive. No agent selection UI.
 - Protocol adapters are independently written. Do not copy code or assets from unrelated projects.
 - Do not spawn subagents unless the user explicitly asks for delegation.

@@ -72,3 +72,11 @@ into the signed transport helper; no external OpenVPN executable is required.
 Asio copyright Christopher M. Kohlhoff. fmt retains its copyright notice in the
 adjacent license. Core’s built-in LZO decoder supports explicitly enabled incoming legacy compression;
 no additional compression library is bundled.
+
+Farcast ships rsync 3.5.2 as a separate command-line program under
+GPL-3.0-or-later. Copyright and license notices accompany its complete
+unmodified release source. The installed app includes the source archive
+and build recipe under Contents/Resources/ThirdParty/rsync-source. To rebuild
+on macOS with Xcode installed, run `bash prepare-rsync.sh .` in a writable copy
+of that directory. The binary uses upstream's included popt and zlib and macOS
+system libraries. The rsync remote-shell bridge is Farcast MIT source.

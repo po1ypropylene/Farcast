@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Validate platform, dependency closure and signing, then exercise the macOS loader."""
+import hashlib
 import plistlib
 import re
 from pathlib import Path
@@ -76,6 +77,16 @@ helper_rights = entitlements(app / 'Contents/MacOS/FarcastWireGuard')
 if 'Identifier=com.peterpo.farcast.wireguard' not in signing(app / 'Contents/MacOS/FarcastWireGuard')[0].splitlines():
     raise SystemExit('The embedded helper must use the lowercase Farcast signing identity.')
 expected_helper_rights = {'com.apple.security.app-sandbox': True, 'com.apple.security.inherit': True}
+for tool in ('rsync', 'FarcastRsync'):
+    if entitlements(app / 'Contents/MacOS' / tool) != expected_helper_rights:
+        raise SystemExit(f'{tool} must inherit the app sandbox.')
+source = app / 'Contents/Resources/ThirdParty/rsync-source'
+if hashlib.sha256((source / 'rsync-3.5.2.tar.gz').read_bytes()).hexdigest() != 'a10d591825251e070f74c98df3daad195def4ed81b4a2de16169026aea33f6c8':
+    raise SystemExit('Incorrect corresponding source for bundled rsync.')
+if (source / 'prepare-rsync.sh').read_bytes() != (project_root / 'scripts/prepare-rsync.sh').read_bytes():
+    raise SystemExit('Missing rsync build recipe.')
+if 'Bundled rsync 3.5.2' not in command(str(executable), '--verify-rsync'):
+    raise SystemExit('The sandboxed parent failed to launch bundled rsync.')
 if helper_rights != expected_helper_rights:
     raise SystemExit('WireGuard helper must have exactly the sandbox and inheritance entitlements.')
 # These exit before creating the connection library/UI and never load saved keys.

@@ -99,6 +99,10 @@ class Server(paramiko.ServerInterface):
         if found: found[1].set(); found[0].close()
     def check_channel_pty_request(self, channel, term, width, height, *args):
         return mode not in ('no-pty', 'no-services') and term == b'xterm-256color'
+    def check_channel_exec_request(self, channel, command):
+        if mode != 'rsync': return False
+        import rsync_fixture
+        return rsync_fixture.request(channel, command, self)
     def check_channel_shell_request(self, channel):
         if mode in ('no-shell', 'keyboard-no-shell'): return False
         self.channel = channel

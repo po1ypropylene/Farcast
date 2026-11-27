@@ -172,6 +172,7 @@ enum FolderLibraryImportError: LocalizedError {
                 copy.rdpUseAllMonitors = item.rdpUseAllMonitors
                 copy.rdpRetinaDisplay = item.rdpRetinaDisplay
                 copy.rdpFolderExports = item.rdpFolderExports
+                copy.sshFileTransfer = item.sshFileTransfer
                 copy.sshForwardingRules = item.sshForwardingRules
                 copy.created = item.created
                 copy.lastConnected = item.lastConnected

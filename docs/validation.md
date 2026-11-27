@@ -326,3 +326,13 @@ Live Apple Adaptive color matching, physical mixed-density displays, clipboard
 behavior in third-party apps, and sustained 5K capture timing and memory still
 need manual coverage. A cursor painted into a remote video frame is part of the
 captured pixels.
+
+## SSH rsync transfers
+
+The rsync fixture uses a pinned loopback SSH identity and a file-only exec peer
+restricted to a disposable tree. It checks file and compressed folder round trips,
+quoted paths, confirmation, skip, cancellation and startup failure. It repeats
+the transfer with the signed Release rsync and helper inside an isolated sandboxed
+parent. Core tests exercise numeric ranking, prereleases, profile defaults and
+advanced option validation. Production servers, live VPN routes, and Finder-selected
+folder grants require separate validation.

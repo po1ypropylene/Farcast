@@ -65,6 +65,11 @@ if os.environ.get('ENABLE_HARDENED_RUNTIME') == 'YES':
 helper_entitlements = Path(__file__).resolve().parent.parent / 'Configuration/WireGuardHelper.entitlements'
 subprocess.run(helper_signing + ['--entitlements', str(helper_entitlements), str(helper)], check=True)
 project_root = Path(__file__).resolve().parent.parent
+bridge = app / 'Contents/MacOS/FarcastRsync'
+subprocess.run(['xcrun', 'clang', '-arch', 'arm64', '-mmacosx-version-min=27.0', '-O2',
+                str(project_root / 'Helpers/Rsync/bridge.c'), '-o', str(bridge)], check=True)
+bridge_signing = ['com.peterpo.farcast.rsync' if value == 'com.peterpo.farcast.wireguard' else value for value in helper_signing]
+subprocess.run(bridge_signing + ['--entitlements', str(helper_entitlements), str(bridge)], check=True)
 shutil.copyfile(project_root / 'LICENSE', resources / 'LICENSE')
 shutil.copyfile(project_root / 'CHANGELOG.md', resources / 'CHANGELOG.md')
 license_root = project_root / 'ThirdParty'
@@ -72,6 +77,15 @@ if license_root.exists():
     bundled_licenses = resources / 'ThirdParty'
     shutil.rmtree(bundled_licenses, ignore_errors=True)
     shutil.copytree(license_root, bundled_licenses)
+rsync_cache = project_root / '.dependencies/rsync'
+rsync_binary = app / 'Contents/MacOS/rsync'
+shutil.copy2(rsync_cache / 'rsync', rsync_binary)
+rsync_signing = ['com.peterpo.farcast.bundled-rsync' if value == 'com.peterpo.farcast.wireguard' else value for value in helper_signing]
+subprocess.run(rsync_signing + ['--entitlements', str(helper_entitlements), str(rsync_binary)], check=True)
+source_dir = resources / 'ThirdParty/rsync-source'
+source_dir.mkdir(exist_ok=True)
+shutil.copy2(rsync_cache / 'rsync-3.5.2.tar.gz', source_dir)
+shutil.copy2(project_root / 'scripts/prepare-rsync.sh', source_dir)
 for name in sources:
     for dependency in dependencies(frameworks / name):
         if dependency.startswith(('/opt/', '/Users/', '/private/')):

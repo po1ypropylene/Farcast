@@ -101,3 +101,9 @@ under `.build/releases`, with no commit, tag, upload or publishing operation.
 
 Apple references: [sandbox inheritance](https://developer.apple.com/library/archive/documentation/Miscellaneous/Reference/EntitlementKeyReference/Chapters/EnablingAppSandbox.html)
 and [network permissions](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.network.server).
+
+The Release build prepares rsync from a SHA-256-pinned upstream release. The
+separate rsync and FarcastRsync executables have sandbox-inherit entitlements
+and the app's signing team. Bundle verification launches rsync from the sandboxed
+parent and checks the corresponding source archive and build script alongside
+the GPL license. Keep these materials with redistributed app bundles.

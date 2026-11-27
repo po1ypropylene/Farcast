@@ -103,7 +103,7 @@ require approval; report recurring prompts rather than deleting your saved crede
    or press Return to fill the ordinary fields. Enter passwords only in Password.
 5. Compare an unknown SSH host-key or untrusted RDP certificate fingerprint with
    your administrator's fingerprint before accepting it. Changed remembered
-   identities trigger a separate warning. In the **Security** tab, **Forget trusted identity**
+   identities trigger a separate warning. In SSH **Security**, or **General** for a desktop connection, **Forget trusted identity**
    removes the remembered exception.
 
 Double-click a saved connection to connect. For connections with a VPN selected,
@@ -111,8 +111,9 @@ right-click and choose **Connect Direct** below **Connect** to bypass that VPN f
 this session, including reconnects. The saved VPN setting stays unchanged; ordinary
 **Connect** and double-click still use it. Direct connections follow the Mac’s normal
 network routing. Context menus provide editing, duplication, and deletion.
-When editing a connection with an open tab, choose **Save & Reconnect** to apply
-the changes and switch to that tab, even if the session is disconnected.
+When an edit changes the endpoint, sign-in, network or another session setting,
+**Save & Reconnect** applies it to the open tab, including a disconnected tab.
+Files and terminal appearance edits take effect on Save.
 **Save** closes the editor and keeps your current tab selected.
 After SSH rejects credentials, **Retry sign-in**
 asks for fresh credentials instead of silently reusing the saved value. Check the
@@ -276,7 +277,14 @@ unavailable terminal/file modes are disabled. Forwarding permission is checked
 when the server receives each listener or destination request, so a successful
 login alone does not mean every rule will work.
 
-### SFTP file transfer
+### SSH file transfer
+
+In Files, choose Automatic, rsync only or SFTP only. Automatic selects the
+highest runnable rsync version on each end and uses SFTP if rsync cannot start.
+Farcast includes rsync for Macs where App Sandbox blocks external installations.
+Compress applies to the next rsync copy. Use the overwrite menu to ask, replace
+or skip. Open the Files tab in Edit Connection for version details, Re-check,
+path overrides and supported extra options. Moves use SFTP source verification.
 
 Connect with an existing SSH profile, then choose **Files** in its session tab.
 **Split View** keeps the terminal above the local and server file panels; **Terminal**
@@ -285,7 +293,7 @@ Terminal and Split prioritise keyboard responsiveness during transfers. Files
 uses the larger transfer pipeline for maximum throughput, which can help on
 high-latency links. Switching back to Split may briefly wait for queued file data
 to drain before the terminal becomes responsive.
-The server must allow its SFTP subsystem for file transfer. If it refuses an
+The server must allow its SFTP subsystem for browsing and file inspection. If it refuses an
 interactive terminal or ends the shell, the app checks SFTP and switches to
 **Files** when available. **Terminal**, **Split View** and terminal tools are disabled
 for that connection. Reconnecting checks the server's capabilities again.
@@ -330,9 +338,8 @@ for that connection. Reconnecting checks the server's capabilities again.
   local files until macOS removes them; do not rely on them for saved work.
 - Upload/download file conflicts offer **Stop Transfer**, **Overwrite Once**, or
   **Overwrite All** for the remaining batch. Matching folders merge their contents;
-  each conflicting regular file follows the chosen policy. Links and file/folder
-  type mismatches are refused. Completed items remain if you stop the batch.
-  Downloads publish atomically after completion; upload overwrites retain the old
+  each conflicting file follows the chosen policy. SFTP refuses links. Rsync preserves links inside transferred folders. Both engines check the top-level destination type. Completed items remain if you stop the batch.
+  With SFTP, downloads publish atomically after completion and upload overwrites retain the old
   file until an atomic server rename succeeds (requires the OpenSSH POSIX rename
   extension). Unsupported servers retain the original and report an error.
   Same-side local copies and renames still refuse existing destinations.

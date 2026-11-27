@@ -12,7 +12,9 @@ struct SessionPane: View {
             SwiftUI.Color(nsColor: terminal.view.nativeBackgroundColor), ignoresSafeAreaEdges: [])
     }
     private var filesView: some View {
-        SFTPView(controller: session.files, connected: session.state == .connected)
+        SFTPView(
+            controller: session.files, connected: session.state == .connected,
+            profileID: session.persistent ? session.profile.id : nil)
     }
     var body: some View {
         VStack(spacing: 0) {

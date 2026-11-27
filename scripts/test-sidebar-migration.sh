@@ -15,6 +15,10 @@ for name, fields in {
     for field in fields:
         assert text.count(field) == 1
         text = text.replace(field, '')
+    if name == 'SavedConnection.swift':
+        # Before rsync settings existed the store had no column for this value.
+        text = text.replace('var sshFileTransfer: Data? = nil', 'var sshFileTransfer: Data? { get { nil } set {} }')
+        text = text.replace('        sshFileTransfer = try? JSONEncoder().encode(draft.fileTransfer)\n', '')
     (root / name).write_text(text)
 PY
 xcrun swiftc -parse-as-library -module-name Farcast -target arm64-apple-macos27.0 -D BEFORE_SIDEBAR \

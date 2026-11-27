@@ -44,13 +44,18 @@ static BOOL sameLocalSource(struct stat before, struct stat after) {
 - (void)enqueueFileRequest:(NSDictionary *)request {
     [_lock lock];
     BOOL accepted = !atomic_load(&_stopped) && _fileRequests.count < 8;
-    if (accepted)
-        [_fileRequests addObject:request];
+    if (accepted) {
+        NSMutableDictionary *snapshot = [request mutableCopy];
+        snapshot[@"overwritePolicy"] = self.fileOverwritePolicy ?: @"ask";
+        [_fileRequests addObject:snapshot];
+    }
     [_lock unlock];
     if (!accepted && self.onFiles)
         self.onFiles(request[@"id"], @{}, @"The file request could not be queued.");
 }
 - (BOOL)approveReplacement:(NSString *)path {
+    if ([_workerOverwritePolicy isEqual:@"overwrite"])
+        return YES;
     if (!self.onFileConflict)
         return NO;
     NSString *token = NSUUID.UUID.UUIDString;
@@ -114,6 +119,8 @@ static BOOL sameLocalSource(struct stat before, struct stat after) {
 - (NSDictionary *)performFileRequest:(NSDictionary *)request {
     if (atomic_load(&_filesCancelled))
         return @{@"error" : @"File operation cancelled."};
+    if ([request[@"kind"] isEqual:@"rsync"] || [request[@"kind"] isEqual:@"probeRsync"])
+        return [self performRsync:request];
     NSString *requestID = request[@"id"], *path = request[@"path"];
     NSString *error = nil;
     NSDictionary *result = @{};
@@ -161,6 +168,8 @@ static BOOL sameLocalSource(struct stat before, struct stat after) {
             struct stat existing;
             int found = lstat(localPath.fileSystemRepresentation, &existing);
             if (found == 0) {
+                if ([_workerOverwritePolicy isEqual:@"skip"] && S_ISREG(existing.st_mode))
+                    return @{};
                 if (!S_ISREG(existing.st_mode) || ![self approveReplacement:localPath]) {
                     error = @"Transfer stopped. Existing destination was retained.";
                     goto finish;
@@ -218,6 +227,8 @@ openRemote:
                 error = @"Only regular destination files can be overwritten.";
                 goto finish;
             }
+            if ([_workerOverwritePolicy isEqual:@"skip"])
+                goto finish;
             if (![self approveReplacement:path]) {
                 error = @"Transfer stopped. No replacement was made.";
                 goto finish;

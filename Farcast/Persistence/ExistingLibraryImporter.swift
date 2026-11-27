@@ -100,6 +100,7 @@ enum PreviousLibraryIdentity {
                 copy.rdpUseAllMonitors = profile.rdpUseAllMonitors
                 copy.rdpRetinaDisplay = profile.rdpRetinaDisplay
                 copy.rdpFolderExports = profile.rdpFolderExports
+                copy.sshFileTransfer = profile.sshFileTransfer
                 copy.sshForwardingRules = profile.sshForwardingRules
                 copy.created = profile.created
                 copy.favoriteOrder = profile.favoriteOrder

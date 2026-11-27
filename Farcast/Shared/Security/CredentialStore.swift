@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-struct ConnectionCredential: Codable {
+struct ConnectionCredential: Codable, Equatable {
     var password = ""
     var privateKey: Data?
     var keyName: String?
@@ -27,6 +27,20 @@ struct CredentialStore {
             if let storage { return try storage.credentials.load(id) }
             return try LegacyCredentialStore.loadForMigration(id)
         }
+    }
+    static func editorSavingDescription(_ id: UUID) -> (text: String, warning: Bool) {
+        (try? ConnectionStorageSession.withOptionalStorage { storage in
+            if let storage {
+                let protection = storage.manifest.protection
+                return protection == .unencrypted
+                    ? ("Connection folder stores readable credentials.", true)
+                    : ("Connection folder · " + protection.title, false)
+            }
+            if LegacyCredentialStore.usesLocalFiles(id) {
+                return ("Credentials use unencrypted, owner-only local files.", true)
+            }
+            return ("Saved in Keychain when available.", false)
+        }) ?? ("Review credential protection in Settings.", true)
     }
     static var savingDescription: String {
         (try? ConnectionStorageSession.withOptionalStorage { storage in
@@ -67,6 +81,15 @@ struct LegacyCredentialStore {
     private static var local: LocalCredentialStore { LocalCredentialStore(root: legacyRoot) }
     private static func unavailable(_ status: OSStatus) -> Bool {
         [errSecMissingEntitlement, errSecAuthFailed, errSecInteractionNotAllowed, errSecNotAvailable].contains(status)
+    }
+    static func usesLocalFiles(_ id: UUID) -> Bool {
+        // Check only metadata. A missing record says nothing about its contents.
+        if FileManager.default.fileExists(atPath: legacyRoot.appendingPathComponent(id.uuidString + ".json").path) {
+            return true
+        }
+        // An unused account cannot trigger a credential disclosure or Keychain ACL prompt.
+        let status = SecItemCopyMatching(query(UUID()) as CFDictionary, nil)
+        return unavailable(status)
     }
     static func load(_ id: UUID) throws -> ConnectionCredential? {
         if let credential = try local.load(id) { return credential }

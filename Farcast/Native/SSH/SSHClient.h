@@ -29,6 +29,7 @@ NS_ASSUME_NONNULL_BEGIN
            password:(NSString *)password
          privateKey:(nullable NSData *)key
      authentication:(NSString *)authentication;
+@property(atomic, copy, nullable) NSString *fileOverwritePolicy;
 // Results and progress are delivered on the SSH worker, never the UI thread.
 @property(nonatomic, copy, nullable) void (^onFiles)
     (NSString *requestID, NSDictionary *result, NSString *_Nullable error);
@@ -53,6 +54,7 @@ NS_ASSUME_NONNULL_BEGIN
           destination:(NSString *)destination
                  move:(BOOL)move
             requestID:(NSString *)requestID;
+@property(nonatomic, copy, nullable) void (^onRsyncProgress)(NSString *requestID, NSString *progress);
 - (void)sendData:(NSData *)data;
 // Thread-safe scheduling hint; native handles remain exclusively on the worker.
 - (void)setTerminalVisible:(BOOL)visible;
@@ -63,5 +65,9 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)whenAllDisconnected:(void (^)(void))completion;
 // Pre-UI packaging check: production listener code, owned loopback sockets only.
 + (BOOL)verifyForwardingListener;
+@end
+@interface FCSSHClient (RsyncWorker)
+- (void)probeRsync:(NSString *)overridePath requestID:(NSString *)requestID;
+- (void)transferRsync:(NSDictionary *)configuration requestID:(NSString *)requestID;
 @end
 NS_ASSUME_NONNULL_END
