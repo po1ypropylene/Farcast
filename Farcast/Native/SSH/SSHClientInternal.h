@@ -10,6 +10,7 @@
 @interface FCSSHClient () {
     atomic_bool _stopped;
     atomic_bool _filesCancelled;
+    atomic_uint _queuedListings;
     atomic_bool _terminalVisible;
     NSString *_conflictToken;
     NSInteger _conflictChoice;
@@ -91,6 +92,7 @@ static inline NSDictionary *remoteSnapshot(LIBSSH2_SFTP_ATTRIBUTES attrs) {
 - (void)enqueueFileRequest:(NSDictionary *)request;
 - (BOOL)approveReplacement:(NSString *)path;
 - (BOOL)waitForFileUntil:(double)deadline;
+- (void)servicePendingFileListing;
 - (NSDictionary *)performFileRequest:(NSDictionary *)request;
 @end
 

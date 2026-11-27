@@ -19,7 +19,7 @@ import SwiftUI
         let controller = SFTPController(homeURL: directory, requiresAccess: false)
         let client = FCSSHClient()
         controller.attach(client)
-        controller.busy = true
+        controller.newFolder(local: false, name: "fixture")
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 250),
             styleMask: [.titled], backing: .buffered, defer: false)

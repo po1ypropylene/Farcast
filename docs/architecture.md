@@ -853,6 +853,7 @@ Worker capability callbacks use the session's generation guard, select Files and
 disable Terminal/Split and terminal tools. The secondary tool buttons enforce
 per-mode disabled states; preserve that behavior when changing the mode picker.
 Reconnect checks capabilities anew.
+File jobs retain their original paths while either pane navigates. Server listings have independent request IDs. The SSH worker services them between transfer I/O operations on the authenticated session.
 Server navigation records only successful visits in a 32-folder Back/Forward
 history. A controller-local LRU listing cache retains at most 16 folders and
 4 MiB of accounted path/name/entry payload, with a 30-second lifetime measured

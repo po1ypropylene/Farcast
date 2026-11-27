@@ -174,7 +174,10 @@ private struct RemoteFolderCache {
     @Published var remoteFiles: [TransferFile] = []
     @Published var localURL: URL?
     @Published var localFiles: [TransferFile] = []
-    @Published var busy = false
+    @Published private var working = false
+    @Published private var listingID: String?
+    var readingFolder: Bool { listingID != nil }
+    var busy: Bool { working || readingFolder }
     @Published private(set) var needsLocalAccess = true
     @Published private(set) var cancelling = false
     @Published var message = "Choose Files or Split to browse this server."
@@ -205,8 +208,8 @@ private struct RemoteFolderCache {
     @Published private var remoteHistory: [String] = []
     @Published private var historyIndex = -1
     private var requestedHistoryIndex: Int?
-    var canGoRemoteBack: Bool { !busy && historyIndex > 0 }
-    var canGoRemoteForward: Bool { !busy && historyIndex + 1 < remoteHistory.count }
+    var canGoRemoteBack: Bool { !readingFolder && historyIndex > 0 }
+    var canGoRemoteForward: Bool { !readingFolder && historyIndex + 1 < remoteHistory.count }
     private var requested = false
     private var scope: URL?
     private var bufferScope: URL?
@@ -275,13 +278,18 @@ private struct RemoteFolderCache {
     func cancel() {
         guard busy, !cancelling else { return }
         cancelling = true
+        if !working {
+            message = "Cancelling…"
+            client?.cancelFiles()
+            return
+        }
         conflict = nil
         jobs = []
         message = "Cancelling…"
         if activeJob == nil && !dropProviders.isEmpty {
             dropAttempt = UUID()
             releaseDropAccess()
-            busy = false
+            working = false
             cancelling = false
             message = "Cancelled"
             return
@@ -315,7 +323,7 @@ private struct RemoteFolderCache {
         overwriteAll = false
         client.onFileConflict = { [weak self, weak client] token, name in
             DispatchQueue.main.async {
-                guard let self, let client, self.client === client, self.busy, !self.cancelling else {
+                guard let self, let client, self.client === client, self.working, !self.cancelling else {
                     client?.resolveFileConflict(token, overwrite: false)
                     return
                 }
@@ -335,7 +343,7 @@ private struct RemoteFolderCache {
         preparingTransfers = false
         requested = false
         requestID = nil
-        busy = false
+        working = false
         progress = nil
         resetTransferSpeed()
         error = nil
@@ -355,7 +363,7 @@ private struct RemoteFolderCache {
         if !overwrite { cancel() }
     }
     func showFiles() {
-        guard !requested, !busy else { return }
+        guard !requested, !readingFolder else { return }
         readRemote(path: remotePath, listing: .reload)
     }
     func refreshRemote(path: String? = nil) {
@@ -373,7 +381,7 @@ private struct RemoteFolderCache {
         readRemote(path: remoteHistory[historyIndex + 1], history: historyIndex + 1)
     }
     private func readRemote(path: String, listing: RemoteListing = .browse, history: Int? = nil) {
-        guard !busy, let client else { return }
+        guard !readingFolder, let client else { return }
         requested = true
         requestedHistoryIndex = history
         if listing != .browse { folderCache.remove(path) }
@@ -382,12 +390,18 @@ private struct RemoteFolderCache {
             remotePath = path
             remoteFiles = files
             recordRemoteVisit(path)
-            message = "\(files.count) server items (cached). Refresh to check for changes."
+            if !working { message = "\(files.count) server items (cached). Refresh to check for changes." }
             return
         }
         remoteListing = listing
         requestPath = path
-        let id = begin("Reading server folder…")
+        let id = UUID().uuidString
+        listingID = id
+        if !working {
+            progress = nil
+            message = "Reading server folder…"
+            error = nil
+        }
         client.listDirectory(requestPath, requestID: id)
     }
     private func recordRemoteVisit(_ path: String) {
@@ -406,6 +420,7 @@ private struct RemoteFolderCache {
         }
     }
     private func resetRemoteBrowsing() {
+        listingID = nil
         folderCache = RemoteFolderCache()
         remoteHistory = []
         historyIndex = -1
@@ -417,7 +432,7 @@ private struct RemoteFolderCache {
     }
     private func begin(_ text: String, id: String = UUID().uuidString) -> String {
         requestID = id
-        busy = true
+        working = true
         progress = fileCount > 1 && !batchFileCounts.isEmpty ? Double(completedFiles) / Double(fileCount) : nil
         resetTransferSpeed()
         error = nil
@@ -427,6 +442,40 @@ private struct RemoteFolderCache {
     func receive(id: String, result: [AnyHashable: Any], error: String?) {
         if id == probeID {
             remoteRsync = RsyncDiscovery.remote(result["versions"] as? Data, override: settings.remoteRsyncPath)
+            return
+        }
+        if id == listingID {
+            listingID = nil
+            if cancelling {
+                requestedHistoryIndex = nil
+                if !working {
+                    cancelling = false
+                    message = "Cancelled"
+                }
+                return
+            }
+            if let error {
+                requestedHistoryIndex = nil
+                self.error = error
+                if !working { message = "Could not open the server folder." }
+                return
+            }
+            remotePath = result["path"] as? String ?? requestPath
+            remoteFiles = sorted(
+                (result["entries"] as? [[String: Any]] ?? []).compactMap { entry in
+                    guard let name = entry["name"] as? String else { return nil }
+                    return TransferFile(
+                        name: name, directory: entry["directory"] as? Bool ?? false,
+                        regular: entry["regular"] as? Bool ?? false,
+                        size: (entry["size"] as? NSNumber)?.uint64Value ?? 0)
+                })
+            if !working { folderCache.store(remoteFiles, at: remotePath, now: clock()) }
+            recordRemoteVisit(remotePath)
+            if !working {
+                message =
+                    remoteListing == .refresh
+                    ? "Server refreshed · \(remoteFiles.count) items" : "\(remoteFiles.count) server items"
+            }
             return
         }
         guard requestID == id else { return }
@@ -450,9 +499,8 @@ private struct RemoteFolderCache {
         if cancelling {
             progress = nil
             preparingTransfers = false
-            requestedHistoryIndex = nil
             cancelling = false
-            busy = false
+            working = false
             activeJob = nil
             jobs = []
             self.error = nil
@@ -464,8 +512,7 @@ private struct RemoteFolderCache {
         if let error {
             progress = nil
             preparingTransfers = false
-            requestedHistoryIndex = nil
-            busy = false
+            working = false
             self.error = error
             jobs = []
             activeJob = nil
@@ -479,28 +526,12 @@ private struct RemoteFolderCache {
             batchFileCounts = (result["fileCounts"] as? [String: NSNumber] ?? [:]).mapValues { $0.intValue }
             fileCount = batchFileCounts.values.reduce(0, +)
             runNext()
-        } else if let remoteListing {
-            progress = nil
-            busy = false
-            remotePath = result["path"] as? String ?? requestPath
-            remoteFiles = sorted(
-                (result["entries"] as? [[String: Any]] ?? []).compactMap { entry in
-                    guard let name = entry["name"] as? String else { return nil }
-                    return TransferFile(
-                        name: name, directory: entry["directory"] as? Bool ?? false,
-                        regular: entry["regular"] as? Bool ?? false,
-                        size: (entry["size"] as? NSNumber)?.uint64Value ?? 0)
-                })
-            folderCache.store(remoteFiles, at: remotePath, now: clock())
-            recordRemoteVisit(remotePath)
-            message =
-                remoteListing == .refresh
-                ? "Server refreshed · \(remoteFiles.count) items" : "\(remoteFiles.count) server items"
         } else {
             if let preview = activeJob?.preview, !NSWorkspace.shared.open(preview) {
                 self.error = "The file was downloaded, but no application could open it."
-                busy = false
+                working = false
                 jobs = []
+                releaseDropAccess()
                 activeJob = nil
                 return
             }
@@ -563,7 +594,7 @@ private struct RemoteFolderCache {
         requestID = nil
         jobs = []
         activeJob = nil
-        busy = false
+        working = false
         progress = nil
         resetTransferSpeed()
         requested = false
@@ -573,7 +604,7 @@ private struct RemoteFolderCache {
         message = "Reconnect SSH to browse files."
     }
     func navigateLocal(path: String) {
-        guard !busy, !path.isEmpty else { return }
+        guard !path.isEmpty else { return }
         let target: URL
         if path == "~" || path.hasPrefix("~/") {
             target = homeURL.appendingPathComponent(String(path.dropFirst(2)))
@@ -590,7 +621,6 @@ private struct RemoteFolderCache {
         refreshLocal(target: url)
     }
     func chooseLocalFolder(startingAt target: URL? = nil) {
-        guard !busy else { return }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -600,7 +630,7 @@ private struct RemoteFolderCache {
             needsLocalAccess
             ? "Allow access to your Home folder for file transfers." : "Choose a local folder for file transfers."
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        scope?.stopAccessingSecurityScopedResource()
+        if working, let scope { dropScopes.append(scope) } else { scope?.stopAccessingSecurityScopedResource() }
         scope = url.startAccessingSecurityScopedResource() ? url : nil
         localURL = url
         needsLocalAccess = false
@@ -628,17 +658,16 @@ private struct RemoteFolderCache {
             if remoteRecentsKey != nil {
                 SFTPRecentFolders.shared.record(localURL.path, for: SFTPRecentFolders.localKey)
             }
-            if reportRefresh { message = "Local Mac refreshed · \(localFiles.count) items" }
+            if reportRefresh && !working { message = "Local Mac refreshed · \(localFiles.count) items" }
         } catch {
             if target == nil { localFiles = [] }
             self.error = "Could not read the selected local folder. Choose it again to grant access."
         }
     }
     func open(_ file: TransferFile, local: Bool) {
-        guard !busy else { return }
         if file.directory {
             if local { openLocal(file) } else { openRemote(file) }
-        } else if file.regular {
+        } else if !busy, file.regular {
             if local, let url = localURL?.appendingPathComponent(file.name) {
                 if !NSWorkspace.shared.open(url) { error = "No application could open this file." }
             } else if !local {
@@ -665,12 +694,12 @@ private struct RemoteFolderCache {
         NSWorkspace.shared.activateFileViewerSelecting(files.map { localURL.appendingPathComponent($0.name) })
     }
     func openLocal(_ file: TransferFile) {
-        guard !busy, file.directory, let localURL else { return }
+        guard file.directory, let localURL else { return }
         self.localURL = localURL.appendingPathComponent(file.name, isDirectory: true)
         refreshLocal()
     }
     func localParent() {
-        guard !busy, let localURL, canGoLocalUp else { return }
+        guard let localURL, canGoLocalUp else { return }
         self.localURL = localURL.deletingLastPathComponent()
         refreshLocal()
     }
@@ -781,7 +810,7 @@ private struct RemoteFolderCache {
         return true
     }
     private func run(_ work: [FileJob]) {
-        guard !busy, !work.isEmpty, work.allSatisfy({ $0.local || client != nil }) else { return }
+        guard !working, !work.isEmpty, work.allSatisfy({ $0.local || client != nil }) else { return }
         if work.contains(where: { !$0.local && ($0.operation != "downloadTree" || $0.move) }) {
             // Recursive writes/moves may affect several cached ancestors, even on failure.
             folderCache = RemoteFolderCache()
@@ -804,7 +833,6 @@ private struct RemoteFolderCache {
         jobs = work
         batchCount = work.count
         completed = 0
-        remoteListing = nil
         completedFiles = 0
         batchFileCounts = [:]
         fileCount = 0
@@ -862,7 +890,7 @@ private struct RemoteFolderCache {
     private func runNext() {
         guard !jobs.isEmpty else {
             progress = fileCount > 0 ? 1 : nil
-            busy = false
+            working = false
             releaseDropAccess()
             message = "Completed \(completed) items"
             refreshLocal()
@@ -1082,7 +1110,7 @@ private struct RemoteFolderCache {
         }
         let external = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
         guard !external.isEmpty else { return false }
-        busy = true
+        working = true
         message = "Preparing dropped files…"
         dropProviders = external
         dropAttempt = UUID()
@@ -1101,12 +1129,12 @@ private struct RemoteFolderCache {
             guard self.dropAttempt == attempt else { return }
             guard self.busy, self.dropProviders.count == external.count, !self.cancelling else {
                 self.releaseDropAccess()
-                self.busy = false
+                self.working = false
                 self.cancelling = false
                 return
             }
             for url in sources where url.startAccessingSecurityScopedResource() { self.dropScopes.append(url) }
-            self.busy = false
+            self.working = false
             guard sources.count == external.count else {
                 self.releaseDropAccess()
                 self.error = "Some dropped items could not be opened. Drop files or folders from Finder."

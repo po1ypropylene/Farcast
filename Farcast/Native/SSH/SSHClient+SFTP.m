@@ -48,10 +48,36 @@ static BOOL sameLocalSource(struct stat before, struct stat after) {
         NSMutableDictionary *snapshot = [request mutableCopy];
         snapshot[@"overwritePolicy"] = self.fileOverwritePolicy ?: @"ask";
         [_fileRequests addObject:snapshot];
+        if ([request[@"kind"] isEqual:@"list"])
+            atomic_fetch_add(&_queuedListings, 1);
     }
     [_lock unlock];
     if (!accepted && self.onFiles)
         self.onFiles(request[@"id"], @{}, @"The file request could not be queued.");
+}
+// Called on the SSH worker between completed I/O operations. Keep the transfer's
+// request, overwrite policy and cancellation state in place while browsing.
+- (void)servicePendingFileListing {
+    if (!atomic_load(&_queuedListings))
+        return;
+    [_lock lock];
+    NSDictionary *listing = nil;
+    for (NSDictionary *request in _fileRequests) {
+        if ([request[@"kind"] isEqual:@"list"]) {
+            listing = request;
+            break;
+        }
+    }
+    if (listing) {
+        [_fileRequests removeObjectIdenticalTo:listing];
+        atomic_fetch_sub(&_queuedListings, 1);
+    }
+    [_lock unlock];
+    if (listing) {
+        NSDictionary *reply = [self performFileRequest:listing];
+        if (self.onFiles)
+            self.onFiles(listing[@"id"], reply, reply[@"error"]);
+    }
 }
 - (BOOL)approveReplacement:(NSString *)path {
     if ([_workerOverwritePolicy isEqual:@"overwrite"])
@@ -69,6 +95,7 @@ static BOOL sameLocalSource(struct stat before, struct stat after) {
         [_lock lock];
         choice = _conflictChoice;
         [_lock unlock];
+        [self servicePendingFileListing];
         if (choice >= 0)
             break;
         if (![self serviceInteractive]) {
@@ -356,11 +383,16 @@ openRemote:
                         offset += written;
                         bytes += written;
                         offered = 0;
+                        // A partial acknowledgement may leave half a packet on the SFTP stream.
+                        // Drain the submitted window before issuing a directory request.
+                        if (!upload || offset == count)
+                            [self servicePendingFileListing];
                         deadline = monotonicTime() + 30;
                         // Refill only after a positive acknowledgement, never on EAGAIN:
                         // libssh2 requires identical unacknowledged bytes on retries.
                         // Keeping the bounded window full avoids draining it between reads.
-                        if (upload && offset >= MAX(32 * 1024, budget / 4) && !atomic_load(&_filesCancelled)) {
+                        if (upload && offset >= MAX(32 * 1024, budget / 4) && !atomic_load(&_filesCancelled) &&
+                            !atomic_load(&_queuedListings)) {
                             size_t remaining = count - offset;
                             memmove(buffer, buffer + offset, remaining);
                             // After switching to Split, drain previously queued bulk

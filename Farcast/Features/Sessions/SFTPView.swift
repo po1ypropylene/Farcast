@@ -114,8 +114,8 @@ struct SFTPView: View {
             path = value
             remoteSelection = []
         }
-        .onChange(of: controller.busy) { _, busy in
-            if !busy { path = controller.remotePath }
+        .onChange(of: controller.readingFolder) { _, reading in
+            if !reading { path = controller.remotePath }
         }
         .onChange(of: controller.localURL) { _, url in
             localPath = url?.path ?? ""
@@ -191,19 +191,19 @@ struct SFTPView: View {
                 IconActionButton(title: "Parent local folder", symbol: "arrow.up") {
                     controller.localParent()
                 }
-                .disabled(controller.busy || !controller.canGoLocalUp).help("Parent local folder")
+                .disabled(!controller.canGoLocalUp).help("Parent local folder")
                 SFTPPathField(
                     title: "Local folder", text: $localPath, paths: recents.paths(for: SFTPRecentFolders.localKey)
                 ) {
                     controller.navigateLocal(path: $0)
-                }.disabled(controller.busy)
+                }
                 IconActionButton(title: "Choose local folder", symbol: "folder") {
                     controller.chooseLocalFolder()
-                }.disabled(controller.busy)
+                }
                 IconActionButton(title: "Refresh local files", symbol: "arrow.clockwise") {
                     controller.refreshLocal(reportRefresh: true)
                 }
-                .disabled(controller.busy || controller.needsLocalAccess || controller.localURL == nil)
+                .disabled(controller.needsLocalAccess || controller.localURL == nil)
             }.font(.callout).padding(.horizontal, 10).padding(.bottom, 8).zIndex(1)
             Divider()
             filterField($localFilter, title: "Filter local files")
@@ -249,21 +249,22 @@ struct SFTPView: View {
                 IconActionButton(title: "Parent server folder", symbol: "arrow.up") {
                     controller.remoteParent()
                 }
-                .disabled(!connected || controller.busy || controller.remotePath == "/").help("Parent server folder")
+                .disabled(!connected || controller.readingFolder || controller.remotePath == "/").help(
+                    "Parent server folder")
                 SFTPPathField(
                     title: "Server folder", text: $path,
                     paths: controller.remoteRecentsKey.map { recents.paths(for: $0) } ?? []
                 ) {
                     controller.navigateRemote(path: $0)
-                }.disabled(!connected || controller.busy)
+                }.disabled(!connected || controller.readingFolder)
                 IconActionButton(title: "Open server folder", symbol: "arrow.right") {
                     controller.navigateRemote(path: path)
                 }
-                .disabled(!connected || controller.busy).help("Open server folder")
+                .disabled(!connected || controller.readingFolder).help("Open server folder")
                 IconActionButton(title: "Refresh server files", symbol: "arrow.clockwise") {
                     controller.refreshRemote()
                 }
-                .disabled(!connected || controller.busy).help("Refresh server files")
+                .disabled(!connected || controller.readingFolder).help("Refresh server files")
             }.font(.callout).padding(.horizontal, 10).padding(.bottom, 8).zIndex(1)
             Divider()
             filterField($remoteFilter, title: "Filter server files")
@@ -343,10 +344,13 @@ struct SFTPView: View {
                 .contextMenu(forSelectionType: String.self) { ids in
                     let items = selected(files, ids: ids)
                     let available = !controller.busy && (local ? !controller.needsLocalAccess : connected)
+                    let canBrowse = local ? !controller.needsLocalAccess : connected && !controller.readingFolder
                     if !items.isEmpty {
                         Button(local ? "Open" : items.first?.directory == true ? "Open folder" : "Open local copy…") {
                             if let file = items.first { controller.open(file, local: local) }
-                        }.disabled(!available || items.count != 1 || items.first?.transferable != true)
+                        }.disabled(
+                            !(items.first?.directory == true ? canBrowse : available) || items.count != 1
+                                || items.first?.transferable != true)
                         if local {
                             Button("Reveal in Finder") { controller.reveal(items) }.disabled(controller.busy)
                         }
@@ -374,7 +378,7 @@ struct SFTPView: View {
                     Button("Refresh") {
                         if local { controller.refreshLocal(reportRefresh: true) } else { controller.refreshRemote() }
                     }
-                    .disabled(!available)
+                    .disabled(!canBrowse)
                     if !items.isEmpty {
                         Divider()
                         Button(local ? "Move to Trash…" : "Delete…", role: .destructive) {

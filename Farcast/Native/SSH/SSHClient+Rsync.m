@@ -401,6 +401,8 @@ static NSString *receiveStreams(int socket, int streams[2], NSString *binary, NS
                         }
                     }
                 }
+                if (started && !outSize)
+                    [self servicePendingFileListing];
                 if (!ended)
                     ended = waitpid(pid, &childStatus, WNOHANG) == pid;
                 if (ended && n <= 0 && !activity)

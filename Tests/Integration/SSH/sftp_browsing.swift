@@ -19,7 +19,11 @@ private final class BrowsingClient: FCSSHClient {
 @main struct BrowsingChecks {
     @MainActor static func main() {
         var now = 100.0
-        let controller = SFTPController(connectionID: UUID(), clock: { now })
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let child = root.appendingPathComponent("child", isDirectory: true)
+        try! FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let controller = SFTPController(connectionID: UUID(), homeURL: root, requiresAccess: false, clock: { now })
         let historyKey = controller.remoteRecentsKey!
         defer { UserDefaults.standard.removeObject(forKey: historyKey) }
         let client = BrowsingClient()
@@ -76,6 +80,16 @@ private final class BrowsingClient: FCSSHClient {
         controller.remoteForward()
         reply("/other")
         controller.newFolder(local: false, name: "created")
+        let activeMessage = controller.message
+        controller.open(controller.localFiles.first!, local: true)
+        controller.navigateRemote(path: "/uncached")
+        reply("/uncached")
+        check(
+            controller.busy && controller.message == activeMessage && controller.remotePath == "/uncached"
+                && controller.localURL?.path == child.path, "both-panes-browse-during-operation")
+        controller.localParent()
+        controller.remoteBack()
+        reply("/other")
         controller.receive(id: client.operations.last!, result: [:], error: "Synthetic write failure")
         controller.remoteBack()
         check(controller.busy, "failed-mutation-invalidates-other-folders")

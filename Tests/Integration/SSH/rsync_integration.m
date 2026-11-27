@@ -29,8 +29,23 @@ int main(int argc, char **argv) {
         if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC)) || !ready)
             return 3;
         __block NSDictionary *reply;
+        __block BOOL browseRequested = NO, browsed = NO;
+        __weak FCSSHClient *weak = client;
+        client.onRsyncProgress = ^(NSString *identifier, NSString *line) {
+          if (!browseRequested) {
+              browseRequested = YES;
+              [weak listDirectory:@"/" requestID:@"browse"];
+          }
+        };
         client.onFiles = ^(NSString *identifier, NSDictionary *result, NSString *error) {
-          reply = result;
+          if ([identifier isEqual:@"browse"]) {
+              browsed = !error && result[@"entries"] != nil;
+              return;
+          }
+          if (browseRequested && !browsed)
+              reply = @{@"error" : @"The copy finished before the folder listing."};
+          else
+              reply = result;
           dispatch_semaphore_signal(done);
         };
         [client probeRsync:@"" requestID:@"probe"];
@@ -63,7 +78,6 @@ int main(int argc, char **argv) {
             return 15;
         __block int conflicts = 0;
         __block BOOL stopOnConflict = NO;
-        __weak FCSSHClient *weak = client;
         client.onFileConflict = ^(NSString *token, NSString *name) {
           if (stopOnConflict) {
               [weak cancelFiles];
@@ -93,6 +107,8 @@ int main(int argc, char **argv) {
                 return 5;
             }
         }
+        if (!browsed)
+            return 16;
         NSString *src = [root stringByAppendingPathComponent:@"input/leaf"],
                  *dst = [root stringByAppendingPathComponent:@"single"];
         NSMutableDictionary *single = [@{

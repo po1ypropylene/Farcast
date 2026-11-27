@@ -64,6 +64,7 @@
     // READDIR already carries metadata. Reuse complete snapshots for preflight,
     // with LSTAT fallback for servers omitting fields. Transfer-time source
     // identity/metadata rechecks and move-deletion checks remain independent.
+    [self servicePendingFileListing];
     if (![self serviceInteractive]) {
         [self disconnect];
         return NO;
@@ -158,6 +159,7 @@
                 if (rc)
                     return @"Could not remove a local source item. Some items may remain.";
             }
+            [self servicePendingFileListing];
             if (![self serviceInteractive]) {
                 [self disconnect];
                 return @"Connection interrupted.";

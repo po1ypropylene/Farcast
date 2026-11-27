@@ -21,6 +21,7 @@ int main(int argc, char **argv) {
         dispatch_semaphore_t finished = dispatch_semaphore_create(0);
         __block BOOL stopped = NO, cancelled = NO, responseError = NO, resumed = NO;
         __block BOOL terminalUnavailable = NO, echoRequested = NO, inFlightEcho = NO, fileReplyReceived = NO;
+        __block BOOL browseRequested = NO, browsed = NO;
         __block int trusts = 0;
         NSMutableString *text = [NSMutableString new];
         client.onTrust = ^BOOL(NSString *fingerprint, NSString *details) {
@@ -46,6 +47,10 @@ int main(int argc, char **argv) {
               dispatch_semaphore_signal(echo);
         };
         client.onFiles = ^(NSString *id, NSDictionary *result, NSString *error) {
+          if ([id isEqual:@"browse"]) {
+              browsed = !error && result[@"entries"] && !fileReplyReceived;
+              return;
+          }
           if ([id isEqual:@"cancel"]) {
               fileReplyReceived = YES;
               responseError = error != nil;
@@ -55,11 +60,15 @@ int main(int argc, char **argv) {
           dispatch_semaphore_signal(reply);
         };
         client.onFileProgress = ^(NSString *id, unsigned long long bytes, unsigned long long total) {
+          if (bytes > 0 && !browseRequested) {
+              browseRequested = YES;
+              [weak listDirectory:@"/" requestID:@"browse"];
+          }
           if ([id isEqual:@"cancel"] && bytes > 0 && !filesOnly && !echoRequested) {
               echoRequested = YES;
               [weak sendData:[@"during-file-transfer\n" dataUsingEncoding:NSUTF8StringEncoding]];
           }
-          if ([id isEqual:@"cancel"] && bytes > 0 && !cancelled && (filesOnly || inFlightEcho)) {
+          if ([id isEqual:@"cancel"] && bytes > 0 && browsed && !cancelled && (filesOnly || inFlightEcho)) {
               cancelled = YES;
               [weak cancelFiles];
           }

@@ -5,6 +5,8 @@ assigned only when a separate release request is made.
 
 ## Unreleased
 
+- Browse local and server folders in Files while an rsync or SFTP transfer continues to its original destination.
+
 ## 2.11.0 — 2026-11-27
 
 - SSH file copies now prefer rsync on new and existing profiles. Farcast includes rsync 3.5.2, uses the authenticated SSH session, and can fall back to SFTP. Set the method and compression per connection in Files. Compression starts off.

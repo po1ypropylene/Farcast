@@ -438,6 +438,8 @@ static void keyboardPrompt(const char *name, int nameLen, const char *instructio
             NSDictionary *request = _fileRequests.firstObject;
             if (request) {
                 [_fileRequests removeObjectAtIndex:0];
+                if ([request[@"kind"] isEqual:@"list"])
+                    atomic_fetch_sub(&_queuedListings, 1);
                 _activeFileRequest = request[@"id"];
                 _workerOverwritePolicy = request[@"overwritePolicy"];
             }
@@ -500,6 +502,7 @@ cleanup:
     _socket = -1;
     [_outgoing setLength:0];
     [_fileRequests removeAllObjects];
+    atomic_store(&_queuedListings, 0);
     _preparedFileTrees = nil;
     if (_forwardWakeRead >= 0)
         close(_forwardWakeRead);

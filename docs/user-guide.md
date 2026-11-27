@@ -279,6 +279,8 @@ login alone does not mean every rule will work.
 
 ### SSH file transfer
 
+During a transfer, you can open folders, enter paths and refresh either Files pane. The transfer continues between the locations you selected when you started it.
+
 In Files, choose Automatic, rsync only or SFTP only. Automatic selects the
 highest runnable rsync version on each end and uses SFTP if rsync cannot start.
 Farcast includes rsync for Macs where App Sandbox blocks external installations.
