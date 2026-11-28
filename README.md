@@ -1,68 +1,41 @@
 # Farcast
 
-<img src="docs/images/Farcast-Icon.png" alt="Farcast app icon" width="128" height="128">
+<img src="docs/images/Farcast-Icon.png" alt="Farcast app icon" width="80" height="80">
 
-SSH terminals, rsync/SFTP file transfers and RDP/VNC desktops in one native Mac app.
-Includes saved connections, session tabs, SSH tunnels and optional shared WireGuard or OpenVPN for SSH, RDP and VNC.
+Farcast is a native Mac app for SSH terminals, file transfers, and RDP and VNC desktops. It runs on **Apple silicon with macOS 27 or later**.
 
-Farcast is free and open source under the [MIT License](LICENSE): free to download,
-use, modify and redistribute. Retain the copyright and license notice.
-[Bundled dependencies](ThirdParty/README.md) retain their own licenses.
-
-Requires **macOS 27+ and Apple silicon**. Protocol libraries are bundled.
-Local builds are Apple Development signed and unnotarized.
-Credentials use Keychain with an **unencrypted local fallback**, or an optional
-connection folder with key-file/password AES-128 encryption or unencrypted files.
-
-## Install and first launch
-
-Farcast’s local delivery is signed but **not notarized**, so macOS may block its
-first launch. Only approve a copy you trust.
-
-1. Open the DMG and drag **Farcast.app** to **Applications**. For a source build,
-   use the app path in [Build](#build) below.
-2. Open Farcast once. If macOS blocks it because the developer cannot be verified
-   or Apple cannot check it for malicious software, dismiss the alert without
-   moving the app to the Trash.
-3. Open **System Settings → Privacy & Security**, scroll to **Security**, and
-   click **Open Anyway** beside the notice about Farcast. Try opening the app
-   again if the notice is absent.
-4. Authenticate when prompted, then click **Open** to confirm.
-
-After this approval, open Farcast normally. See
-[Apple’s first-launch instructions](https://support.apple.com/en-hk/102445).
+- **Manage connections.** Organize hosts into folders, find a saved connection by name, or use Quick Connect. Switch between sessions in tabs or move one into its own window.
+- **Work over SSH.** Use a terminal, forward ports, and drag files between your Mac and the server over the same login. File transfers prefer rsync with SFTP fallback. Keep browsing while a copy runs, or jump back to a recent folder.
+- **Use a remote desktop.** Connect to Windows over RDP or to a VNC desktop. RDP supports optional clipboard and folder sharing.
+- **Route through a VPN.** Assign a WireGuard or OpenVPN profile to a connection, or choose Connect Direct for a single session.
+- **Capture a session.** Press **⇧⌘S** to save the visible terminal or desktop as PNG or JPEG, copy it to the clipboard, or both.
 
 ## Screenshots
 
-![Farcast workspace and saved connections](docs/images/Farcast-Home.png)
+**Connection library**
 
-**SSH terminal**
+<img src="docs/images/Farcast-Home.png" alt="Saved SSH and RDP connections organized into folders in the Farcast workspace" width="840">
 
-![SSH terminal and connection tabs](docs/images/Farcast-SSH.png)
+**SSH terminal and session tabs**
 
-**SFTP file transfer**
+<img src="docs/images/Farcast-SSH.png" alt="Two SSH sessions open in tabs, with a terminal showing service status" width="840">
 
-![Local and remote SFTP file panels](docs/images/Farcast-SFTP.png)
+**File transfer over SSH**
 
-**Remote desktop**
+<img src="docs/images/Farcast-SFTP.png" alt="Local and remote folders side by side while rsync uploads research-brief.pdf" width="840">
 
-<img src="docs/images/Farcast-RDP.png" alt="Windows desktop showing Microsoft Word in Farcast’s RDP session">
+**Windows desktop over RDP**
 
-**Connection editor**
+<img src="docs/images/Farcast-RDP.png" alt="Microsoft Word and the Windows taskbar inside a Farcast RDP session" width="840">
 
-<img src="docs/images/Farcast-EditConnection.png" alt="Tabbed connection editor and sign-in settings">
+**Per-connection transfer settings**
 
-## Build
+<img src="docs/images/Farcast-EditConnection.png" alt="The connection editor’s Files tab with transfer method and rsync compression settings" width="540">
 
-With Xcode and the [build prerequisites](docs/development.md#build-from-source) installed:
+## Install
 
-```sh
-scripts/prepare-dependencies.sh
-scripts/build.sh
-open ".build/Xcode/Build/Products/Release/Farcast.app"
-```
+Open the DMG and drag **Farcast.app** to **Applications**. Local builds are signed but unnotarized. If macOS blocks a copy you trust on first launch, open **System Settings → Privacy & Security → Open Anyway**, then confirm.
 
-[User guide](docs/user-guide.md) · [Development](docs/development.md) ·
-[Agent guide](AGENTS.md) · [Architecture](docs/architecture.md) ·
-[Testing](docs/testing.md) · [Known limits](docs/validation.md) ·
-[Changelog](CHANGELOG.md) · [Dependencies & licenses](ThirdParty/README.md)
+Saved credentials use Keychain when available, with an unencrypted local fallback. You can also choose a connection folder protected by a key file or password.
+
+[User guide](docs/user-guide.md) · [Build from source](docs/development.md#build-from-source) · [Changelog](CHANGELOG.md) · [MIT license](LICENSE) · [Third-party licenses](ThirdParty/README.md)
